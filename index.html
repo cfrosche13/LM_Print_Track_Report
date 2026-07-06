@@ -4846,10 +4846,10 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
     var overloaded = open > cap * 1.1;
     var cardCls    = overloaded ? 'overloaded' : '';
 
-    // Bar percentages are against the full shift capacity (not today's achievable cap),
-    // so idle/unused shift time shows up as gray rather than silently rounding the bar to 100%.
-    // Priority order matches the fill order: DS, FBA, Manual/Other, REG/ASAP, then idle.
-    var shiftCap = MACHINE_GOALS[m] || cap;
+    // Bar percentages are against actual capacity (real product PPH mix),
+    // so the bar hits 100% when the machine is truly full and idle shows correctly.
+    // Priority order matches the fill order: DS, FBA, REG/ASAP, Manual/Other, then idle.
+    var shiftCap = cap || 1;
     var fba = fbaLoad[m] || 0;
     var dsPct     = Math.min(100, Math.round((ds / shiftCap) * 100));
     var fbaPct    = Math.min(100 - dsPct, Math.round((fba / shiftCap) * 100));
