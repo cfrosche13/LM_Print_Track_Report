@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Print Track &mdash; Daily Report</title>
+<title>EGReport</title>
 <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400;1,600&family=Source+Sans+3:wght@300;400;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -496,11 +496,18 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     </div>
 
     <div id="standard-machine-inputs">
-      <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Machine hours this shift &mdash; set to 0 if machine is not running</div>
+      <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Machine status &mdash; set hours down to 0 if machine is not running this shift</div>
       <div class="shift-config-grid">
-        <div class="shift-mhrs-field"><label>Machine 30</label><input type="number" id="mhrs-30"  value="8" min="0" max="16" step="0.5" onchange="onShiftHoursChange()"> hrs</div>
-        <div class="shift-mhrs-field"><label>Machine 30+</label><input type="number" id="mhrs-30p" value="8" min="0" max="16" step="0.5" onchange="onShiftHoursChange()"> hrs</div>
-        <div class="shift-mhrs-field"><label>Machine H5</label><input type="number" id="mhrs-H5"  value="8" min="0" max="16" step="0.5" onchange="onShiftHoursChange()"> hrs</div>
+        <div class="shift-mhrs-field"><label>Machine 30</label><input type="number" id="mhrs-30"  value="8" min="0" max="16" step="0.5" onchange="onShiftHoursChange()"> hrs scheduled</div>
+        <div class="shift-mhrs-field"><label>Machine 30+</label><input type="number" id="mhrs-30p" value="8" min="0" max="16" step="0.5" onchange="onShiftHoursChange()"> hrs scheduled</div>
+        <div class="shift-mhrs-field"><label>Machine H5</label><input type="number" id="mhrs-H5"  value="8" min="0" max="16" step="0.5" onchange="onShiftHoursChange()"> hrs scheduled</div>
+      </div>
+
+      <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-top:1rem;margin-bottom:6px">Maintenance lost today (hrs) &mdash; reduces that machine's available capacity</div>
+      <div class="shift-config-grid">
+        <div class="shift-mhrs-field"><label>Machine 30</label><input type="number" id="maint-30"  value="0" min="0" max="16" step="0.25" onchange="onMaintChange()"> hrs lost</div>
+        <div class="shift-mhrs-field"><label>Machine 30+</label><input type="number" id="maint-30p" value="0" min="0" max="16" step="0.25" onchange="onMaintChange()"> hrs lost</div>
+        <div class="shift-mhrs-field"><label>Machine H5</label><input type="number" id="maint-H5"  value="0" min="0" max="16" step="0.25" onchange="onMaintChange()"> hrs lost</div>
       </div>
 
       <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-top:1rem;margin-bottom:6px">Operators on each machine this shift</div>
@@ -512,10 +519,16 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     </div>
 
     <div id="drinkware-machine-inputs" style="display:none">
-      <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Machine hours this shift &mdash; set to 0 if machine is not running</div>
+      <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Machine status &mdash; set hours to 0 if machine is not running this shift</div>
       <div class="shift-config-grid">
-        <div class="shift-mhrs-field"><label>Drinkware M1</label><input type="number" id="mhrs-DWM1" value="8" min="0" max="16" step="0.5" onchange="onShiftHoursChange()"> hrs</div>
-        <div class="shift-mhrs-field"><label>Drinkware M2</label><input type="number" id="mhrs-DWM2" value="8" min="0" max="16" step="0.5" onchange="onShiftHoursChange()"> hrs</div>
+        <div class="shift-mhrs-field"><label>Drinkware M1</label><input type="number" id="mhrs-DWM1" value="8" min="0" max="16" step="0.5" onchange="onShiftHoursChange()"> hrs scheduled</div>
+        <div class="shift-mhrs-field"><label>Drinkware M2</label><input type="number" id="mhrs-DWM2" value="8" min="0" max="16" step="0.5" onchange="onShiftHoursChange()"> hrs scheduled</div>
+      </div>
+
+      <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-top:1rem;margin-bottom:6px">Maintenance lost today (hrs)</div>
+      <div class="shift-config-grid">
+        <div class="shift-mhrs-field"><label>Drinkware M1</label><input type="number" id="maint-DWM1" value="0" min="0" max="16" step="0.25" onchange="onMaintChange()"> hrs lost</div>
+        <div class="shift-mhrs-field"><label>Drinkware M2</label><input type="number" id="maint-DWM2" value="0" min="0" max="16" step="0.25" onchange="onMaintChange()"> hrs lost</div>
       </div>
 
       <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-top:1rem;margin-bottom:6px">Operators on each machine this shift</div>
@@ -535,27 +548,24 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     <div id="machine-down-note" style="margin-top:10px;font-size:12px;color:var(--red);display:none;"></div>
   </div>
 
-  <!-- Break / maintenance (shared across both shifts) -->
-  <div class="shift-config">
-    <div class="shift-config-field">
-      <label>Shift hours</label>
-      <input type="number" id="shift-total-hrs" value="8" min="1" max="16" step="0.5" onchange="onShiftConfigChange()">
+  <!-- Shift schedule note (replaces manual shift hours/break/maintenance inputs) -->
+  <div class="shift-config" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px">
+    <div style="font-size:12px;color:var(--muted)">
+      &#9201; <strong>Day shift:</strong> 7:00 AM – 3:00 PM &nbsp;&middot;&nbsp; 8 net hrs &nbsp;&nbsp;
+      <strong>Night shift:</strong> 3:00 PM – 11:30 PM &nbsp;&middot;&nbsp; 7.75 net hrs<br>
+      <span style="font-size:11px">Remaining capacity is calculated automatically from current time. Use "Maintenance lost" above to reduce a machine's available hours.</span>
     </div>
-    <div class="shift-config-field">
-      <label>Break (min)</label>
-      <input type="number" id="shift-break-min" value="0" min="0" max="120" step="5" onchange="onShiftConfigChange()">
-    </div>
-    <div class="shift-config-field">
-      <label>Maintenance (min)</label>
-      <input type="number" id="shift-maint-min" value="45" min="0" max="120" step="5" onchange="onShiftConfigChange()">
-    </div>
-    <div class="shift-config-net" id="shift-config-net"></div>
+    <!-- Hidden inputs kept for backward compatibility with any saved localStorage references -->
+    <input type="hidden" id="shift-total-hrs" value="8">
+    <input type="hidden" id="shift-break-min" value="0">
+    <input type="hidden" id="shift-maint-min" value="0">
+    <div id="shift-config-net" style="display:none"></div>
   </div>
 
   <!-- Mid-shift re-check: subtract actual production so far today -->
   <div style="margin:10px 0;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);display:flex;align-items:center;gap:8px">
     <input type="checkbox" id="subtract-actuals-checkbox" onchange="onShiftConfigChange()" style="width:16px;height:16px;cursor:pointer">
-    <label for="subtract-actuals-checkbox" style="font-size:12px;color:var(--text);cursor:pointer">&#128202; Mid-shift re-plan &mdash; subtracts pieces already made from open orders so the plan only schedules what's left. Set "Shift hours" to the hours remaining, then check this. The production goal will show today's full total (already made + remaining).</label>
+    <label for="subtract-actuals-checkbox" style="font-size:12px;color:var(--text);cursor:pointer">&#128202; Mid-shift re-plan &mdash; subtracts pieces already made from open orders so the plan only shows what's left to print. Remaining shift capacity is calculated automatically from current time based on the selected shift (Day: ends 3:00 PM · Night: ends 11:30 PM).</label>
   </div>
 
   <!-- Plan date -->
@@ -2172,37 +2182,33 @@ function _getProductFlex(name, iname) {
 var MACHINE_GOALS = { '30': 350, '30+': 500, 'H5': 600, 'Drinkware M1': 480, 'Drinkware M2': 480 };
 var NET_HRS = 7.25; // updated by recomputeGoals() — 8 hrs minus 45 min maintenance, 0 break
 
-function recomputeGoals() {
-  var _th = document.getElementById('shift-total-hrs').value;
-  var _bk = document.getElementById('shift-break-min').value;
-  var _mn = document.getElementById('shift-maint-min').value;
-  var totalHrs = _th !== '' && !isNaN(parseFloat(_th)) ? parseFloat(_th) : 8;
-  var breakMin = _bk !== '' && !isNaN(parseFloat(_bk)) ? parseFloat(_bk) : 0;
-  var maintMin = _mn !== '' && !isNaN(parseFloat(_mn)) ? parseFloat(_mn) : 45;
-  var baseNet  = Math.max(0, totalHrs - (breakMin + maintMin) / 60);
-  var ratio    = totalHrs > 0 ? baseNet / totalHrs : 0;
-  NET_HRS      = baseNet;
+// Shift schedules — used for auto remaining-capacity calculation.
+// startHour/endHour are 24-hr decimals (e.g. 23.5 = 11:30 PM).
+// netHours is working hours after breaks/maintenance.
+var SHIFT_SCHEDULE = {
+  day:   { startHour: 7,    endHour: 15,   netHours: 8,    label: '3:00 PM'  },
+  night: { startHour: 15,   endHour: 23.5, netHours: 7.75, label: '11:30 PM' }
+};
 
-  var shiftHrs = SHIFT_CONFIG[ACTIVE_SHIFT].machineHrs;
+function recomputeGoals() {
+  var _sched    = SHIFT_SCHEDULE[ACTIVE_SHIFT] || SHIFT_SCHEDULE.day;
+  var schedNet  = _sched.netHours;
+  NET_HRS       = schedNet;
+
+  var shiftCfg  = SHIFT_CONFIG[ACTIVE_SHIFT];
+  var shiftHrs  = shiftCfg.machineHrs;
+  var shiftMaint = shiftCfg.machineMaints || {};
   var groupMachines = GROUP_MACHINES[PLAN_GROUP];
+
   groupMachines.forEach(function(m) {
-    var mHrs = shiftHrs[m] || 0;
-    MACHINE_NET_HRS[m] = mHrs * ratio;
-    MACHINE_GOALS[m]   = Math.round(MACHINE_PPH[m] * MACHINE_NET_HRS[m]);
+    var mHrs     = shiftHrs[m] || 0;
+    var maintLost = shiftMaint[m] || 0;
+    // Effective hours = schedule net hours minus maintenance lost (can't exceed scheduled hours)
+    var effectiveHrs = mHrs > 0 ? Math.max(0, schedNet - maintLost) : 0;
+    MACHINE_NET_HRS[m] = effectiveHrs;
+    MACHINE_GOALS[m]   = Math.round(MACHINE_PPH[m] * effectiveHrs);
     MACHINE_UP[m]      = mHrs > 0;
   });
-
-  var netEl = document.getElementById('shift-config-net');
-  if (netEl) {
-    var parts = groupMachines.map(function(m) {
-      return m + ': <strong>' + (MACHINE_UP[m] ? MACHINE_GOALS[m] : '<span style="color:var(--red)">off</span>') + '</strong>';
-    });
-    var netBreakdown = totalHrs.toFixed(1) + 'h shift';
-    if (breakMin > 0) netBreakdown += ' &minus; ' + breakMin + 'm break';
-    if (maintMin > 0) netBreakdown += ' &minus; ' + maintMin + 'm maintenance';
-    netBreakdown += ' = <strong>' + baseNet.toFixed(1) + ' net hrs</strong>';
-    netEl.innerHTML = netBreakdown + ' &rarr; ' + parts.join('&ensp;') + ' pieces';
-  }
 
   // Refresh machine-down note
   var downList = groupMachines.filter(function(m){ return !MACHINE_UP[m]; });
@@ -2229,9 +2235,6 @@ function setPlanGroup(group) {
 }
 
 function onShiftConfigChange() {
-  localStorage.setItem('shiftTotalHrs', document.getElementById('shift-total-hrs').value);
-  localStorage.setItem('shiftBreakMin',  document.getElementById('shift-break-min').value);
-  localStorage.setItem('shiftMaintMin',  document.getElementById('shift-maint-min').value);
   recomputeGoals();
   if (window._planOrders) runPlan(window._planOrders);
 }
@@ -2267,11 +2270,13 @@ var ACTIVE_SHIFT = 'day';
 var SHIFT_CONFIG = {
   day: {
     orderTypes: { DS: true, REG: true, ASAP: true, FBA: false },
-    machineHrs: { '30': 8, '30+': 8, 'H5': 8, 'Drinkware M1': 8, 'Drinkware M2': 8 }
+    machineHrs:    { '30': 8, '30+': 8, 'H5': 8, 'Drinkware M1': 8, 'Drinkware M2': 8 },
+    machineMaints: { '30': 0, '30+': 0, 'H5': 0, 'Drinkware M1': 0, 'Drinkware M2': 0 }
   },
   night: {
     orderTypes: { DS: false, REG: false, ASAP: false, FBA: true },
-    machineHrs: { '30': 8, '30+': 8, 'H5': 0, 'Drinkware M1': 0, 'Drinkware M2': 0 }
+    machineHrs:    { '30': 8, '30+': 8, 'H5': 0, 'Drinkware M1': 0, 'Drinkware M2': 0 },
+    machineMaints: { '30': 0, '30+': 0, 'H5': 0, 'Drinkware M1': 0, 'Drinkware M2': 0 }
   }
 };
 
@@ -2307,18 +2312,26 @@ function setActiveShift(shift) {
 
 function _saveShiftUIToConfig(shift) {
   var cfg = SHIFT_CONFIG[shift];
+  if (!cfg.machineMaints) cfg.machineMaints = {};
   ['30','30+','H5','Drinkware M1','Drinkware M2'].forEach(function(m) {
-    var el = document.getElementById('mhrs-' + _machineIdKey(m));
-    if (el) cfg.machineHrs[m] = parseFloat(el.value) || 0;
+    var key = _machineIdKey(m);
+    var hEl = document.getElementById('mhrs-' + key);
+    if (hEl) cfg.machineHrs[m] = parseFloat(hEl.value) || 0;
+    var mEl = document.getElementById('maint-' + key);
+    if (mEl) cfg.machineMaints[m] = parseFloat(mEl.value) || 0;
   });
   // orderTypes are already kept live via toggleShiftOrderType
 }
 
 function _loadShiftConfigToUI(shift) {
   var cfg = SHIFT_CONFIG[shift];
+  var maints = cfg.machineMaints || {};
   ['30','30+','H5','Drinkware M1','Drinkware M2'].forEach(function(m) {
-    var el = document.getElementById('mhrs-' + _machineIdKey(m));
-    if (el) el.value = cfg.machineHrs[m];
+    var key = _machineIdKey(m);
+    var hEl = document.getElementById('mhrs-' + key);
+    if (hEl) hEl.value = cfg.machineHrs[m];
+    var mEl = document.getElementById('maint-' + key);
+    if (mEl) mEl.value = maints[m] || 0;
   });
   ['DS','REG','ASAP','FBA'].forEach(function(t) {
     var pill = document.getElementById('ot-pill-' + t);
@@ -2333,6 +2346,13 @@ function toggleShiftOrderType(type) {
   cfg.orderTypes[type] = !cfg.orderTypes[type];
   _loadShiftConfigToUI(ACTIVE_SHIFT);
   _saveShiftConfig();
+  if (window._planOrders) runPlan(window._planOrders);
+}
+
+function onMaintChange() {
+  _saveShiftUIToConfig(ACTIVE_SHIFT);
+  _saveShiftConfig();
+  recomputeGoals();
   if (window._planOrders) runPlan(window._planOrders);
 }
 
@@ -2356,8 +2376,9 @@ function _loadShiftConfig() {
       // Merge carefully so new keys (like FBA) always exist
       ['day','night'].forEach(function(s) {
         if (parsed[s]) {
-          if (parsed[s].machineHrs) Object.assign(SHIFT_CONFIG[s].machineHrs, parsed[s].machineHrs);
-          if (parsed[s].orderTypes) Object.assign(SHIFT_CONFIG[s].orderTypes, parsed[s].orderTypes);
+          if (parsed[s].machineHrs)    Object.assign(SHIFT_CONFIG[s].machineHrs, parsed[s].machineHrs);
+          if (parsed[s].orderTypes)    Object.assign(SHIFT_CONFIG[s].orderTypes, parsed[s].orderTypes);
+          if (parsed[s].machineMaints) Object.assign(SHIFT_CONFIG[s].machineMaints, parsed[s].machineMaints);
         }
       });
     }
@@ -4615,14 +4636,29 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
     }
   });
 
+  // ── Auto remaining-capacity from current time ─────────────────────────────
+  // Uses the active shift's schedule from SHIFT_SCHEDULE.
+  // Before shift ends: scales capacity by fraction of net hours remaining.
+  // After shift ends: capacity = 0 (everything rolls).
+  var _sched = SHIFT_SCHEDULE[ACTIVE_SHIFT] || SHIFT_SCHEDULE.day;
+  var _now = new Date();
+  var _endH   = _sched.endHour;
+  var _endMs  = new Date(_now.getFullYear(), _now.getMonth(), _now.getDate(), Math.floor(_endH), Math.round((_endH % 1) * 60), 0).getTime();
+  var _remainingMs  = Math.max(0, _endMs - _now.getTime());
+  var _remainingHrs = Math.min(_sched.netHours, _remainingMs / 3600000);
+  var _shiftOver    = _remainingHrs === 0;
+
   // ── Compute totals ────────────────────────────────────────────────────────
   var totalCap = 0, totalCanDo = 0, totalDS = 0, totalOpen = 0;
   GROUP_MACHINES[PLAN_GROUP].forEach(function(m) {
     if (!MACHINE_UP[m]) return;
     var cap  = (machineActualCap && machineActualCap[m] !== undefined) ? machineActualCap[m] : MACHINE_GOALS[m];
+    var _mNetHrs = MACHINE_NET_HRS[m] || 0;
+    var _mFrac   = _mNetHrs > 0 ? Math.min(1, _remainingHrs / _mNetHrs) : 0;
+    var remainingCap = Math.round(cap * _mFrac);
     var open = load[m] || 0;
-    totalCap   += cap;
-    totalCanDo += Math.min(open, cap);
+    totalCap   += remainingCap;
+    totalCanDo += Math.min(open, remainingCap);
     totalDS    += (dsLoad[m] || 0);
     totalOpen  += open;
   });
@@ -4639,66 +4675,55 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
     ? shopLeftOver.toLocaleString() + ' pieces will roll — not enough capacity to fill all open orders today'
     : 'All open orders fit within today\'s capacity — you\'re good to go';
 
+  var heroLeftToPrint  = totalOpen;
+  var heroDisplayTotal = actualToday + heroLeftToPrint;
+
   var heroHtml = '';
-  heroHtml += '<div style="background:' + heroBg + ';border:2px solid ' + heroBdr + ';border-radius:var(--radius);padding:1.5rem 2rem;margin-bottom:1.5rem;display:flex;flex-wrap:wrap;gap:2rem;align-items:center">';
+  heroHtml += '<div style="background:' + heroBg + ';border:2px solid ' + heroBdr + ';border-radius:var(--radius);padding:1.25rem 1.75rem;margin-bottom:1.5rem">';
 
-  // Left: THE number — what we can produce
-  // When mid-shift re-plan is active (actualToday > 0), the headline is the FULL
-  // day total (already made + remaining), so the number matches what you'd expect
-  // for the whole shift, not just the hours left.
-  var heroDisplayTotal = actualToday > 0 ? actualToday + totalCanDo : totalCanDo;
-  heroHtml += '<div style="flex:0 0 auto">';
-  heroHtml += '<div style="font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--green-dark);margin-bottom:2px">PRODUCTION GOAL — ' + dateLabel + '</div>';
-  heroHtml += '<div style="font-family:\'Lora\',serif;font-size:72px;font-weight:700;color:var(--green-dark);line-height:1">' + heroDisplayTotal.toLocaleString() + '</div>';
-  heroHtml += '<div style="font-size:14px;color:var(--muted);margin-top:4px">' + (actualToday > 0 ? 'total pieces planned for the full day' : 'pieces you can actually produce') + '</div>';
-  if (actualToday > 0) {
-    heroHtml += '<div style="font-size:13px;color:var(--green-dark);margin-top:8px;padding-top:8px;border-top:1px dashed ' + heroBdr + '">';
-    heroHtml += '&#10003; <strong>' + actualToday.toLocaleString() + '</strong> already made &nbsp;+&nbsp; <strong>' + totalCanDo.toLocaleString() + '</strong> remaining to make';
-    heroHtml += '</div>';
-  }
-  heroHtml += '</div>';
+  // Title row
+  heroHtml += '<div style="font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--green-dark);margin-bottom:14px">Production Plan — ' + dateLabel + '</div>';
 
-  // Divider
-  heroHtml += '<div style="width:1px;background:' + heroBdr + ';height:80px;flex-shrink:0;align-self:center"></div>';
-
-  // Right: capacity context
-  heroHtml += '<div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:10px">';
-  heroHtml += '<div style="display:flex;gap:2rem;flex-wrap:wrap">';
-
+  // Row 1: Open Orders | Plan Total
+  heroHtml += '<div style="display:flex;gap:3rem;margin-bottom:12px;flex-wrap:wrap;align-items:flex-end">';
   heroHtml += '<div>';
-  heroHtml += '<div style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Total capacity</div>';
-  heroHtml += '<div style="font-family:\'Lora\',serif;font-size:28px;font-weight:600;color:var(--green-dark);line-height:1">' + totalCap.toLocaleString() + '</div>';
+  heroHtml += '<div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:2px">Open Orders</div>';
+  heroHtml += '<div style="font-family:\'Lora\',serif;font-size:44px;font-weight:700;color:var(--text);line-height:1">' + totalOpen.toLocaleString() + '</div>';
   heroHtml += '</div>';
-
   heroHtml += '<div>';
-  heroHtml += '<div style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">' + (actualToday > 0 ? 'Open orders remaining' : 'Open orders') + '</div>';
-  heroHtml += '<div style="font-family:\'Lora\',serif;font-size:28px;font-weight:600;color:' + (shopLeftOver > 0 ? 'var(--red)' : 'var(--text)') + ';line-height:1">' + totalOpen.toLocaleString() + '</div>';
+  heroHtml += '<div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:2px">Plan Total</div>';
+  heroHtml += '<div style="font-family:\'Lora\',serif;font-size:44px;font-weight:700;color:var(--green-dark);line-height:1">' + heroDisplayTotal.toLocaleString() + '</div>';
+  heroHtml += '</div>';
   heroHtml += '</div>';
 
-  if (actualToday > 0) {
-    heroHtml += '<div>';
-    heroHtml += '<div style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">&#10003; Already made today</div>';
-    heroHtml += '<div style="font-family:\'Lora\',serif;font-size:28px;font-weight:600;color:var(--green-dark);line-height:1">' + actualToday.toLocaleString() + '</div>';
-    heroHtml += '</div>';
-  }
-
-  if (shopLeftOver > 0) {
-    heroHtml += '<div>';
-    heroHtml += '<div style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Can\'t ship today</div>';
-    heroHtml += '<div style="font-family:\'Lora\',serif;font-size:28px;font-weight:600;color:var(--amber);line-height:1">' + shopLeftOver.toLocaleString() + '</div>';
-    heroHtml += '</div>';
-  }
-
+  // Row 2: Printed | Left To Print | Rolls
+  heroHtml += '<div style="display:flex;gap:2.5rem;margin-bottom:14px;flex-wrap:wrap;padding-top:10px;border-top:1px solid ' + heroBdr + '">';
+  heroHtml += '<div>';
+  heroHtml += '<div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:2px">Printed</div>';
+  heroHtml += '<div style="font-family:\'Lora\',serif;font-size:26px;font-weight:700;color:var(--green-dark);line-height:1">' + actualToday.toLocaleString() + '</div>';
+  heroHtml += '</div>';
+  heroHtml += '<div>';
+  heroHtml += '<div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:2px">Left To Print</div>';
+  heroHtml += '<div style="font-family:\'Lora\',serif;font-size:26px;font-weight:700;color:var(--text);line-height:1">' + heroLeftToPrint.toLocaleString() + '</div>';
+  heroHtml += '</div>';
+  heroHtml += '<div>';
+  heroHtml += '<div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:2px">Rolls</div>';
+  heroHtml += '<div style="font-family:\'Lora\',serif;font-size:26px;font-weight:700;color:' + (shopLeftOver > 0 ? 'var(--amber)' : 'var(--muted)') + ';line-height:1">' + shopLeftOver.toLocaleString() + '</div>';
+  heroHtml += '</div>';
   heroHtml += '</div>';
 
-  // Status message
+  // Status message + order count + remaining shift time
   heroHtml += '<div style="font-size:13px;font-weight:600;color:' + heroColor + '">' + heroIcon + ' ' + heroMsg + '</div>';
-
   if (planDate) {
-    heroHtml += '<div style="font-size:12px;color:var(--muted)">' + totalOrders.toLocaleString() + ' order lines · ' + rows.length + ' product types</div>';
+    heroHtml += '<div style="font-size:12px;color:var(--muted);margin-top:4px">' + totalOrders.toLocaleString() + ' order lines · ' + rows.length + ' product types</div>';
   }
+  var _shiftTimeNote = _shiftOver
+    ? '<span style="color:var(--red)">Shift ended</span>'
+    : (_remainingHrs >= _sched.netHours
+      ? 'Full shift ahead (' + _sched.netHours + ' hrs)'
+      : '<span style="color:var(--amber)">' + _remainingHrs.toFixed(1) + ' hrs remaining in shift</span>');
+  heroHtml += '<div style="font-size:11px;color:var(--muted);margin-top:4px">&#9201; ' + _shiftTimeNote + ' &nbsp;&middot;&nbsp; Shift ends ' + _sched.label + '</div>';
 
-  heroHtml += '</div>'; // right col
   heroHtml += '</div>'; // hero
 
   // Prior-shift committed banner — shows committed production per machine
@@ -4833,23 +4858,24 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
       return;
     }
 
-    var cap      = (machineActualCap && machineActualCap[m] !== undefined) ? machineActualCap[m] : MACHINE_GOALS[m];
+    var cap         = (machineActualCap && machineActualCap[m] !== undefined) ? machineActualCap[m] : MACHINE_GOALS[m];
+    var _mNetHrs    = MACHINE_NET_HRS[m] || 0;
+    var _mFrac      = _mNetHrs > 0 ? Math.min(1, _remainingHrs / _mNetHrs) : 0;
+    var remainingCap = Math.round(cap * _mFrac);
     var open     = load[m] || 0;
     var ds       = dsLoad[m] || 0;
     var reg      = regLoad[m] || 0;
     var std      = stdLoad[m] || 0;
     var shifted  = shiftedLoad[m] || 0;
     var manual   = manualLoad[m] || 0;
-    var canDo    = Math.min(open, cap);
-    var leftOver = Math.max(0, open - cap);
-    var dsOverCap  = ds > cap;
-    var overloaded = open > cap * 1.1;
+    var canDo    = Math.min(open, remainingCap);
+    var leftOver = Math.max(0, open - remainingCap);
+    var dsOverCap  = ds > remainingCap;
+    var overloaded = open > remainingCap * 1.1;
     var cardCls    = overloaded ? 'overloaded' : '';
 
-    // Bar percentages are against actual capacity (real product PPH mix),
-    // so the bar hits 100% when the machine is truly full and idle shows correctly.
-    // Priority order matches the fill order: DS, FBA, REG/ASAP, Manual/Other, then idle.
-    var shiftCap = cap || 1;
+    // Bar percentages are against remaining shift capacity (time-scaled actual PPH mix).
+    var shiftCap = remainingCap || 1;
     var fba = fbaLoad[m] || 0;
     var dsPct     = Math.min(100, Math.round((ds / shiftCap) * 100));
     var fbaPct    = Math.min(100 - dsPct, Math.round((fba / shiftCap) * 100));
@@ -4866,16 +4892,46 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
     summaryHtml += '<div class="plan-card-machine">Machine ' + m + '</div>';
     summaryHtml += '<div style="font-size:11px;color:var(--muted);font-weight:600">' + ops + '&thinsp;op' + (ops !== 1 ? 's' : '') + '</div>';
     summaryHtml += '</div>';
+    // Remaining shift time chip
+    var _mMaint  = (SHIFT_CONFIG[ACTIVE_SHIFT].machineMaints || {})[m] || 0;
+    var _mShiftNote = _shiftOver
+      ? '<span style="color:var(--red);font-weight:700">Shift ended</span>'
+      : (_remainingHrs >= _sched.netHours ? 'Full shift' : _remainingHrs.toFixed(1) + ' hrs left');
+    var _maintNote = _mMaint > 0 ? ' &nbsp;&middot;&nbsp; <span style="color:var(--amber)">' + _mMaint + 'h maint lost</span>' : '';
+    summaryHtml += '<div style="font-size:10px;color:var(--muted);margin-bottom:2px">&#9201; ' + _mShiftNote + ' &nbsp;&middot;&nbsp; cap: ' + remainingCap.toLocaleString() + ' pcs' + _maintNote + '</div>';
 
-    // THE number for this machine: what it can produce
-    var madeToday = machineActualToday[m] || 0;
-    summaryHtml += '<div style="font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--green-dark);margin-top:8px">' + (madeToday > 0 ? 'Can still produce' : 'Can produce') + '</div>';
-    summaryHtml += '<div style="font-family:\'Lora\',serif;font-size:48px;font-weight:700;color:var(--green-dark);line-height:1">' + canDo.toLocaleString() + '</div>';
-    summaryHtml += '<div style="font-size:12px;color:var(--muted);margin-bottom:12px">of ' + cap.toLocaleString() + ' shift capacity</div>';
-    if (madeToday > 0) {
-      summaryHtml += '<div style="font-size:12px;color:var(--green-dark);margin-bottom:12px;margin-top:-6px">' +
-        '<strong>' + madeToday.toLocaleString() + '</strong> made so far + <strong>' + canDo.toLocaleString() + '</strong> still to go = <strong>' + (madeToday + canDo).toLocaleString() + '</strong> total today</div>';
-    }
+    // Per-machine stat rows: Open Orders / Plan Total / Printed / Left To Print / Rolls
+    var madeToday    = machineActualToday[m] || 0;
+    var machineLeftToPrint = open;
+    var machinePlanTotal   = madeToday + open;
+
+    // Row 1: Open Orders | Plan Total
+    summaryHtml += '<div style="display:flex;gap:1.5rem;margin-top:10px;margin-bottom:8px;flex-wrap:wrap;align-items:flex-end">';
+    summaryHtml += '<div>';
+    summaryHtml += '<div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:2px">Open Orders</div>';
+    summaryHtml += '<div style="font-family:\'Lora\',serif;font-size:32px;font-weight:700;color:var(--text);line-height:1">' + open.toLocaleString() + '</div>';
+    summaryHtml += '</div>';
+    summaryHtml += '<div>';
+    summaryHtml += '<div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:2px">Plan Total</div>';
+    summaryHtml += '<div style="font-family:\'Lora\',serif;font-size:32px;font-weight:700;color:var(--green-dark);line-height:1">' + machinePlanTotal.toLocaleString() + '</div>';
+    summaryHtml += '</div>';
+    summaryHtml += '</div>';
+
+    // Row 2: Printed | Left To Print | Rolls
+    summaryHtml += '<div style="display:flex;gap:1.25rem;margin-bottom:12px;flex-wrap:wrap;padding-top:8px;border-top:1px solid var(--border)">';
+    summaryHtml += '<div>';
+    summaryHtml += '<div style="font-size:10px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:var(--muted);margin-bottom:1px">Printed</div>';
+    summaryHtml += '<div style="font-size:20px;font-weight:700;color:var(--green-dark);line-height:1">' + madeToday.toLocaleString() + '</div>';
+    summaryHtml += '</div>';
+    summaryHtml += '<div>';
+    summaryHtml += '<div style="font-size:10px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:var(--muted);margin-bottom:1px">Left To Print</div>';
+    summaryHtml += '<div style="font-size:20px;font-weight:700;color:var(--text);line-height:1">' + machineLeftToPrint.toLocaleString() + '</div>';
+    summaryHtml += '</div>';
+    summaryHtml += '<div>';
+    summaryHtml += '<div style="font-size:10px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:var(--muted);margin-bottom:1px">Rolls</div>';
+    summaryHtml += '<div style="font-size:20px;font-weight:700;color:' + (leftOver > 0 ? 'var(--amber)' : 'var(--muted)') + ';line-height:1">' + leftOver.toLocaleString() + '</div>';
+    summaryHtml += '</div>';
+    summaryHtml += '</div>';
 
     summaryHtml += '<div style="border-top:1px solid var(--border);padding-top:10px">';
 
@@ -5188,9 +5244,8 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
   document.getElementById('plan-notes').innerHTML = '';
 
   // Save snapshot for commit/compare and export
-  var netEl = document.getElementById('shift-config-net');
-  var netHrsStored = parseFloat(document.getElementById('shift-total-hrs').value) -
-    (parseFloat(document.getElementById('shift-break-min').value) + parseFloat(document.getElementById('shift-maint-min').value)) / 60;
+  var _snapSched = SHIFT_SCHEDULE[ACTIVE_SHIFT] || SHIFT_SCHEDULE.day;
+  var netHrsStored = _snapSched.netHours;
   _currentPlanSnapshot = {
     planDate: planDate || '',
     shift: ACTIVE_SHIFT,
@@ -5203,9 +5258,10 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
     machineActualCap: _buildMachineMap(GROUP_MACHINES[PLAN_GROUP], function(m){ return machineActualCap[m] || MACHINE_GOALS[m]; }),
     machineUp:        _buildMachineMap(GROUP_MACHINES[PLAN_GROUP], function(m){ return MACHINE_UP[m]; }),
     machineOperators: _buildMachineMap(GROUP_MACHINES[PLAN_GROUP], function(m){ return _machineOperators[m] || 1; }),
-    shiftTotalHrs: (function(){ var v=document.getElementById('shift-total-hrs').value; return v!==''&&!isNaN(parseFloat(v))?parseFloat(v):8; })(),
-    shiftBreakMin: (function(){ var v=document.getElementById('shift-break-min').value; return v!==''&&!isNaN(parseFloat(v))?parseFloat(v):0; })(),
-    shiftMaintMin: (function(){ var v=document.getElementById('shift-maint-min').value; return v!==''&&!isNaN(parseFloat(v))?parseFloat(v):45; })(),
+    machineMaints:    _buildMachineMap(GROUP_MACHINES[PLAN_GROUP], function(m){ return (SHIFT_CONFIG[ACTIVE_SHIFT].machineMaints || {})[m] || 0; }),
+    shiftTotalHrs: _snapSched.netHours,
+    shiftBreakMin: 0,
+    shiftMaintMin: 0,
     netHrs: Math.round(netHrsStored * 10) / 10,
     totalOrders: totalOrders,
     productCount: rows.length,
@@ -6261,5 +6317,21 @@ function renderSettings() {
 </script>
 <!-- Print target for saved plan: direct child of body so parent display:none cannot hide it -->
 <div id="saved-plan-print" style="display:none"></div>
+<script>
+(function() {
+  var img = document.querySelector('.topbar-brand img');
+  if (!img) return;
+  var canvas = document.createElement('canvas');
+  canvas.width = 64; canvas.height = 64;
+  var ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, 64, 64);
+  ctx.drawImage(img, 0, 0, 64, 64);
+  var link = document.createElement('link');
+  link.rel = 'icon'; link.type = 'image/png';
+  link.href = canvas.toDataURL('image/png');
+  document.head.appendChild(link);
+})();
+</script>
 </body>
 </html>
