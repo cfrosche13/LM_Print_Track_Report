@@ -2108,15 +2108,16 @@ var _MACHINE_PPH_DEFAULTS = {
   'Coir · 60x24 FC':            { '30':  22, '30+':  30 },
   'Coir · 60x24 OC':            { '30':  26, '30+':  35 },
   'Coir · Flocked':             { '30+': 113, 'H5': 127 },
-  'Non-Coir Mats · AF Large':   { '30':  41, '30+':  41 },
-  'Non-Coir Mats · AF Small':   { '30':  89, '30+':  89 },
+  'Non-Coir Mats · AF Large':   { '30':  41, '30+':  41, 'H5':  80 },
+  'Non-Coir Mats · AF Small':   { '30':  89, '30+':  89, 'H5': 100 },
   'Non-Coir Mats · Drying Mat': { '30': 106, '30+': 106 },
-  'Non-Coir Mats · PVC':        { '30':  92, '30+':  92 },
+  'Non-Coir Mats · PVC':        { '30':  92, '30+':  92, 'H5': 100 },
   'Signs · Double Sided Leaner':{ '30+':  35, 'H5':  35 },
   'Signs · Leaner':             { '30+':  77, 'H5':  72 },
+  'Signs · 18" Circle':         { '30+': 112, 'H5': 130 },
   'Roll Media · Large Canvas':  { 'H5':  40 },
   'Roll Media · Small Canvas':  { 'H5':  64 },
-  'Signs · Yard Sign':          { 'H5': 120 }
+  'Signs · Yard Sign':          { 'H5': 200 }
 };
 
 var _machineTargetOverrides = {};
@@ -2136,8 +2137,7 @@ var _machineTargetOverrides = {};
     }
   } catch(e) {}
 })();
-function _saveMachineTargetOverrides() {
-  // Only persist values that differ from the code defaults so future default updates still apply
+function _buildOverridesToSave() {
   var toSave = {};
   Object.keys(_machineTargetOverrides).forEach(function(k) {
     var def = _MACHINE_PPH_DEFAULTS[k] || {};
@@ -2148,7 +2148,35 @@ function _saveMachineTargetOverrides() {
       }
     });
   });
+  return toSave;
+}
+
+function _saveMachineTargetOverrides() {
+  var toSave = _buildOverridesToSave();
   try { localStorage.setItem('machineTargetOverrides', JSON.stringify(toSave)); } catch(e) {}
+}
+
+function commitPphToFirebase() {
+  var btn = document.getElementById('commit-pph-btn');
+  var msg = document.getElementById('commit-pph-msg');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  if (msg) { msg.textContent = ''; msg.style.color = ''; }
+  var toSave = _buildOverridesToSave();
+  try {
+    firebase.database().ref('plannerSettings/machineTargetOverrides').set(toSave)
+      .then(function() {
+        if (btn) { btn.disabled = false; btn.textContent = 'Commit to all devices'; }
+        if (msg) { msg.textContent = '✓ Saved — all devices will use these rates on next load.'; msg.style.color = 'var(--green-dark)'; }
+        _saveMachineTargetOverrides(); // also keep localStorage in sync
+      })
+      .catch(function(err) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Commit to all devices'; }
+        if (msg) { msg.textContent = '✗ Save failed: ' + (err && err.message ? err.message : 'unknown error'); msg.style.color = 'var(--red)'; }
+      });
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Commit to all devices'; }
+    if (msg) { msg.textContent = '✗ Save failed (not signed in?).'; msg.style.color = 'var(--red)'; }
+  }
 }
 
 // Per-product routing overrides — keyed { productName: { home: 'H5', flex: ['30+'] } }
@@ -2657,7 +2685,26 @@ function lookupPph(shortName, itemName, machine) {
       }
     }
 
-    // 2b. Dimension fuzzy override: "COIR 60x24" → any override key sharing that dimension
+    // 2b-cat. Category fuzzy override: handles order names like "Yard Signs 24x18" → "Signs · Yard Sign"
+    // and "PVC 28x16" → "Non-Coir Mats · PVC" when dimension match (2c) can't find the key.
+    var _catChecks = [
+      [isYardSign,    isYardSign],
+      [isPVC,         isPVC],
+      [isAntiFatigue, isAntiFatigue],
+      [isCircle,      isCircle]
+    ];
+    for (var ci2 = 0; ci2 < _catChecks.length; ci2++) {
+      if (_catChecks[ci2][0](combined, '')) {
+        for (var cj = 0; cj < ovKeys.length; cj++) {
+          if (_catChecks[ci2][1](ovKeys[cj], '') && _machineTargetOverrides[ovKeys[cj]][machine] != null) {
+            return _machineTargetOverrides[ovKeys[cj]][machine];
+          }
+        }
+        break;
+      }
+    }
+
+    // 2c. Dimension fuzzy override: "COIR 60x24" → any override key sharing that dimension
     if (dims.length) {
       var ovCand = [];
       for (var oi = 0; oi < ovKeys.length; oi++) {
@@ -4653,8 +4700,10 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
   GROUP_MACHINES[PLAN_GROUP].forEach(function(m) {
     if (!MACHINE_UP[m]) return;
     var cap  = (machineActualCap && machineActualCap[m] !== undefined) ? machineActualCap[m] : MACHINE_GOALS[m];
-    var _mNetHrs = MACHINE_NET_HRS[m] || 0;
-    var _mFrac   = _mNetHrs > 0 ? Math.min(1, _remainingHrs / _mNetHrs) : 0;
+    var _mNetHrs   = MACHINE_NET_HRS[m] || 0;
+    var _mHrsNeeded = (machineHrsNeeded && machineHrsNeeded[m]) || 0;
+    var _mDenom  = _mHrsNeeded > 0 ? _mHrsNeeded : _mNetHrs;
+    var _mFrac   = _mDenom > 0 ? Math.min(1, _remainingHrs / _mDenom) : 0;
     var remainingCap = Math.round(cap * _mFrac);
     var open = load[m] || 0;
     totalCap   += remainingCap;
@@ -4860,7 +4909,9 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
 
     var cap         = (machineActualCap && machineActualCap[m] !== undefined) ? machineActualCap[m] : MACHINE_GOALS[m];
     var _mNetHrs    = MACHINE_NET_HRS[m] || 0;
-    var _mFrac      = _mNetHrs > 0 ? Math.min(1, _remainingHrs / _mNetHrs) : 0;
+    var _mHrsNeeded = (machineHrsNeeded && machineHrsNeeded[m]) || 0;
+    var _mDenom     = _mHrsNeeded > 0 ? _mHrsNeeded : _mNetHrs;
+    var _mFrac      = _mDenom > 0 ? Math.min(1, _remainingHrs / _mDenom) : 0;
     var remainingCap = Math.round(cap * _mFrac);
     var open     = load[m] || 0;
     var ds       = dsLoad[m] || 0;
@@ -5004,7 +5055,7 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
     }
 
     // Pre-production suggestion when shift capacity is underutilized
-    var prePro = Math.max(0, cap - open);
+    var prePro = Math.max(0, remainingCap - open);
     if (prePro > 0) {
       summaryHtml += '<div style="margin-top:6px;background:#eef3f8;border:1px solid #b8cfe0;border-left:3px solid var(--blue);border-radius:var(--radius);padding:7px 10px;font-size:12px;">';
       summaryHtml += '<div style="font-weight:700;color:var(--blue);margin-bottom:3px">⚙ Pre-production — ' + prePro.toLocaleString() + ' pcs of open capacity</div>';
@@ -5807,18 +5858,33 @@ function fetchFirebaseData() {
   var oeeParamsPromise = firebase.database().ref('oeeParams').once('value')
     .then(function(s){ return s.val() || {}; })
     .catch(function(){ return {}; });
+  var plannerSettingsPromise = firebase.database().ref('plannerSettings/machineTargetOverrides').once('value')
+    .then(function(s){ return s.val() || {}; })
+    .catch(function(){ return {}; });
   Promise.all([
     firebase.database().ref('sessions').once('value'),
     firebase.database().ref('targets').once('value'),
     firebase.database().ref('maintLog').once('value'),
     firebase.database().ref('waitLog').once('value'),
-    oeeParamsPromise
+    oeeParamsPromise,
+    plannerSettingsPromise
   ]).then(function(snaps) {
     var fbSessions  = snaps[0].val() || {};
     var fbTargets   = snaps[1].val() || {};
     var fbMaintLog  = snaps[2].val() || {};
     var fbWaitLog   = snaps[3].val() || {};
     var fbOeeParams = snaps[4] || {};
+    var fbPphOverrides = snaps[5] || {};
+    // Apply Firebase PPH overrides on top of code defaults (Firebase wins over localStorage)
+    if (Object.keys(fbPphOverrides).length) {
+      Object.keys(fbPphOverrides).forEach(function(k) {
+        if (!_machineTargetOverrides[k]) _machineTargetOverrides[k] = {};
+        Object.keys(fbPphOverrides[k]).forEach(function(m) {
+          _machineTargetOverrides[k][m] = fbPphOverrides[k][m];
+        });
+      });
+      try { localStorage.setItem('machineTargetOverrides', JSON.stringify(fbPphOverrides)); } catch(e) {}
+    }
     var newRAW = { sessions: {}, targets: fbTargets, maint: [], wait: [],
       oeeParams: Object.keys(fbOeeParams).length ? fbOeeParams : DEFAULT_OEE_PARAMS, shiftMin: 570 };
     Object.keys(fbSessions).forEach(function(machine) {
@@ -6239,6 +6305,16 @@ function renderSettings() {
     });
   }
   h += '</div>';
+
+  // ── Commit PPH to Firebase ───────────────────────────────────────────────
+  h += '<div class="section animate" style="background:var(--bg);border:1px solid var(--border)">';
+  h += '<div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">';
+  h += '<button id="commit-pph-btn" onclick="commitPphToFirebase()" ';
+  h += 'style="background:var(--green-dark);color:#fff;border:none;border-radius:var(--radius);padding:9px 20px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">';
+  h += '&#9729; Commit to all devices</button>';
+  h += '<span style="font-size:12px;color:var(--muted)">Saves your current overrides to Firebase so every device uses the same PPH rates on next load.</span>';
+  h += '<span id="commit-pph-msg" style="font-size:12px;font-weight:600"></span>';
+  h += '</div></div>';
 
   // ── Section 3: Routing Rules (editable per product) ─────────────────────
   h += '<div class="section animate">';
