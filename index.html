@@ -4913,6 +4913,11 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
     var _mDenom     = _mHrsNeeded > 0 ? _mHrsNeeded : _mNetHrs;
     var _mFrac      = _mDenom > 0 ? Math.min(1, _remainingHrs / _mDenom) : 0;
     var remainingCap = Math.round(cap * _mFrac);
+    // Time-based cap: full throughput the machine could achieve in remaining shift time.
+    // Used for bar display and pre-pro suggestions — not for rolls (that uses remainingCap).
+    var _timeBasedCap = (_mHrsNeeded > 0)
+      ? Math.round(cap * _remainingHrs / _mHrsNeeded)
+      : (_mNetHrs > 0 ? Math.round(MACHINE_GOALS[m] * _remainingHrs / _mNetHrs) : 0);
     var open     = load[m] || 0;
     var ds       = dsLoad[m] || 0;
     var reg      = regLoad[m] || 0;
@@ -4925,8 +4930,8 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
     var overloaded = open > remainingCap * 1.1;
     var cardCls    = overloaded ? 'overloaded' : '';
 
-    // Bar percentages are against remaining shift capacity (time-scaled actual PPH mix).
-    var shiftCap = remainingCap || 1;
+    // Bar percentages are against time-based capacity (what the machine could produce in remaining hrs).
+    var shiftCap = _timeBasedCap || 1;
     var fba = fbaLoad[m] || 0;
     var dsPct     = Math.min(100, Math.round((ds / shiftCap) * 100));
     var fbaPct    = Math.min(100 - dsPct, Math.round((fba / shiftCap) * 100));
@@ -4949,7 +4954,7 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
       ? '<span style="color:var(--red);font-weight:700">Shift ended</span>'
       : (_remainingHrs >= _sched.netHours ? 'Full shift' : _remainingHrs.toFixed(1) + ' hrs left');
     var _maintNote = _mMaint > 0 ? ' &nbsp;&middot;&nbsp; <span style="color:var(--amber)">' + _mMaint + 'h maint lost</span>' : '';
-    summaryHtml += '<div style="font-size:10px;color:var(--muted);margin-bottom:2px">&#9201; ' + _mShiftNote + ' &nbsp;&middot;&nbsp; cap: ' + remainingCap.toLocaleString() + ' pcs' + _maintNote + '</div>';
+    summaryHtml += '<div style="font-size:10px;color:var(--muted);margin-bottom:2px">&#9201; ' + _mShiftNote + ' &nbsp;&middot;&nbsp; cap: ' + _timeBasedCap.toLocaleString() + ' pcs' + _maintNote + '</div>';
 
     // Per-machine stat rows: Open Orders / Plan Total / Printed / Left To Print / Rolls
     var madeToday    = machineActualToday[m] || 0;
@@ -5054,8 +5059,8 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
       summaryHtml += '</div>';
     }
 
-    // Pre-production suggestion when shift capacity is underutilized
-    var prePro = Math.max(0, remainingCap - open);
+    // Pre-production suggestion when shift time capacity is underutilized
+    var prePro = Math.max(0, _timeBasedCap - open);
     if (prePro > 0) {
       summaryHtml += '<div style="margin-top:6px;background:#eef3f8;border:1px solid #b8cfe0;border-left:3px solid var(--blue);border-radius:var(--radius);padding:7px 10px;font-size:12px;">';
       summaryHtml += '<div style="font-weight:700;color:var(--blue);margin-bottom:3px">⚙ Pre-production — ' + prePro.toLocaleString() + ' pcs of open capacity</div>';
