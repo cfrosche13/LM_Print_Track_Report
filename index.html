@@ -2054,12 +2054,8 @@ function rollShiftedRow(name, itemName, machine) {
   });
   if (!row) return;
   row.qty = 0;
-  var maps = _computePlanMaps(rows);
-  renderPlan(rows, maps.load, maps.dsLoad, maps.regLoad, maps.stdLoad, maps.shiftedLoad,
-    window._lastPlanWarnings || [], window._lastPlanDate, window._lastPlanTotalOrders,
-    window._lastMachineHrsNeeded, window._lastMachineActualCap, window._lastPriorPlan,
-    maps.manualLoad, maps.fbaLoad, window._lastActualToday, window._lastMachineActualToday,
-    window._lastActualLookup, window._lastMatchedActualKeys);
+  window._livePlanRows = rows.filter(function(r) { return r.qty > 0; });
+  _rerenderPlanAfterMove();
 }
 
 function rollFamilyForward(family, bucketType, fromMachine) {
@@ -3554,11 +3550,14 @@ function runPlan(orders) {
       var hrsRoom = Math.max(0, hrsAvail - (machineHrsUsed[toMachine] || 0));
       var room = Math.floor(hrsRoom * pphItem);
       if (room <= 0) return;
-      // Use actual capacity (real product PPH mix) as overflow threshold, not MACHINE_GOALS
-      // (base PPH). Slow products like 60x24 coir sit under MACHINE_GOALS by piece count
-      // yet represent 11+ hours of real work — actual cap catches this, MACHINE_GOALS doesn't.
-      var actualCap = (_preBal[fromMachine] != null ? _preBal[fromMachine] : MACHINE_GOALS[fromMachine]);
-      var over = fillToCapacity ? room : (machineLoad[fromMachine] - actualCap);
+      // Use hours-based overflow: machineHrsUsed is always up-to-date after each shift step,
+      // while _preBal goes stale once items from earlier steps are added to the destination.
+      // e.g. after Flocked moves from 30+ → H5, _preBal['H5'] is still the pre-shift value
+      // so order-count comparison would falsely show H5 as over-capacity.
+      var hrsCapFrom  = MACHINE_NET_HRS[fromMachine] || NET_HRS;
+      var hrsOverFrom = Math.max(0, (machineHrsUsed[fromMachine] || 0) - hrsCapFrom);
+      var pphFrom     = lookupPph(row.name, row.itemName, fromMachine) || MACHINE_PPH[fromMachine] || 60;
+      var over = fillToCapacity ? room : Math.floor(hrsOverFrom * pphFrom);
       if (over <= 0) return;
       var toMove = Math.min(row.qty, over, room);
       if (toMove <= 0) return;
@@ -3605,9 +3604,9 @@ function runPlan(orders) {
     // Trigger when 30 is over (freeing 30+ to absorb coir) OR when 30+ is at/over capacity.
     // fillToCapacity=true: shift up to H5's available room, not just 30+'s overflow amount,
     // so flocked moves even when 30+ is exactly at goal (over=0 in normal mode).
-    var _cap30  = _preBal['30']  != null ? _preBal['30']  : MACHINE_GOALS['30'];
-    var _cap30p = _preBal['30+'] != null ? _preBal['30+'] : MACHINE_GOALS['30+'];
-    if (machineLoad['30'] > _cap30 || machineLoad['30+'] >= _cap30p) {
+    var _hrs30  = MACHINE_NET_HRS['30']  || NET_HRS;
+    var _hrs30p = MACHINE_NET_HRS['30+'] || NET_HRS;
+    if (machineHrsUsed['30'] > _hrs30 || machineHrsUsed['30+'] > _hrs30p) {
       shiftItems('flockedOn30p', '30+', 'H5',  'Flocked flex → H5 frees 30+ for coir', true);
       shiftItems('hang18On30p',  '30+', 'H5',  'Hanging Sign 18x18 flex → H5 frees 30+ for coir', true);
     }
