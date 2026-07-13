@@ -656,7 +656,8 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     <div id="commit-bar" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:1rem;padding:10px 14px;background:var(--white);border:1px solid var(--border);border-radius:var(--radius);">
       <div style="font-size:13px;color:var(--muted)" id="commit-bar-msg">Lock in this plan so you can compare it against actual tomorrow.</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="qbtn" id="commit-plan-btn" onclick="commitPlan()" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark)">📌 Commit This Plan</button>
+        <button class="qbtn" id="commit-plan-btn" onclick="commitPlan()" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark)">📌 Commit Plan</button>
+        <button class="qbtn" id="commit-midshift-btn" onclick="commitPlan('mid')" style="background:var(--white);color:var(--amber);border-color:var(--amber)" title="Save a second snapshot mid-shift to compare against your morning plan">📸 Midshift Snapshot</button>
         <button class="qbtn" onclick="printPlan()" style="background:var(--white);color:var(--green-dark);border-color:var(--green-win-border)">&#128424; Print Plan</button>
         <button class="qbtn" onclick="exportPlan()" style="background:var(--white);color:var(--green-dark);border-color:var(--green-win-border)">&#8615; Export CSV</button>
       </div>
@@ -3758,34 +3759,54 @@ function applyPriorActual() {
 var _dailyDownMachines = {}; // { 'machine': true } — machines marked down for viewed date
 var _dailyDownDate = null;   // date _dailyDownMachines was last initialized for
 
-function commitPlan() {
+function commitPlan(slot) {
   if (!_currentPlanSnapshot) return;
   var shift = _currentPlanSnapshot.shift || 'day';
   var group = _currentPlanSnapshot.group || 'standard';
-  var key = 'committed-plan:' + _currentPlanSnapshot.planDate + ':' + shift + (group === 'drinkware' ? ':drinkware' : '');
+  var isMid = slot === 'mid';
+  var key = 'committed-plan:' + _currentPlanSnapshot.planDate + ':' + shift
+    + (group === 'drinkware' ? ':drinkware' : '')
+    + (isMid ? ':mid' : '');
+  var snapshot = isMid
+    ? Object.assign({}, _currentPlanSnapshot, { slot: 'mid' })
+    : _currentPlanSnapshot;
   try {
-    localStorage.setItem(key, JSON.stringify(_currentPlanSnapshot));
-    var btn = document.getElementById('commit-plan-btn');
+    localStorage.setItem(key, JSON.stringify(snapshot));
+    var btnId = isMid ? 'commit-midshift-btn' : 'commit-plan-btn';
+    var btn = document.getElementById(btnId);
     var msg = document.getElementById('commit-bar-msg');
     var shiftLabel = shift === 'night' ? 'Night Shift' : 'Day Shift';
     var groupLabel = group === 'drinkware' ? 'Drinkware' : 'Standard Machines';
+    var slotLabel  = isMid ? 'Midshift snapshot' : groupLabel + ' ' + shiftLabel + ' plan';
     btn.textContent = '⏳ Saving...';
     btn.style.background = 'var(--amber)';
     btn.disabled = true;
-    msg.textContent = 'Saving ' + groupLabel + ' ' + shiftLabel + ' plan for ' + _currentPlanSnapshot.planDate + '...';
-    fbPushPlan(key, _currentPlanSnapshot, function(ok, errMsg) {
+    msg.textContent = 'Saving ' + slotLabel + ' for ' + _currentPlanSnapshot.planDate + '...';
+    fbPushPlan(key, snapshot, function(ok, errMsg) {
       if (ok) {
-        btn.textContent = '✓ Plan Committed';
+        btn.textContent = isMid ? '✓ Midshift Saved' : '✓ Plan Committed';
         btn.style.background = 'var(--green-dark)';
-        msg.textContent = groupLabel + ' ' + shiftLabel + ' plan for ' + _currentPlanSnapshot.planDate + ' locked in and synced — visible on any device.';
+        btn.style.color = '#fff';
+        msg.textContent = slotLabel + ' for ' + _currentPlanSnapshot.planDate + ' saved and synced — visible on any device.';
       } else {
-        btn.textContent = '⚠ Saved on this device only';
+        btn.textContent = isMid ? '⚠ Midshift (local only)' : '⚠ Saved on this device only';
         btn.style.background = 'var(--amber)';
         msg.textContent = 'Saved locally, but could not sync to the shared database (' + (errMsg || 'unknown error') + ') — it will not show up on other devices yet.';
       }
+      // Re-enable after a few seconds
+      setTimeout(function() {
+        btn.disabled = false;
+        if (isMid) {
+          btn.textContent = '📸 Midshift Snapshot';
+          btn.style.background = 'var(--white)';
+          btn.style.color = 'var(--amber)';
+        } else {
+          btn.textContent = '📌 Commit Plan';
+        }
+      }, 4000);
     });
   } catch(e) {
-    alert('Could not save committed plan: ' + e.message);
+    alert('Could not save plan: ' + e.message);
   }
 }
 
@@ -3846,15 +3867,19 @@ function _renderSavedPlansList() {
       var total = groupMachines.reduce(function(s,m){ return s + (p.machineLoad[m]||0); }, 0);
       var when  = p.committedAt ? p.committedAt.replace('T',' ').slice(0,16) : '';
       var shiftLabel = p.shift === 'night' ? '🌙 Night' : '☀ Day';
+      var key = p._storageKey || ('committed-plan:' + p.planDate);
+      var isMid = key.indexOf(':mid') !== -1;
       var groupBadge = group === 'drinkware'
         ? '<span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;background:#e8f4fd;color:#1565c0;border:1px solid #90caf9;margin-left:5px">Drinkware</span>'
         : '<span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;background:var(--bg);color:var(--muted);border:1px solid var(--border);margin-left:5px">Standard</span>';
-      var key = p._storageKey || ('committed-plan:' + p.planDate);
+      var midBadge = isMid
+        ? '<span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-border);margin-left:5px">Midshift</span>'
+        : '';
       return '<button onclick="viewSavedPlan(\'' + key.replace(/'/g,"\\'") + '\');document.getElementById(\'saved-plans-dropdown\').style.display=\'none\'" '
         + 'style="display:block;width:100%;text-align:left;background:none;border:none;border-bottom:1px solid var(--border);'
         + 'padding:10px 14px;cursor:pointer;font-family:inherit" '
         + 'onmouseover="this.style.background=\'var(--green-light)\'" onmouseout="this.style.background=\'none\'">'
-        + '<div style="font-size:13px;font-weight:700;color:var(--text)">' + p.planDate + ' &nbsp;<span style="font-size:11px;font-weight:600;color:var(--muted)">' + shiftLabel + ' Shift</span>' + groupBadge + '</div>'
+        + '<div style="font-size:13px;font-weight:700;color:var(--text)">' + p.planDate + ' &nbsp;<span style="font-size:11px;font-weight:600;color:var(--muted)">' + shiftLabel + ' Shift</span>' + groupBadge + midBadge + '</div>'
         + '<div style="font-size:11px;color:var(--muted)">' + total.toLocaleString() + ' pcs &nbsp;·&nbsp; saved ' + when + '</div>'
         + '</button>';
     }).join('');
