@@ -4081,13 +4081,16 @@ function printSavedPlan() {
   var shiftIcon  = raw.shift === 'night' ? '🌙' : '☀';
   var when = raw.committedAt ? raw.committedAt.replace('T',' ').slice(0,16) : '—';
 
-  var totalMade = 0, totalRolls = 0;
+  var totalMade = 0, totalRolls = 0, totalOpen = 0;
   machines.forEach(function(m) {
     var cap  = (raw.machineActualCap && raw.machineActualCap[m] != null) ? raw.machineActualCap[m] : ((raw.machineCap||{})[m]||0);
     var open = (raw.machineLoad||{})[m] || 0;
     totalMade  += Math.min(open, cap);
     totalRolls += Math.max(0, open - cap);
+    totalOpen  += open;
   });
+  // Planned Total = open orders at commit + already made = full shift workload
+  var totalPlanned = totalOpen + (raw.actualToday || 0);
 
   // Total operators across all machines
   var totalOps = 0;
@@ -4108,7 +4111,7 @@ function printSavedPlan() {
   s += '</div>';
   s += '<div style="width:1px;height:36px;background:var(--border);flex-shrink:0"></div>';
   s += '<div style="display:flex;align-items:baseline;gap:0.35rem;white-space:nowrap">';
-  s += '<span style="font-family:\'Lora\',serif;font-size:32px;font-weight:700;color:var(--green-dark);line-height:1">' + totalMade.toLocaleString() + '</span>';
+  s += '<span style="font-family:\'Lora\',serif;font-size:32px;font-weight:700;color:var(--green-dark);line-height:1">' + totalPlanned.toLocaleString() + '</span>';
   s += '<span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted)">Planned Total</span>';
   s += '</div>';
   s += '<div style="display:flex;align-items:baseline;gap:0.35rem;white-space:nowrap">';
@@ -4158,13 +4161,20 @@ function printSavedPlan() {
     s += '<div class="sp-card-ops">' + ops + ' op' + (ops !== 1 ? 's' : '') + '</div>';
     s += '</div>';
 
-    // Planned + Made row
+    // Planned + Made row (+ Still Open when work is underway)
+    // planned = open (remaining orders) + actual (already made) = total machine workload
+    // open is already the remaining orders at commit time (actuals subtracted before commit)
+    var machinePlanned = open + actual;
     s += '<div style="display:flex;gap:1rem;align-items:flex-end;padding-bottom:10px;border-bottom:1px solid #dde8e0;margin-bottom:10px">';
     s += '<div><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#7a9585;margin-bottom:1px">Planned</div>';
-    s += '<div class="sp-card-num">' + made.toLocaleString() + '</div>';
+    s += '<div class="sp-card-num">' + machinePlanned.toLocaleString() + '</div>';
     s += '<div class="sp-card-open">of ' + fullCap.toLocaleString() + ' shift capacity</div></div>';
     s += '<div><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#7a9585;margin-bottom:1px">Made</div>';
     s += '<div style="font-family:\'Lora\',serif;font-size:22px;font-weight:700;color:#00482b;line-height:1">' + actual.toLocaleString() + '</div></div>';
+    if (actual > 0 || raw.slot === 'mid') {
+      s += '<div><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#7a9585;margin-bottom:1px">Still Open</div>';
+      s += '<div style="font-family:\'Lora\',serif;font-size:22px;font-weight:700;color:' + (open > 0 ? '#b35c00' : '#00482b') + ';line-height:1">' + open.toLocaleString() + '</div></div>';
+    }
     s += '</div>';
 
     // Segmented bar — every segment is an explicit div so print-color-adjust works on all of them
