@@ -5771,11 +5771,17 @@ function _renderReportPieceChart(machine, date, shiftKey, plan) {
   if (!canvas) return;
 
   var planRows = (plan.rows || []).filter(function(r){ return r.machine === machine; });
-  var plannedByType = {};
+
+  // Both planned (LMContainers names) and actual (tracker names) are keyed by canonical
+  // so they merge correctly: "Flocked Coir 22x10" = "Coir · Flocked", "PVC 28x16" =
+  // "Non-Coir Mats · PVC", OC and FC variants collapse to the same product, etc.
+  var plannedByCanon = {}, displayLabel = {};
   planRows.forEach(function(r) {
     var qty = r.totalQty != null ? r.totalQty : r.qty;
     if (!qty) return;
-    plannedByType[r.name] = (plannedByType[r.name] || 0) + qty;
+    var ck = _canonicalProductKey(r.name) || _canonicalProductKey(r.itemName) || r.name;
+    plannedByCanon[ck] = (plannedByCanon[ck] || 0) + qty;
+    if (!displayLabel[ck]) displayLabel[ck] = r.name;
   });
 
   var shiftHourMin = shiftKey === 'night' ? 15 : 4;
@@ -5785,25 +5791,27 @@ function _renderReportPieceChart(machine, date, shiftKey, plan) {
     var h = new Date(s.ts).getHours();
     return h >= shiftHourMin && h <= shiftHourMax;
   });
-  var actualByType = {};
+  var actualByCanon = {};
   sessions.forEach(function(s) {
     if (!s.p) return;
-    actualByType[s.p] = (actualByType[s.p] || 0) + (s.g || 0);
+    var ck = _canonicalProductKey(s.p) || s.p;
+    actualByCanon[ck] = (actualByCanon[ck] || 0) + (s.g || 0);
+    displayLabel[ck] = s.p; // tracker name wins when actual data exists
   });
 
-  var ptList = [];
-  Object.keys(plannedByType).forEach(function(pt){ if (ptList.indexOf(pt) === -1) ptList.push(pt); });
-  Object.keys(actualByType).forEach(function(pt){ if (ptList.indexOf(pt) === -1) ptList.push(pt); });
-  if (!ptList.length) return;
-  ptList.sort(function(a,b){ return ((plannedByType[b]||0)+(actualByType[b]||0)) - ((plannedByType[a]||0)+(actualByType[a]||0)); });
+  var canonList = [];
+  Object.keys(plannedByCanon).forEach(function(ck){ if (canonList.indexOf(ck) === -1) canonList.push(ck); });
+  Object.keys(actualByCanon).forEach(function(ck){ if (canonList.indexOf(ck) === -1) canonList.push(ck); });
+  if (!canonList.length) return;
+  canonList.sort(function(a,b){ return ((plannedByCanon[b]||0)+(actualByCanon[b]||0)) - ((plannedByCanon[a]||0)+(actualByCanon[a]||0)); });
 
   var chart = new Chart(canvas, {
     type: 'bar',
     data: {
-      labels: ptList.map(function(pt){ return pt.length>22 ? pt.slice(0,22)+'...' : pt; }),
+      labels: canonList.map(function(ck){ var lbl = displayLabel[ck] || ck; return lbl.length > 22 ? lbl.slice(0,22)+'...' : lbl; }),
       datasets: [
-        { label: 'Planned', data: ptList.map(function(pt){ return plannedByType[pt] || 0; }), backgroundColor: 'rgba(26,92,58,0.25)', borderColor: 'rgba(26,92,58,0.6)', borderWidth: 1, borderRadius: 2 },
-        { label: 'Actual',  data: ptList.map(function(pt){ return actualByType[pt] || 0; }),  backgroundColor: 'rgba(26,92,58,0.85)', borderRadius: 2 }
+        { label: 'Planned', data: canonList.map(function(ck){ return plannedByCanon[ck] || 0; }), backgroundColor: 'rgba(26,92,58,0.25)', borderColor: 'rgba(26,92,58,0.6)', borderWidth: 1, borderRadius: 2 },
+        { label: 'Actual',  data: canonList.map(function(ck){ return actualByCanon[ck] || 0; }),  backgroundColor: 'rgba(26,92,58,0.85)', borderRadius: 2 }
       ]
     },
     options: {
