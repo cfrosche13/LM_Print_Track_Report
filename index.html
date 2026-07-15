@@ -2260,6 +2260,7 @@ function setPlanGroup(group) {
 }
 
 function onShiftConfigChange() {
+  _saveShiftConfig();
   recomputeGoals();
   if (window._planOrders) runPlan(window._planOrders);
 }
@@ -2391,6 +2392,10 @@ function onShiftHoursChange() {
 function _saveShiftConfig() {
   try { localStorage.setItem('shiftConfig', JSON.stringify(SHIFT_CONFIG)); } catch(e) {}
   try { localStorage.setItem('activeShift', ACTIVE_SHIFT); } catch(e) {}
+  try {
+    var cb = document.getElementById('subtract-actuals-checkbox');
+    if (cb) localStorage.setItem('subtractActuals', cb.checked ? '1' : '0');
+  } catch(e) {}
 }
 
 function _loadShiftConfig() {
@@ -2409,6 +2414,12 @@ function _loadShiftConfig() {
     }
     var as = localStorage.getItem('activeShift');
     if (as === 'day' || as === 'night') ACTIVE_SHIFT = as;
+    // Restore subtract-actuals checkbox
+    var sa = localStorage.getItem('subtractActuals');
+    if (sa !== null) {
+      var cb = document.getElementById('subtract-actuals-checkbox');
+      if (cb) cb.checked = sa === '1';
+    }
   } catch(e) {}
 }
 
@@ -3276,19 +3287,19 @@ function runPlan(orders) {
     } catch(e) {}
   }
 
-  // ── Mid-shift re-check: subtract today's actual production so far ────────
-  // Reuses the same date+shift-hour-window filtering as the Plan vs Actual
-  // tab's chart (_renderReportPieceChart) so "actual production" means the
-  // same thing in both places. Off by default — only applies when the owner
-  // explicitly checks the box, since it only makes sense once some of today's
-  // shift has already happened.
+  // ── Today's actual production (always loaded for display) ───────────────
+  // "Printed" in machine cards always reflects what the tracker has recorded
+  // today. The "Mid-shift re-plan" checkbox only controls whether those
+  // printed pieces are subtracted from open-order quantities — not whether
+  // they appear in the Printed stat.
   var _actualLookup = {};        // { ptPieceType: good pieces already produced today, this shift }
   var _actualLookupCanon = {};   // { canonicalKey: total qty } — for fuzzy cross-system matching
   var _canonToPTKeys = {};       // { canonicalKey: [ptPieceType, ...] } — reverse index for diagnostic
   var _machineActualToday = {};  // { machine: good pieces already produced today, this shift }
   var _totalActualToday = 0;
   var _subtractActualsBox = document.getElementById('subtract-actuals-checkbox');
-  if (_subtractActualsBox && _subtractActualsBox.checked && planDate) {
+  var _subtractActuals = _subtractActualsBox && _subtractActualsBox.checked;
+  if (planDate) {
     var _actHourMin = ACTIVE_SHIFT === 'night' ? 15 : 4;
     var _actHourMax = ACTIVE_SHIFT === 'night' ? 23 : 15;
     GROUP_MACHINES[PLAN_GROUP].forEach(function(m) {
@@ -3347,7 +3358,8 @@ function runPlan(orders) {
     var actualQty     = _actualLookup[name] || _actualLookup[iname]
                         || _actualLookupCanon[_lmCanon] || 0;
     var afterPrior    = Math.max(0, item.qty - priorQty);
-    var effectiveQty  = Math.max(0, afterPrior - actualQty);
+    // Only subtract actuals from open-order qty when the checkbox is checked
+    var effectiveQty  = _subtractActuals ? Math.max(0, afterPrior - actualQty) : afterPrior;
     var effFrac       = item.qty > 0 ? effectiveQty / item.qty : 0;
     if (priorQty > 0 && priorQty <= item.qty) {
       notes.push(_priorShiftLabel + ' committed ' + priorQty.toLocaleString() + ' — ' + afterPrior.toLocaleString() + ' remaining for this shift');
