@@ -3287,15 +3287,17 @@ function runPlan(orders) {
     } catch(e) {}
   }
 
-  // ── Today's actual production (always loaded for display) ───────────────
-  // "Printed" in machine cards always reflects what the tracker has recorded
-  // today. The "Mid-shift re-plan" checkbox only controls whether those
-  // printed pieces are subtracted from open-order quantities — not whether
-  // they appear in the Printed stat.
-  var _actualLookup = {};        // { ptPieceType: good pieces already produced today, this shift }
-  var _actualLookupCanon = {};   // { canonicalKey: total qty } — for fuzzy cross-system matching
-  var _canonToPTKeys = {};       // { canonicalKey: [ptPieceType, ...] } — reverse index for diagnostic
-  var _machineActualToday = {};  // { machine: good pieces already produced today, this shift }
+  // ── Today's actual production ─────────────────────────────────────────────
+  // _machineActualToday / _totalActualToday: ALL sessions for today, any hour.
+  //   Used for the "Printed" display stat — shows total made today regardless
+  //   of which shift window is selected.
+  // _actualLookup / _actualLookupCanon: shift-window filtered sessions.
+  //   Used only when the checkbox subtracts actuals from open orders, so we
+  //   don't credit the other shift's output against this shift's work.
+  var _actualLookup = {};        // { ptPieceType: good pieces produced in this shift window }
+  var _actualLookupCanon = {};   // { canonicalKey: total qty }
+  var _canonToPTKeys = {};       // { canonicalKey: [ptPieceType, ...] }
+  var _machineActualToday = {};  // { machine: ALL good pieces printed today }
   var _totalActualToday = 0;
   var _subtractActualsBox = document.getElementById('subtract-actuals-checkbox');
   var _subtractActuals = _subtractActualsBox && _subtractActualsBox.checked;
@@ -3305,12 +3307,14 @@ function runPlan(orders) {
     GROUP_MACHINES[PLAN_GROUP].forEach(function(m) {
       (RAW.sessions[m] || []).forEach(function(s) {
         if (s.t !== planDate || !s.p) return;
-        var h = new Date(s.ts).getHours();
-        if (h < _actHourMin || h > _actHourMax) return;
         var g = s.g || 0;
-        _actualLookup[s.p] = (_actualLookup[s.p] || 0) + g;
+        // Always accumulate into display totals (all hours)
         _machineActualToday[m] = (_machineActualToday[m] || 0) + g;
         _totalActualToday += g;
+        // Only accumulate into the subtract-lookup within the active shift window
+        var h = new Date(s.ts).getHours();
+        if (h < _actHourMin || h > _actHourMax) return;
+        _actualLookup[s.p] = (_actualLookup[s.p] || 0) + g;
       });
     });
   }
