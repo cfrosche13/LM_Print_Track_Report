@@ -917,6 +917,7 @@ function render(forceDate) {
   if (date !== _dailyDownDate) {
     _dailyDownDate = date;
     _dailyDownMachines = {};
+    _dailyPlanSourceOverride = {};
     RAW.maint.forEach(function(entry) {
       if (entry.t === date && entry.type === 'Machine Down' && entry.machine &&
           ['30','30+','H5'].indexOf(entry.machine) !== -1) {
@@ -1010,7 +1011,7 @@ function render(forceDate) {
   var walletWaitSec   = walletWaits.reduce(function(a,w){ return a+(w.dur||0); }, 0);
 
   // Plan vs Actual — look up any committed plan(s) for this exact date, split by group
-  var committedPlans = loadCommittedPlansForDate(date);
+  var committedPlans = loadCommittedPlansForDate(date, _dailyPlanSourceOverride);
   var stdPlans = committedPlans.filter(function(p){ return (p._group || p.group || 'standard') === 'standard'; });
   var dwPlans  = committedPlans.filter(function(p){ return (p._group || p.group) === 'drinkware'; });
   var planVsActual   = buildPlanVsActual(stdPlans, byMachine, _dailyDownMachines);
@@ -3774,6 +3775,7 @@ function applyPriorActual() {
 // Machine-down overrides for the daily results view
 var _dailyDownMachines = {}; // { 'machine': true } — machines marked down for viewed date
 var _dailyDownDate = null;   // date _dailyDownMachines was last initialized for
+var _dailyPlanSourceOverride = {}; // { 'group:shift': 'regular'|'mid' } — explicit pick when both a morning plan and a midshift snapshot exist
 
 function commitPlan(slot) {
   if (!_currentPlanSnapshot) return;
@@ -4317,16 +4319,35 @@ function toggleDailyMachineDown(machine) {
   render(_dailyDownDate);
 }
 
+// Resolves the committed plan for one shift+group on a given date.
+// Prefers the regular (morning) commit; falls back to the midshift snapshot
+// automatically when that's the only one saved. When both exist, overrideMap
+// (keyed 'group:shift') lets the caller force which one to use.
+// Tags the result with _planSource ('regular'|'mid') and _hasAlt (both exist).
+function _resolvePlanForShiftGroup(date, shift, group, overrideMap) {
+  var suffix  = group === 'drinkware' ? ':drinkware' : '';
+  var baseKey = 'committed-plan:' + date + ':' + shift + suffix;
+  var regular = null, mid = null;
+  try { var s1 = localStorage.getItem(baseKey);          if (s1) regular = JSON.parse(s1); } catch(e) {}
+  try { var s2 = localStorage.getItem(baseKey + ':mid'); if (s2) mid     = JSON.parse(s2); } catch(e) {}
+  if (!regular && !mid) return null;
+  var hasAlt  = !!(regular && mid);
+  var wantMid = hasAlt && overrideMap && overrideMap[group + ':' + shift] === 'mid';
+  var chosen  = hasAlt ? (wantMid ? mid : regular) : (regular || mid);
+  chosen._shift      = shift;
+  chosen._group      = chosen.group || group;
+  chosen._planSource = (mid && chosen === mid) ? 'mid' : 'regular';
+  chosen._hasAlt     = hasAlt;
+  return chosen;
+}
+
 // Returns all committed plans saved for the exact given date (both shifts, both groups + legacy format).
-function loadCommittedPlansForDate(date) {
+function loadCommittedPlansForDate(date, overrideMap) {
   var plans = [];
   ['day', 'night'].forEach(function(shift) {
     ['standard', 'drinkware'].forEach(function(group) {
-      try {
-        var key = 'committed-plan:' + date + ':' + shift + (group === 'drinkware' ? ':drinkware' : '');
-        var s = localStorage.getItem(key);
-        if (s) { var p = JSON.parse(s); p._shift = shift; p._group = p.group || group; plans.push(p); }
-      } catch(e) {}
+      var p = _resolvePlanForShiftGroup(date, shift, group, overrideMap);
+      if (p) plans.push(p);
     });
   });
   // Legacy key without shift suffix (always standard — predates the group feature)
@@ -4337,6 +4358,12 @@ function loadCommittedPlansForDate(date) {
   // Sort day before night
   plans.sort(function(a,b){ return (a._shift==='night'?1:0) - (b._shift==='night'?1:0); });
   return plans;
+}
+
+// Called from the plan-source toggle on the daily report's Plan vs Actual card.
+function setDailyPlanSource(group, shift, source) {
+  _dailyPlanSourceOverride[group + ':' + shift] = source;
+  render(_dailyDownDate);
 }
 
 // Renders the Plan vs Actual panel for the daily report.
@@ -4356,10 +4383,28 @@ function buildPlanVsActual(plans, byMachine, downMachines) {
     var groupLabel = group === 'drinkware' ? 'Drinkware' : 'Standard Machines';
     var savedAt = plan.committedAt ? plan.committedAt.replace('T',' ').slice(0,16) : '';
 
+    var midBadgeHtml = plan._planSource === 'mid'
+      ? ' <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-border);vertical-align:middle">📸 Midshift Snapshot</span>'
+      : '';
+
     html += '<div style="background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:1rem 1.25rem;margin-bottom:1rem">';
     html += '<div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:0.875rem">';
-    html += '<div style="font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--green-dark)">📋 ' + groupLabel + ' — ' + shiftLabel + ' Plan vs Actual</div>';
+    html += '<div style="font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--green-dark)">📋 ' + groupLabel + ' — ' + shiftLabel + ' Plan vs Actual' + midBadgeHtml + '</div>';
+    html += '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">';
+    if (plan._hasAlt) {
+      var shiftKey = plan._shift || plan.shift;
+      html += '<div style="display:flex;gap:4px">';
+      ['regular','mid'].forEach(function(src) {
+        var active = plan._planSource === src;
+        html += '<button onclick="setDailyPlanSource(\'' + group + '\',\'' + shiftKey + '\',\'' + src + '\')" '
+          + 'style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:12px;cursor:pointer;'
+          + (active ? 'background:var(--green-dark);color:#fff;border:1px solid var(--green-dark)' : 'background:var(--bg);color:var(--muted);border:1px solid var(--border)') + '">'
+          + (src === 'mid' ? '📸 Midshift' : 'Morning Plan') + '</button>';
+      });
+      html += '</div>';
+    }
     html += '<div style="font-size:11px;color:var(--muted)">committed ' + savedAt + '</div>';
+    html += '</div>';
     html += '</div>';
 
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:10px">';
@@ -5414,22 +5459,53 @@ var _REPORT_PALETTE = [
   '#16a085','#8e44ad','#d35400','#27ae60','#c0392b'
 ];
 
+// { 'group:shift': 'regular'|'mid' } — explicit pick when both a morning plan and a midshift snapshot exist
+var _reportPlanSourceOverride = {};
+var _reportPlanSourceDate = null; // date the override map was last reset for
+
+function setReportPlanSource(group, shift, source) {
+  _reportPlanSourceOverride[group + ':' + shift] = source;
+  generateReport();
+}
+
+// Small pill toggle shown above a shift/group's machine blocks when both a
+// morning plan and a midshift snapshot are saved for it.
+function _planSourceSelectorHtml(group, shift, planSource, hasAlt) {
+  if (!hasAlt) return '';
+  var groupLabel = group === 'drinkware' ? 'Drinkware' : 'Standard Machines';
+  var shiftLabel = shift === 'night' ? 'Night Shift' : 'Day Shift';
+  var h = '<div style="display:flex;align-items:center;gap:8px;margin:0.5rem 0 -0.25rem">';
+  h += '<div style="font-size:11px;color:var(--muted)">' + groupLabel + ' — ' + shiftLabel + ' comparing to:</div>';
+  h += '<div style="display:flex;gap:4px">';
+  ['regular','mid'].forEach(function(src) {
+    var active = planSource === src;
+    h += '<button onclick="setReportPlanSource(\'' + group + '\',\'' + shift + '\',\'' + src + '\')" '
+      + 'style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:12px;cursor:pointer;'
+      + (active ? 'background:var(--green-dark);color:#fff;border:1px solid var(--green-dark)' : 'background:var(--bg);color:var(--muted);border:1px solid var(--border)') + '">'
+      + (src === 'mid' ? '📸 Midshift' : 'Morning Plan') + '</button>';
+  });
+  h += '</div></div>';
+  return h;
+}
+
 function generateReport() {
   var date     = document.getElementById('report-datepicker').value;
   var shiftSel = document.getElementById('report-shift-select').value;
   var output   = document.getElementById('report-output');
   if (!date) { output.innerHTML = '<div class="plan-warning">Please select a date.</div>'; return; }
 
+  if (date !== _reportPlanSourceDate) {
+    _reportPlanSourceDate = date;
+    _reportPlanSourceOverride = {};
+  }
+
   // Load committed plans for selected shifts (both standard and Drinkware groups)
   var plans = [];
   ['day','night'].forEach(function(sk) {
     if (shiftSel !== 'both' && sk !== shiftSel) return;
     ['standard','drinkware'].forEach(function(group) {
-      try {
-        var key = 'committed-plan:' + date + ':' + sk + (group === 'drinkware' ? ':drinkware' : '');
-        var s = localStorage.getItem(key);
-        if (s) { var p = JSON.parse(s); p._reportShift = sk; p._group = p.group || group; plans.push(p); }
-      } catch(e) {}
+      var p = _resolvePlanForShiftGroup(date, sk, group, _reportPlanSourceOverride);
+      if (p) { p._reportShift = sk; plans.push(p); }
     });
   });
   // Legacy key without shift suffix (always standard — predates the group feature)
@@ -5457,7 +5533,9 @@ function generateReport() {
   // One report block per shift per machine
   plans.forEach(function(plan) {
     var sk = plan._reportShift || plan.shift || 'day';
-    GROUP_MACHINES[plan._group || plan.group || 'standard'].forEach(function(m) {
+    var grp = plan._group || plan.group || 'standard';
+    html += _planSourceSelectorHtml(grp, sk, plan._planSource, plan._hasAlt);
+    GROUP_MACHINES[grp].forEach(function(m) {
       html += _buildMachineReportBlock(m, date, plan, sk);
     });
   });
@@ -5515,7 +5593,10 @@ function _buildMachineReportBlock(machine, date, plan, shiftKey) {
   h += '<div class="report-block-header" style="border-left-color:' + mColor + '">';
   var reportOps = plan.machineOperators ? (plan.machineOperators[machine] != null ? plan.machineOperators[machine] : 1) : 1;
   h += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">';
-  h += '<div style="font-size:20px;font-weight:700;color:' + mColor + '">Machine ' + machine + ' &nbsp;<span style="font-size:13px;font-weight:600;color:var(--muted)">' + shiftLabel + '</span></div>';
+  var midBadgeHtml = plan._planSource === 'mid'
+    ? ' <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-border);vertical-align:middle">📸 Midshift</span>'
+    : '';
+  h += '<div style="font-size:20px;font-weight:700;color:' + mColor + '">Machine ' + machine + ' &nbsp;<span style="font-size:13px;font-weight:600;color:var(--muted)">' + shiftLabel + '</span>' + midBadgeHtml + '</div>';
   h += '<div style="display:flex;align-items:center;gap:16px">';
   h += '<div style="font-size:12px;font-weight:700;color:var(--muted)">' + reportOps + '&thinsp;operator' + (reportOps !== 1 ? 's' : '') + '</div>';
   h += '<div style="font-size:12px;color:var(--muted)">' + date + ' &ensp;|&ensp; ' + sessions.length + ' session' + (sessions.length!==1?'s':'') + '</div>';
