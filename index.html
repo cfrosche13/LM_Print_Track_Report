@@ -3305,6 +3305,7 @@ function runPlan(orders) {
     var _actHourMin = ACTIVE_SHIFT === 'night' ? 15 : 4;
     var _actHourMax = ACTIVE_SHIFT === 'night' ? 23 : 15;
     GROUP_MACHINES[PLAN_GROUP].forEach(function(m) {
+      if (!MACHINE_UP[m]) return; // machine marked down — excluded from the plan, so keep it out of the printed total too
       (RAW.sessions[m] || []).forEach(function(s) {
         if (s.t !== planDate || !s.p) return;
         var h = new Date(s.ts).getHours();
