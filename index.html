@@ -150,7 +150,7 @@ input[type="date"]:focus { border-color: var(--green-dark); }
   #page-totals .main { max-width: 1020px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
   .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
   .cal-dow { text-align: center; font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding: 6px 0; }
-  .cal-day { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); padding: 7px 8px; min-height: 90px; cursor: pointer; transition: box-shadow 0.15s; position: relative; }
+  .cal-day { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); padding: 7px 8px; min-height: 148px; cursor: pointer; transition: box-shadow 0.15s; position: relative; }
   .cal-day:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); border-color: var(--green-dark); }
   .cal-day.empty { background: transparent; border-color: transparent; cursor: default; min-height: 0; }
   .cal-day.no-data { background: var(--bg); cursor: default; }
@@ -158,10 +158,18 @@ input[type="date"]:focus { border-color: var(--green-dark); }
   .cal-day.selected { border-color: var(--green-dark); box-shadow: 0 0 0 2px var(--green-dark); }
   .cal-day-num { font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
   .cal-day.has-data .cal-day-num { color: var(--green-dark); }
-  .cal-total { font-family: 'Lora', serif; font-size: 18px; font-weight: 600; color: var(--text); line-height: 1; }
-  .cal-total-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
-  .cal-oee-row { display: flex; gap: 3px; margin-top: 5px; flex-wrap: wrap; }
-  .cal-oee-chip { font-size: 9px; font-weight: 700; padding: 2px 5px; border-radius: 3px; white-space: nowrap; }
+  .cal-total { font-family: 'Lora', serif; font-size: 15px; font-weight: 600; color: var(--text); line-height: 1; white-space: nowrap; }
+  .cal-total-sm { font-size: 13px; }
+  .cal-total-label { font-size: 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 3px; white-space: nowrap; }
+  .cal-total-row { display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: nowrap; }
+  .cal-total-block { display: flex; flex-direction: column; align-items: center; min-width: 0; }
+  .cal-ampm-row { display: flex; justify-content: space-between; font-size: 10px; font-weight: 600; color: var(--muted); margin-bottom: 2px; }
+  .cal-shift-grid2 { margin-top: 6px; padding-top: 5px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 3px; }
+  .cal-shift-row { display: flex; align-items: center; gap: 3px; }
+  .cal-shift-rlabel { font-size: 8px; font-weight: 700; color: var(--muted); width: 13px; flex-shrink: 0; }
+  .cal-mchip { flex: 1; font-size: 9px; font-weight: 700; text-align: center; padding: 2px 1px; border-radius: 3px; white-space: nowrap; }
+  .cal-pct-row { display: flex; align-items: center; gap: 3px; margin-top: 2px; padding-top: 4px; border-top: 1px dashed var(--border); }
+  .cal-pct-cell { flex: 1; font-size: 10px; font-weight: 700; text-align: center; padding: 1px; border-radius: 3px; white-space: nowrap; }
   .chip-win  { background: var(--green-win-bg); color: var(--green-dark); border: 1px solid var(--green-win-border); }
   .chip-miss { background: var(--red-bg); color: var(--red); border: 1px solid var(--red-border); }
   .chip-na   { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
@@ -267,6 +275,7 @@ input[type="date"]:focus { border-color: var(--green-dark); }
   .shift-ot-pill.on-reg { background: var(--green-win-bg); color: var(--green-dark); border-color: var(--green-win-border); }
   .shift-ot-pill.on-asap { background: var(--amber-bg); color: var(--amber); border-color: var(--amber-border); }
   .shift-ot-pill.on-fba { background: #e8f0f8; color: var(--blue); border-color: #b0c8e8; }
+  .shift-ot-pill.on-manual { background: #f0eaf9; color: #8e6fc9; border-color: #d4c2ef; }
 
   /* ── Plan vs. Actual Report tab ───────────────────────────────────────── */
   #page-report { display: none; }
@@ -463,6 +472,7 @@ input[type="date"]:focus { border-color: var(--green-dark); }
   <!-- Calendar -->
   <div class="section animate">
     <div class="section-head">Calendar</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Each day: AM/PM/total pieces up top, then per-machine <strong>planned/actual</strong> for AM and PM below &mdash; 0 planned means no plan was committed that shift.</div>
     <div id="cal-grid" class="cal-grid"></div>
   </div>
 
@@ -544,6 +554,7 @@ input[type="date"]:focus { border-color: var(--green-dark); }
       <div class="shift-ot-pill on-reg" id="ot-pill-REG"  onclick="toggleShiftOrderType('REG')">REG</div>
       <div class="shift-ot-pill on-asap" id="ot-pill-ASAP" onclick="toggleShiftOrderType('ASAP')">ASAP</div>
       <div class="shift-ot-pill"        id="ot-pill-FBA"  onclick="toggleShiftOrderType('FBA')">FBA</div>
+      <div class="shift-ot-pill on-manual" id="ot-pill-Manual" onclick="toggleShiftOrderType('Manual')">Manual</div>
     </div>
     <div id="machine-down-note" style="margin-top:10px;font-size:12px;color:var(--red);display:none;"></div>
   </div>
@@ -1401,6 +1412,13 @@ function getGoodForDay(date) {
   return (d.byMachine[calView] || {}).good || 0;
 }
 
+// Machine color key for the Totals calendar: 30 = light blue, 30+ = dark blue, H5 = purple.
+var CAL_MACHINE_COLORS = {
+  '30':  { bg: '#e3f2fd', fg: '#2b7bc9' },
+  '30+': { bg: '#dbe6f7', fg: '#1e4d8c' },
+  'H5':  { bg: '#f0eaf9', fg: '#8e6fc9' }
+};
+
 function renderCalendar() {
   document.getElementById('month-label').textContent = MONTH_NAMES[calMonth] + ' ' + calYear;
 
@@ -1450,7 +1468,8 @@ function renderCalendar() {
     var mg = PROD_GOALS.machines[m];
     var tier = mg ? prodTier(mTotals[m], { average: mg.average * prodDays, goal: mg.goal * prodDays, max: mg.max * prodDays }) : null;
     var col = tier === 'goal' ? '#1a5c3a' : tier === 'average' ? '#d09020' : '#b83232';
-    machHtml += '<div style="font-size:11px;"><span style="color:var(--muted)">' + m + ':</span> <strong style="color:' + col + '">' + mTotals[m].toLocaleString() + '</strong> <span style="color:var(--muted);font-size:10px;">(goal ' + mg.goal + '/day)</span></div>';
+    var swatch = '<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + CAL_MACHINE_COLORS[m].fg + ';margin-right:4px;vertical-align:middle"></span>';
+    machHtml += '<div style="font-size:11px;">' + swatch + '<span style="color:var(--muted)">' + m + ':</span> <strong style="color:' + col + '">' + mTotals[m].toLocaleString() + '</strong> <span style="color:var(--muted);font-size:10px;">(goal ' + mg.goal + '/day)</span></div>';
   });
   machHtml += '</div>';
 
@@ -1483,39 +1502,66 @@ function renderCalendar() {
     var good = getGoodForDay(dateStr);
     var isSelected = selectedDay === dateStr;
 
-    if (!dayData || good === 0) {
+    // A day counts as having data if the print floor, wallets, or Drinkware produced anything —
+    // "total pieces" alone (print floor only) would hide Drinkware/Wallets-only days otherwise.
+    if (!dayData || (good === 0 && !dayData.wallets && !dayData.drinkware)) {
       grid += '<div class="cal-day no-data' + (isSelected ? ' selected' : '') + '">';
       grid += '<div class="cal-day-num">' + day + '</div>';
       grid += '</div>';
       continue;
     }
 
-    // Per-machine piece counts
-    var chips = '';
-    var machines = calView === 'all' ? ['30','30+','H5'] : [calView];
-    machines.forEach(function(m) {
-      var bm = dayData.byMachine && dayData.byMachine[m];
-      if (!bm || !bm.good) return;
-      var mGoals = PROD_GOALS.machines[m];
-      var mTier = mGoals ? prodTier(bm.good, mGoals) : null;
-      var chipColor = mTier === 'goal' ? '#1a5c3a' : mTier === 'average' ? '#d09020' : '#b83232';
-      var chipBg   = mTier === 'goal' ? '#e8f2ec' : mTier === 'average' ? '#fdf5e8' : '#fdf0f0';
-      chips += '<span class="cal-oee-chip" style="background:' + chipBg + ';color:' + chipColor + ';border-color:' + chipColor + '30">' + m + ' ' + bm.good + '</span>';
-    });
+    // AM/PM split for the header stat row, respecting the machine filter same as getGoodForDay
+    var amGood, pmGood;
+    if (calView === 'all') { amGood = dayData.am.good; pmGood = dayData.pm.good; }
+    else { var _bmAll = dayData.byMachine[calView]; amGood = _bmAll ? _bmAll.am.good : 0; pmGood = _bmAll ? _bmAll.pm.good : 0; }
 
+    // Planned/actual grid — row 1 AM, row 2 PM; one color-coded chip per machine, no text label
+    // (machine identity comes from color: 30 light blue, 30+ dark blue, H5 purple — key is in the "By machine" summary above).
+    var machines = calView === 'all' ? ['30','30+','H5'] : [calView];
+    var dayPlan   = _resolvePlanForShiftGroup(dateStr, 'day',   'standard', null);
+    var nightPlan = _resolvePlanForShiftGroup(dateStr, 'night', 'standard', null);
+    var shiftGrid = '<div class="cal-shift-grid2">';
+    var rowPlannedTotals = {}; // { am: totalPlanned, pm: totalPlanned } — for the % to plan row below
+    [['AM', dayPlan, 'am'], ['PM', nightPlan, 'pm']].forEach(function(row) {
+      var rowLabel = row[0], rowPlan = row[1], rowKey = row[2];
+      shiftGrid += '<div class="cal-shift-row"><span class="cal-shift-rlabel">' + rowLabel + '</span>';
+      var plannedTotal = 0;
+      machines.forEach(function(m) {
+        var bm = dayData.byMachine && dayData.byMachine[m];
+        var actual  = bm ? bm[rowKey].good : 0;
+        var planned = _plannedQtyFromPlan(rowPlan, m);
+        plannedTotal += planned;
+        var c = CAL_MACHINE_COLORS[m] || { bg: 'var(--bg)', fg: 'var(--muted)' };
+        shiftGrid += '<span class="cal-mchip" style="background:' + c.bg + ';color:' + c.fg + '">' + planned + '/' + actual + '</span>';
+      });
+      rowPlannedTotals[rowKey] = plannedTotal;
+      shiftGrid += '</div>';
+    });
+    // % to plan row — actual/planned per shift; dash when no plan was committed for that shift
+    var _pctToPlanCell = function(actual, planned) {
+      if (!planned) return '<span class="cal-pct-cell" style="background:var(--bg);color:var(--muted)">&mdash;</span>';
+      var pct = Math.round((actual / planned) * 100);
+      var col = pct >= 100 ? { bg: 'var(--green-win-bg)', fg: 'var(--green-dark)' } : { bg: 'var(--amber-bg)', fg: 'var(--amber)' };
+      return '<span class="cal-pct-cell" style="background:' + col.bg + ';color:' + col.fg + '">' + pct + '%</span>';
+    };
+    shiftGrid += '<div class="cal-pct-row"><span class="cal-shift-rlabel">%</span>'
+      + _pctToPlanCell(amGood, rowPlannedTotals.am) + _pctToPlanCell(pmGood, rowPlannedTotals.pm) + '</div>';
+    shiftGrid += '</div>';
     var calTier = prodTier(good, PROD_GOALS.total);
     var calBorderColor = calTier==='goal'?'#1a5c3a':calTier==='average'?'#d09020':calTier==='below'?'#b83232':'';
     var calBorderStyle = calBorderColor ? 'border-top:3px solid ' + calBorderColor + ';' : '';
     grid += '<div class="cal-day has-data' + (isSelected ? ' selected' : '') + '" style="' + calBorderStyle + '" onclick="selectDay(\'' + dateStr + '\')">';
     grid += '<div class="cal-day-num">' + day + '</div>';
-    var walletCount = dayData.wallets || 0;
-    grid += '<div class="cal-total-label">pieces</div>';
-    grid += '<div class="cal-total">' + good.toLocaleString() + '</div>';
-    if (walletCount > 0) {
-      grid += '<div class="cal-total-label" style="margin-top:3px">wallets</div>';
-      grid += '<div style="font-size:13px;font-weight:600;color:var(--muted)">' + walletCount.toLocaleString() + '</div>';
-    }
-    if (chips) grid += '<div class="cal-oee-row">' + chips + '</div>';
+    var walletCount    = dayData.wallets || 0;
+    var drinkwareCount = dayData.drinkware || 0;
+    grid += '<div class="cal-ampm-row"><span>AM ' + amGood.toLocaleString() + '</span><span>PM ' + pmGood.toLocaleString() + '</span></div>';
+    grid += '<div class="cal-total-row">';
+    grid += '<div class="cal-total-block"><div class="cal-total-label">pieces</div><div class="cal-total">' + good.toLocaleString() + '</div></div>';
+    grid += '<div class="cal-total-block"><div class="cal-total-label">wallets</div><div class="cal-total cal-total-sm">' + walletCount.toLocaleString() + '</div></div>';
+    grid += '<div class="cal-total-block"><div class="cal-total-label">DW</div><div class="cal-total cal-total-sm">' + drinkwareCount.toLocaleString() + '</div></div>';
+    grid += '</div>';
+    grid += shiftGrid;
     grid += '</div>';
   }
 
@@ -1762,6 +1808,67 @@ var _selectedBunches = [];  // click-to-select queue, same shape as _dragBunch e
 
 var BUCKET_LABELS = { ds: 'DS — Must Ship', reg: 'REG / ASAP', fba: 'FBA (Amazon)', manual: 'Manual / Other' };
 
+// ─── PRIORITY ORDER WITHIN A BUCKET (oldest wave date first, drag to override) ──
+// Manual overrides are keyed by planDate so they never carry over to a different
+// day's plan — deliberately session-only (not saved to localStorage).
+var _rowOrderOverride = {}; // { 'date:machine:bucketType': [rowKey, ...] }
+function _rowOrderKey(name, itemName) { return name + '||' + itemName; }
+
+// Default sort: oldest wave date first (undated rows, e.g. Manual, sort after dated ones), qty as fallback/tiebreak.
+function _sortByPriority(rows, qtyFn) {
+  return rows.slice().sort(function(a, b) {
+    var da = a.earliestWave || '', db = b.earliestWave || '';
+    if (da && db && da !== db) return da < db ? -1 : 1;
+    if (da && !db) return -1;
+    if (!da && db) return 1;
+    return qtyFn(b) - qtyFn(a);
+  });
+}
+
+// Applies a saved manual order on top of the default-sorted rows, if one exists for
+// this exact date/machine/bucket. Rows not mentioned in the saved order (new since
+// it was set) are appended after, keeping their default-sorted relative order.
+function _applyRowOrderOverride(rows, planDate, machine, bucketType) {
+  var order = planDate && _rowOrderOverride[planDate + ':' + machine + ':' + bucketType];
+  if (!order || !order.length) return rows;
+  var byKey = {};
+  rows.forEach(function(r) { byKey[_rowOrderKey(r.name, r.itemName)] = r; });
+  var ordered = [];
+  order.forEach(function(k) { if (byKey[k]) { ordered.push(byKey[k]); delete byKey[k]; } });
+  rows.forEach(function(r) { var k = _rowOrderKey(r.name, r.itemName); if (byKey[k]) { ordered.push(r); delete byKey[k]; } });
+  return ordered;
+}
+
+// Drag a row onto another row in the same bucket+machine to move it there — reprioritizes
+// the work pool without crossing into a different bucket (DS still always fills before REG).
+function reorderBunch(machine, bucketType, draggedName, draggedItemName, targetName, targetItemName) {
+  var planDate = document.getElementById('plan-datepicker').value;
+  if (!planDate) return;
+  var draggedKey = _rowOrderKey(draggedName, draggedItemName);
+  var targetKey  = _rowOrderKey(targetName, targetItemName);
+  if (draggedKey === targetKey) return;
+  var ovKey = planDate + ':' + machine + ':' + bucketType;
+  var current = (_rowOrderOverride[ovKey] || _currentBucketOrderKeys(machine, bucketType)).slice();
+  current = current.filter(function(k) { return k !== draggedKey; });
+  var idx = current.indexOf(targetKey);
+  current.splice(idx === -1 ? current.length : idx, 0, draggedKey);
+  _rowOrderOverride[ovKey] = current;
+  if (window._planOrders) runPlan(window._planOrders);
+}
+
+// The bucket's current default-sorted row-key order, used to seed an override the
+// first time a row is dragged in that bucket (so the whole list doesn't collapse
+// down to just the two rows involved in that one drag).
+function _currentBucketOrderKeys(machine, bucketType) {
+  var rows = (window._livePlanRows || []).filter(function(r) { return r.machine === machine && !r.loadShifted; });
+  var qtyFn = bucketType === 'ds' ? function(r){ return r.dsQty; }
+            : bucketType === 'reg' ? function(r){ return r.regQty + r.asapQty; }
+            : bucketType === 'fba' ? function(r){ return r.fbaQty || 0; }
+            : function(r){ return r.qty; };
+  var filtered = rows.filter(function(r) { return bucketType === 'manual' ? r._manual : _bucketQty(r, bucketType) > 0; });
+  return _sortByPriority(filtered, qtyFn).map(function(r) { return _rowOrderKey(r.name, r.itemName); });
+}
+
 // A pseudo "machine" used as the moveBunchQty() destination when the owner
 // rolls a bunch forward to the next shift's plan instead of another machine.
 // Rows assigned to it are deliberately invisible to deriveLoadMapsFromRows /
@@ -1865,6 +1972,35 @@ function allowBunchDrop(event) {
 
 function clearBunchDropHighlight(event) {
   event.currentTarget.style.outline = 'none';
+}
+
+// Dropping a row onto another row in the SAME bucket+machine reprioritizes it there
+// instead of moving it to another machine. Only fires for single-item drags (a
+// multi-select/family drag always means "move to another machine", never reorder).
+// Falls through (no preventDefault/stopPropagation) when the drag is from a different
+// bucket or machine, so the card-level cross-machine drop still handles it normally.
+function allowRowReorderDrop(event, bucketType, machine) {
+  if (!_dragBunch || _dragBunch.length !== 1) return;
+  var d = _dragBunch[0];
+  if (d.bucketType !== bucketType || d.fromMachine !== machine) return;
+  event.preventDefault();
+  event.stopPropagation();
+  event.currentTarget.style.borderTop = '2px solid var(--green-dark)';
+}
+
+function clearRowReorderHighlight(event) {
+  event.currentTarget.style.borderTop = '';
+}
+
+function handleRowReorderDrop(event, targetName, targetItemName, bucketType, machine) {
+  if (!_dragBunch || _dragBunch.length !== 1) return;
+  var d = _dragBunch[0];
+  if (d.bucketType !== bucketType || d.fromMachine !== machine) return;
+  event.preventDefault();
+  event.stopPropagation();
+  clearRowReorderHighlight(event);
+  reorderBunch(machine, bucketType, d.name, d.itemName, targetName, targetItemName);
+  _dragBunch = null;
 }
 
 function handleBunchDrop(event, targetMachine) {
@@ -2296,12 +2432,12 @@ var ACTIVE_SHIFT = 'day';
 
 var SHIFT_CONFIG = {
   day: {
-    orderTypes: { DS: true, REG: true, ASAP: true, FBA: false },
+    orderTypes: { DS: true, REG: true, ASAP: true, FBA: false, Manual: true },
     machineHrs:    { '30': 8, '30+': 8, 'H5': 8, 'Drinkware M1': 8, 'Drinkware M2': 8 },
     machineMaints: { '30': 0, '30+': 0, 'H5': 0, 'Drinkware M1': 0, 'Drinkware M2': 0 }
   },
   night: {
-    orderTypes: { DS: false, REG: false, ASAP: false, FBA: true },
+    orderTypes: { DS: false, REG: false, ASAP: false, FBA: true, Manual: true },
     machineHrs:    { '30': 8, '30+': 8, 'H5': 0, 'Drinkware M1': 0, 'Drinkware M2': 0 },
     machineMaints: { '30': 0, '30+': 0, 'H5': 0, 'Drinkware M1': 0, 'Drinkware M2': 0 }
   }
@@ -2360,7 +2496,7 @@ function _loadShiftConfigToUI(shift) {
     var mEl = document.getElementById('maint-' + key);
     if (mEl) mEl.value = maints[m] || 0;
   });
-  ['DS','REG','ASAP','FBA'].forEach(function(t) {
+  ['DS','REG','ASAP','FBA','Manual'].forEach(function(t) {
     var pill = document.getElementById('ot-pill-' + t);
     if (!pill) return;
     var on = cfg.orderTypes[t];
@@ -3193,7 +3329,7 @@ function runPlan(orders) {
         itemName: o.itemName || '',
         machine: o.machine,
         qty: 0, dsQty: 0, regQty: 0, asapQty: 0, fbaQty: 0,
-        hasDSOrders: false, hasRegOrders: false
+        hasDSOrders: false, hasRegOrders: false, earliestWave: null
       };
     }
     groups[k].qty += o.qty;
@@ -3201,6 +3337,8 @@ function runPlan(orders) {
     else if (o.orderType === 'ASAP') { groups[k].asapQty += o.qty; }
     else if (o.orderType === 'FBA')  { groups[k].fbaQty  += o.qty; groups[k].hasRegOrders = true; }
     else                             { groups[k].regQty  += o.qty; groups[k].hasRegOrders = true; }
+    // Oldest wave date among the orders rolled into this row — used to prioritize fill order (oldest first).
+    if (o.waveDate && (!groups[k].earliestWave || o.waveDate < groups[k].earliestWave)) groups[k].earliestWave = o.waveDate;
   });
 
   var items = Object.values(groups).sort(function(a,b){ return b.qty - a.qty; })
@@ -3213,7 +3351,8 @@ function runPlan(orders) {
 
   // Manual items (samples, rework, internal jobs) — added on top of the uploaded order file,
   // for this exact plan date. Tagged _manual so they get their own bucket, not lumped into REG.
-  (planDate && _manualPlanItems[planDate] || []).forEach(function(m) {
+  // Gated by the Manual order-type pill, same as DS/REG/ASAP/FBA.
+  (activeTypes.Manual ? (planDate && _manualPlanItems[planDate] || []) : []).forEach(function(m) {
     var isDW = isDrinkware(m.pieceType, '');
     if ((PLAN_GROUP === 'drinkware') !== isDW) return;
     items.push({
@@ -3247,7 +3386,7 @@ function runPlan(orders) {
         // Only run the deduction (and show the "enter actual completion"
         // banner) when the two shifts' configured order types actually overlap.
         var _priorShiftTypes = SHIFT_CONFIG[_priorShiftKey].orderTypes;
-        var _typesOverlap = ['DS', 'REG', 'ASAP', 'FBA'].some(function(t) { return activeTypes[t] && _priorShiftTypes[t]; });
+        var _typesOverlap = ['DS', 'REG', 'ASAP', 'FBA', 'Manual'].some(function(t) { return activeTypes[t] && _priorShiftTypes[t]; });
 
         if (_typesOverlap) {
           _priorPlan = _candidatePriorPlan;
@@ -3518,7 +3657,8 @@ function runPlan(orders) {
       orderType: item._manual ? 'MANUAL' : item.hasDSOrders ? (item.hasRegOrders ? 'MIXED' : 'DS') : (item.fbaQty > 0 ? 'FBA' : item.asapQty > 0 ? 'ASAP' : 'REG'),
       machine: assignedMachine, originalMachine: item.machine,
       notes: notes, moved: moved, _shiftTag: item._shiftTag || null,
-      _manual: item._manual || false, _manualNote: item._manualNote || ''
+      _manual: item._manual || false, _manualNote: item._manualNote || '',
+      earliestWave: item.earliestWave || null
     });
   });
 
@@ -3608,7 +3748,8 @@ function runPlan(orders) {
           orderType: row.orderType,
           machine: toMachine, originalMachine: fromMachine,
           notes: ['Shifted: ' + fromMachine + ' → ' + toMachine + ' (' + toMove.toLocaleString() + ' pcs — ' + reason + ')'],
-          moved: true, loadShifted: true, _shiftTag: null
+          moved: true, loadShifted: true, _shiftTag: null,
+          earliestWave: row.earliestWave || null
         });
         row.qty -= toMove; row.dsQty -= dsMove; row.regQty -= regMove; row.asapQty -= asapMove; row.fbaQty -= fbaMove;
       }
@@ -4339,6 +4480,19 @@ function _resolvePlanForShiftGroup(date, shift, group, overrideMap) {
   return chosen;
 }
 
+// Planned qty for one machine, given an already-resolved plan object (or null).
+// Same target formula as buildPlanVsActual: min(open load, achievable capacity). 0 if no plan.
+function _plannedQtyFromPlan(plan, machine) {
+  if (!plan) return 0;
+  var plannedLoad  = plan.machineLoad ? (plan.machineLoad[machine] || 0) : 0;
+  var potentialCap = plan.machineActualCap ? (plan.machineActualCap[machine] || plan.machineCap[machine] || 0) : (plan.machineCap ? plan.machineCap[machine] || 0 : 0);
+  return Math.round(Math.min(plannedLoad, potentialCap));
+}
+// Convenience wrapper for one-off lookups (Totals calendar resolves the plan once per day/shift instead).
+function _calendarPlannedForShift(date, shift, machine) {
+  return _plannedQtyFromPlan(_resolvePlanForShiftGroup(date, shift, 'standard', null), machine);
+}
+
 // Returns all committed plans saved for the exact given date (both shifts, both groups + legacy format).
 function loadCommittedPlansForDate(date, overrideMap) {
   var plans = [];
@@ -5023,17 +5177,22 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
     var overloaded = open > remainingCap * 1.1;
     var cardCls    = overloaded ? 'overloaded' : '';
 
-    // Bar percentages are against time-based capacity (what the machine could produce in remaining hrs).
+    // Bar shows the true composition of open orders by type (matching the DS/Manual/
+    // REG numbers above), scaled to how much of today's time-based capacity that open
+    // work actually consumes — 100% wide when overloaded (the common case here), less
+    // than 100% when there's spare capacity, with the remainder shown as idle grey.
     var shiftCap = _timeBasedCap || 1;
     var fba = fbaLoad[m] || 0;
-    var dsPct     = Math.min(100, Math.round((ds / shiftCap) * 100));
-    var fbaPct    = Math.min(100 - dsPct, Math.round((fba / shiftCap) * 100));
-    // reg can be negative (overflow that couldn't fit) — clamp to 0 so it doesn't inflate idle
-    var regPct    = Math.max(0, Math.min(100 - dsPct - fbaPct, Math.round((reg / shiftCap) * 100)));
-    // Manual is lowest customer priority — fills after DS, FBA, REG
-    var manualPct = Math.min(100 - dsPct - fbaPct - regPct, Math.round((manual / shiftCap) * 100));
-    // If any work is rolling to tomorrow the machine has zero idle — don't show grey
-    var idlePct   = leftOver > 0 ? 0 : Math.max(0, 100 - dsPct - fbaPct - regPct - manualPct);
+    var dsSafe     = Math.max(0, ds);
+    var fbaSafe    = Math.max(0, fba);
+    var regSafe    = Math.max(0, reg); // reg can be negative (overflow that couldn't fit) — clamp so it doesn't distort the split
+    var manualSafe = Math.max(0, manual);
+    var barFillPct = open > 0 ? Math.min(100, Math.round((open / shiftCap) * 100)) : 0;
+    var dsPct     = open > 0 ? Math.round(barFillPct * dsSafe     / open) : 0;
+    var fbaPct    = open > 0 ? Math.round(barFillPct * fbaSafe    / open) : 0;
+    var regPct    = open > 0 ? Math.round(barFillPct * regSafe    / open) : 0;
+    var manualPct = Math.max(0, barFillPct - dsPct - fbaPct - regPct); // remainder — absorbs rounding drift, keeps segments summing to barFillPct
+    var idlePct   = Math.max(0, 100 - dsPct - fbaPct - regPct - manualPct);
 
     var ops = _machineOperators[m] != null ? _machineOperators[m] : 1;
     summaryHtml += '<div class="plan-card ' + cardCls + '" ondragover="allowBunchDrop(event)" ondragleave="clearBunchDropHighlight(event)" ondrop="handleBunchDrop(event,\'' + m + '\')">';
@@ -5185,10 +5344,12 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
     var cardId = 'breakdown-' + _machineIdKey(m);
 
     // Build buckets: DS, REG/ASAP, FBA, Manual/Other, Shifted-in
-    var dsRows      = machRows.filter(function(r){ return r.dsQty > 0 && !r.loadShifted; }).sort(function(a,b){ return b.dsQty - a.dsQty; });
-    var regRows     = machRows.filter(function(r){ return (r.regQty + r.asapQty) > 0 && !r.loadShifted; }).sort(function(a,b){ return (b.regQty+b.asapQty) - (a.regQty+a.asapQty); });
-    var fbaRows     = machRows.filter(function(r){ return (r.fbaQty || 0) > 0 && !r.loadShifted; }).sort(function(a,b){ return (b.fbaQty||0) - (a.fbaQty||0); });
-    var manualRows  = machRows.filter(function(r){ return r._manual && !r.loadShifted; }).sort(function(a,b){ return b.qty - a.qty; });
+    // Priority order: oldest wave date first within each bucket (qty as fallback), then any
+    // manual drag-to-reorder override for this exact date/machine/bucket on top of that.
+    var dsRows      = _applyRowOrderOverride(_sortByPriority(machRows.filter(function(r){ return r.dsQty > 0 && !r.loadShifted; }), function(r){ return r.dsQty; }), planDate, m, 'ds');
+    var regRows     = _applyRowOrderOverride(_sortByPriority(machRows.filter(function(r){ return (r.regQty + r.asapQty) > 0 && !r.loadShifted; }), function(r){ return r.regQty + r.asapQty; }), planDate, m, 'reg');
+    var fbaRows     = _applyRowOrderOverride(_sortByPriority(machRows.filter(function(r){ return (r.fbaQty || 0) > 0 && !r.loadShifted; }), function(r){ return r.fbaQty || 0; }), planDate, m, 'fba');
+    var manualRows  = _applyRowOrderOverride(_sortByPriority(machRows.filter(function(r){ return r._manual && !r.loadShifted; }), function(r){ return r.qty; }), planDate, m, 'manual');
     var shiftedRows = machRows.filter(function(r){ return r.loadShifted; }).sort(function(a,b){ return b.qty - a.qty; });
 
     // bucketType ('ds'|'reg'|'fba'|'manual') makes each line draggable onto another
@@ -5242,7 +5403,11 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
           var dragAttrs = bucketType
             ? ' class="bunch-row" draggable="true"' +
               ' ondragstart="startBunchDrag(event,\'' + _jsEsc(r.name) + '\',\'' + _jsEsc(r.itemName) + '\',\'' + bucketType + '\',\'' + m + '\',' + q + ')"' +
+              ' ondragover="allowRowReorderDrop(event,\'' + bucketType + '\',\'' + m + '\')"' +
+              ' ondragleave="clearRowReorderHighlight(event)"' +
+              ' ondrop="handleRowReorderDrop(event,\'' + _jsEsc(r.name) + '\',\'' + _jsEsc(r.itemName) + '\',\'' + bucketType + '\',\'' + m + '\')"' +
               ' onclick="toggleBunchSelection(event,\'' + _jsEsc(r.name) + '\',\'' + _jsEsc(r.itemName) + '\',\'' + bucketType + '\',\'' + m + '\',' + q + ')"' +
+              ' title="Drag to move to another machine, or drop onto another row here to reprioritize"' +
               ' style="cursor:grab' + (selected ? ';background:var(--green-light)' : '') + '"'
             : '';
           var checkSpan = bucketType
@@ -6084,12 +6249,17 @@ function rebuildDAILY() {
   Object.keys(RAW.sessions).forEach(function(machine) {
     RAW.sessions[machine].forEach(function(s) {
       if (!s.t) return;
-      if (!daily[s.t]) daily[s.t] = { good:0, bad:0, wallets:0, walletsBad:0, byMachine:{}, oee:{} };
+      if (!daily[s.t]) daily[s.t] = { good:0, bad:0, wallets:0, walletsBad:0, drinkware:0, drinkwareBad:0, byMachine:{}, oee:{}, am:{good:0,bad:0}, pm:{good:0,bad:0} };
       var d = daily[s.t];
-      if (!d.byMachine[machine]) d.byMachine[machine] = { good:0, bad:0 };
+      if (!d.byMachine[machine]) d.byMachine[machine] = { good:0, bad:0, am:{good:0,bad:0}, pm:{good:0,bad:0} };
       d.byMachine[machine].good += s.g; d.byMachine[machine].bad += s.b;
+      // AM/PM split for the Totals calendar — mutually exclusive by clock hour (AM: before 3pm, PM: 3pm on)
+      var half = (s.ts && new Date(s.ts).getHours() >= 15) ? 'pm' : 'am';
+      d.byMachine[machine][half].good += s.g; d.byMachine[machine][half].bad += s.b;
+      // "Total pieces" is the print floor (30/30+/H5) only — Wallets and Drinkware are tracked separately
       if (machine === 'Wallets') { d.wallets += s.g; d.walletsBad += s.b; }
-      else { d.good += s.g; d.bad += s.b; }
+      else if (machine === 'Drinkware M1' || machine === 'Drinkware M2') { d.drinkware += s.g; d.drinkwareBad += s.b; }
+      else { d.good += s.g; d.bad += s.b; d[half].good += s.g; d[half].bad += s.b; }
     });
   });
   OEE_MACHINES.forEach(function(machine) {
