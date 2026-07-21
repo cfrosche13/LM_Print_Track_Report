@@ -4949,7 +4949,11 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
     var cap  = (machineActualCap && machineActualCap[m] !== undefined) ? machineActualCap[m] : MACHINE_GOALS[m];
     var _mNetHrs   = MACHINE_NET_HRS[m] || 0;
     var _mHrsNeeded = (machineHrsNeeded && machineHrsNeeded[m]) || 0;
-    var _mDenom  = _mHrsNeeded > 0 ? _mHrsNeeded : _mNetHrs;
+    // Denominator is capped at the shift's own net hours — a backlog that would take
+    // longer than a full shift to clear must NOT shrink the fraction below what a full
+    // shift's worth of remaining time can still achieve (that inverted the fraction's
+    // meaning: the bigger the backlog, the smaller remaining capacity looked, backwards).
+    var _mDenom  = _mHrsNeeded > 0 ? Math.min(_mHrsNeeded, _mNetHrs) : _mNetHrs;
     var _mFrac   = _mDenom > 0 ? Math.min(1, _remainingHrs / _mDenom) : 0;
     var remainingCap = Math.round(cap * _mFrac);
     var open = load[m] || 0;
@@ -4971,8 +4975,10 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
     ? shopLeftOver.toLocaleString() + ' pieces will roll — not enough capacity to fill all open orders today'
     : 'All open orders fit within today\'s capacity — you\'re good to go';
 
-  var heroLeftToPrint  = totalOpen;
-  var heroDisplayTotal = actualToday + heroLeftToPrint;
+  // "Left To Print" / "Today's Plan" reflect what's actually achievable this shift
+  // (capacity-bound), not the full open backlog — that's what "Open Orders" is for.
+  var heroLeftToPrint  = totalCanDo;
+  var heroDisplayTotal = actualToday + totalCanDo;
 
   var heroHtml = '';
   heroHtml += '<div style="background:' + heroBg + ';border:2px solid ' + heroBdr + ';border-radius:var(--radius);padding:1.25rem 1.75rem;margin-bottom:1.5rem">';
@@ -4987,7 +4993,7 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
   heroHtml += '<div style="font-family:\'Lora\',serif;font-size:44px;font-weight:700;color:var(--text);line-height:1">' + totalOpen.toLocaleString() + '</div>';
   heroHtml += '</div>';
   heroHtml += '<div>';
-  heroHtml += '<div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:2px">Plan Total</div>';
+  heroHtml += '<div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:2px">Today\'s Plan</div>';
   heroHtml += '<div style="font-family:\'Lora\',serif;font-size:44px;font-weight:700;color:var(--green-dark);line-height:1">' + heroDisplayTotal.toLocaleString() + '</div>';
   heroHtml += '</div>';
   heroHtml += '</div>';
@@ -5157,13 +5163,18 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
     var cap         = (machineActualCap && machineActualCap[m] !== undefined) ? machineActualCap[m] : MACHINE_GOALS[m];
     var _mNetHrs    = MACHINE_NET_HRS[m] || 0;
     var _mHrsNeeded = (machineHrsNeeded && machineHrsNeeded[m]) || 0;
-    var _mDenom     = _mHrsNeeded > 0 ? _mHrsNeeded : _mNetHrs;
+    // Denominator is capped at the shift's own net hours — a backlog that would take
+    // longer than a full shift to clear must NOT shrink the fraction below what a full
+    // shift's worth of remaining time can still achieve (that inverted the fraction's
+    // meaning: the bigger the backlog, the smaller remaining capacity looked, backwards).
+    var _mHrsDenom  = _mHrsNeeded > 0 ? Math.min(_mHrsNeeded, _mNetHrs) : _mNetHrs;
+    var _mDenom     = _mHrsDenom;
     var _mFrac      = _mDenom > 0 ? Math.min(1, _remainingHrs / _mDenom) : 0;
     var remainingCap = Math.round(cap * _mFrac);
     // Time-based cap: full throughput the machine could achieve in remaining shift time.
     // Used for bar display and pre-pro suggestions — not for rolls (that uses remainingCap).
-    var _timeBasedCap = (_mHrsNeeded > 0)
-      ? Math.round(cap * _remainingHrs / _mHrsNeeded)
+    var _timeBasedCap = (_mHrsDenom > 0)
+      ? Math.round(cap * _remainingHrs / _mHrsDenom)
       : (_mNetHrs > 0 ? Math.round(MACHINE_GOALS[m] * _remainingHrs / _mNetHrs) : 0);
     var open     = load[m] || 0;
     var ds       = dsLoad[m] || 0;
@@ -5208,19 +5219,22 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
     var _maintNote = _mMaint > 0 ? ' &nbsp;&middot;&nbsp; <span style="color:var(--amber)">' + _mMaint + 'h maint lost</span>' : '';
     summaryHtml += '<div style="font-size:10px;color:var(--muted);margin-bottom:2px">&#9201; ' + _mShiftNote + ' &nbsp;&middot;&nbsp; cap: ' + _timeBasedCap.toLocaleString() + ' pcs' + _maintNote + '</div>';
 
-    // Per-machine stat rows: Open Orders / Plan Total / Printed / Left To Print / Rolls
+    // Per-machine stat rows: Open Orders / Today's Plan / Printed / Left To Print / Rolls.
+    // "Today's Plan" and "Left To Print" are capacity-bound (canDo) — what will actually
+    // get produced this shift. "Open Orders" is the full backlog; "Rolls" is what won't
+    // fit today. Printed + Left To Print always sums to Today's Plan.
     var madeToday    = machineActualToday[m] || 0;
-    var machineLeftToPrint = open;
-    var machinePlanTotal   = madeToday + open;
+    var machineLeftToPrint = canDo;
+    var machinePlanTotal   = madeToday + canDo;
 
-    // Row 1: Open Orders | Plan Total
+    // Row 1: Open Orders | Today's Plan
     summaryHtml += '<div style="display:flex;gap:1.5rem;margin-top:10px;margin-bottom:8px;flex-wrap:wrap;align-items:flex-end">';
     summaryHtml += '<div>';
     summaryHtml += '<div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:2px">Open Orders</div>';
     summaryHtml += '<div style="font-family:\'Lora\',serif;font-size:32px;font-weight:700;color:var(--text);line-height:1">' + open.toLocaleString() + '</div>';
     summaryHtml += '</div>';
     summaryHtml += '<div>';
-    summaryHtml += '<div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:2px">Plan Total</div>';
+    summaryHtml += '<div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:2px">Today\'s Plan</div>';
     summaryHtml += '<div style="font-family:\'Lora\',serif;font-size:32px;font-weight:700;color:var(--green-dark);line-height:1">' + machinePlanTotal.toLocaleString() + '</div>';
     summaryHtml += '</div>';
     summaryHtml += '</div>';

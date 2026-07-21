@@ -16,22 +16,6 @@ browser to use it.
 - **Claude_Code_LM** — the Print Log app (EGStudio PrintLog) that tracks
   nesting files, gang job sheets, and order status. Separate system.
 
-## How data gets in
-The report is not live-connected to Firebase. Data is exported from the
-Firebase Realtime Database (`eg-studio-production-tracker-default-rtdb`) and
-embedded directly into `index.html` as a `var RAW = {...}` JavaScript object
-at the top of the `<script>` block.
-
-To refresh the report with new data:
-1. Export the relevant nodes from Firebase (sessions, targets, maint, wait,
-   tallyClicks, oeeParams, shiftMin).
-2. Replace the `RAW` object in `index.html` with the new export.
-3. Update the `max` attribute on the date picker input and the `DAILY`
-   pre-computed object if needed.
-
-The `DAILY` object is a pre-aggregated summary (good/bad/wallets/OEE per day)
-used by the Totals calendar view. It must be kept in sync with `RAW`.
-
 ## Data structure (RAW object)
 - `RAW.sessions` — keyed by machine name (`30`, `30+`, `H5`, `Colex`,
   `Wallets`, `H5`, etc.). Each session has:
@@ -68,27 +52,6 @@ used by the Totals calendar view. It must be kept in sync with `RAW`.
 OEE is calculated for `30`, `30+`, and `H5` only. Colex and Wallets have
 `idealCycleSec: 0` and no OEE target.
 
-## Two tabs
-### Daily Report tab
-- Date picker with prev/next navigation and quick-jump buttons
-- Win/Loss verdict banner (green = all PPH targets hit + all OEE targets met)
-- Key metrics strip (good pieces, bad pieces, active time, wait time, incidents)
-- OEE section with per-machine cards and bar chart
-- Actual vs. target PPH table — tally-mode and stamped sessions are excluded
-  from PPH comparison (no reliable per-piece timing in tally mode)
-- PPH comparison bar chart (top 12 piece types)
-- Wait & downtime log
-- Incident log (excludes Cleaning events — those are too numerous)
-
-### Totals tab
-- Month selector
-- Summary strip (total good pieces, wallets, bad pieces, OEE target rate)
-- Calendar grid — each day cell shows piece count, wallet count, and OEE chips
-  per machine (color-coded win/miss)
-- Click any day to open a detail panel below the calendar
-- "Open full daily report" button in the detail panel switches back to the
-  Daily tab for that date
-
 ## OEE calculation method
 ```
 Availability = (SHIFT_SEC - stdDownSec - waitSec) / SHIFT_SEC
@@ -113,19 +76,6 @@ Examples: `Coir · 28x16 FC`, `Signs · Yard Sign`, `Non-Coir Mats · PVC`
 - Tally mode was introduced around April 15, 2026, replacing stop-go timing
   for some machines. Tally sessions have `m: "tally"` and lack reliable
   per-piece timing, so they appear in piece counts but not PPH.
-- The `DAILY` pre-aggregated object must be manually updated when new data is
-  exported; it is not auto-generated from `RAW`.
-- The date picker `min`/`max` and quick-jump buttons are hardcoded — update
-  them when refreshing data.
-
-## Deployment
-This file does not need to be deployed. It is opened locally in a browser.
-If shared with the team, copy `index.html` to a shared drive or email it —
-it is fully self-contained.
-
-Optionally, it could be hosted as a static page on Netlify (drag-and-drop
-the file), which would give it a permanent URL. No build step required.
-
 ## Rules for Claude Code
 - Do not change the data structure or variable names in the `RAW` object.
 - Do not add external dependencies beyond Chart.js (already loaded from CDN).
