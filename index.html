@@ -1623,11 +1623,12 @@ function selectDay(dateStr) {
 // ─── PLANNER ─────────────────────────────────────────────────────────────────
 
 // Historical baseline: 350/500/600 pieces over an 8-hr shift with 0 min break + 45 min maintenance (7.25 net hrs)
-// Blended fallback rates — updated 2026-07-21 from the average of measured PPH per machine
-// (Y:\Time Studies\LM_Production_Planner_v1.xlsx). Prior values: 30=53.8, 30+=76.9, H5=92.3
-// (see Y:\Time Studies\REVERT_PPH_baselines_prompt.md to restore). 30 and H5 samples are thin
-// (4 and 5 measured products respectively) — revisit as more of the sheet gets measured.
-var MACHINE_PPH = { '30': 59.1, '30+': 97.6, 'H5': 164.0, 'Drinkware M1': 60, 'Drinkware M2': 60 };
+// Blended fallback rates — calibrated 2026-07-21 to the owner's real-world achievable shift
+// totals (350 / 700 / 1,100 pcs at 7.75 net hrs) rather than the raw measured-PPH average,
+// since that average (59.1/97.6/164.0) didn't account for piece-type changeover time between
+// runs and overshot what's actually achievable. Prior values: 30=53.8, 30+=76.9, H5=92.3
+// (see Y:\Time Studies\REVERT_PPH_baselines_prompt.md to restore).
+var MACHINE_PPH = { '30': 45.2, '30+': 90.3, 'H5': 141.9, 'Drinkware M1': 60, 'Drinkware M2': 60 };
 // Load any overrides saved from the Targets & Rules tab
 (function() {
   try {
