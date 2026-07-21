@@ -2232,26 +2232,35 @@ function cancelMoveQty() {
 
 // Per-machine product PPH defaults — baked into the code so every device starts with correct rates.
 // User edits in the Targets & Rules tab save to localStorage and merge on top of these.
+// Updated 2026-07-21 from time-study measurements (Y:\Time Studies\LM_Production_Planner_v1.xlsx,
+// PIECExMACHINE sheet) vs. the prior baseline. Owner-confirmed mappings: Anti-Fatigue 18x30=Small,
+// 20x40=Large; "Hanging Sign 18x18" = the "18\" Circle" target row; Yard Sign singles run on 30+
+// alongside H5 full-sheet runs. Prior values are preserved in a revert prompt the owner holds onto.
 var _MACHINE_PPH_DEFAULTS = {
-  'Coir · 28x16 FC':            { '30':  50, '30+':  65 },
-  'Coir · 28x16 OC':            { '30':  55, '30+':  70 },
-  'Coir · 30x18 FC':            { '30':  34, '30+':  43 },
-  'Coir · 30x18 OC':            { '30':  33, '30+':  46 },
-  'Coir · 36x24 FC':            { '30':  27, '30+':  37 },
-  'Coir · 36x24 OC':            { '30':  32, '30+':  37 },
-  'Coir · 60x24 FC':            { '30':  22, '30+':  30 },
-  'Coir · 60x24 OC':            { '30':  26, '30+':  35 },
-  'Coir · Flocked':             { '30+': 113, 'H5': 127 },
-  'Non-Coir Mats · AF Large':   { '30':  41, '30+':  41, 'H5':  80 },
-  'Non-Coir Mats · AF Small':   { '30':  89, '30+':  89, 'H5': 100 },
+  'Coir · 28x16 FC':            { '30':  50,   '30+':  83.5 },
+  'Coir · 28x16 OC':            { '30':  66.4, '30+': 156.9 },
+  'Coir · 30x18 FC':            { '30':  34,   '30+':  58.5 },
+  'Coir · 30x18 OC':            { '30':  78.2, '30+': 110.8 },
+  'Coir · 36x24 FC':            { '30':  27,   '30+':  42.1 },
+  'Coir · 36x24 OC':            { '30':  56.4, '30+':  77.9 },
+  'Coir · 60x24 FC':            { '30':  22,   '30+':  35.1 },
+  'Coir · 60x24 OC':            { '30':  35.5, '30+':  51.6 },
+  'Coir · Flocked':             { '30+': 138.5, 'H5': 127 },
+  'Non-Coir Mats · AF Large':   { '30':  41, '30+':  52.9, 'H5':  40.2 },
+  'Non-Coir Mats · AF Small':   { '30':  89, '30+':  75.4, 'H5': 213.9 },
   'Non-Coir Mats · Drying Mat': { '30': 106, '30+': 106 },
-  'Non-Coir Mats · PVC':        { '30':  92, '30+':  92, 'H5': 100 },
-  'Signs · Double Sided Leaner':{ '30+':  35, 'H5':  35 },
+  'Non-Coir Mats · PVC':        { '30':  92, '30+':  73.7, 'H5': 184.6 },
+  'Signs · Double Sided Leaner':{ '30+':  73.5, 'H5': 130.9 },
   'Signs · Leaner':             { '30+':  77, 'H5':  72 },
-  'Signs · 18" Circle':         { '30+': 112, 'H5': 130 },
+  'Signs · 18" Circle':         { '30+': 105.5, 'H5': 250.4 },
   'Roll Media · Large Canvas':  { 'H5':  40 },
   'Roll Media · Small Canvas':  { 'H5':  64 },
-  'Signs · Yard Sign':          { 'H5': 200 }
+  'Signs · Yard Sign':          { '30+': 70.6, 'H5': 200 },
+  'Signs · 12x12':              { '30+': 90.9 },
+  'Signs · 12x8 Plock':         { '30+': 45.0 },
+  'Signs · 6x6 Plock':          { '30+': 478.9 },
+  'Signs · 16x24':              { '30+': 49.3 },
+  'Signs · 11x6 Plock':         { '30+': 80.7 }
 };
 
 var _machineTargetOverrides = {};
