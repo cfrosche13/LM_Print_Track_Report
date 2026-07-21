@@ -2327,6 +2327,28 @@ function commitPphToFirebase() {
   }
 }
 
+function commitMachinePphToFirebase() {
+  var btn = document.getElementById('commit-machine-pph-btn');
+  var msg = document.getElementById('commit-machine-pph-msg');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  if (msg) { msg.textContent = ''; msg.style.color = ''; }
+  try {
+    firebase.database().ref('plannerSettings/machineBaselinePph').set(MACHINE_PPH)
+      .then(function() {
+        if (btn) { btn.disabled = false; btn.textContent = 'Commit to all devices'; }
+        if (msg) { msg.textContent = '✓ Saved — all devices will use these rates on next load.'; msg.style.color = 'var(--green-dark)'; }
+        saveMachinePPH(); // also keep localStorage in sync
+      })
+      .catch(function(err) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Commit to all devices'; }
+        if (msg) { msg.textContent = '✗ Save failed: ' + (err && err.message ? err.message : 'unknown error'); msg.style.color = 'var(--red)'; }
+      });
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Commit to all devices'; }
+    if (msg) { msg.textContent = '✗ Save failed (not signed in?).'; msg.style.color = 'var(--red)'; }
+  }
+}
+
 // Per-product routing overrides — keyed { productName: { home: 'H5', flex: ['30+'] } }
 // Takes priority over keyword-detection routing in the planner.
 var _routingOverrides = {};
@@ -4134,7 +4156,7 @@ function viewSavedPlan(storageKey) {
   html += metaTile('Saved at', when);
   html += metaTile('Shift', shiftLabel);
   html += metaTile('Net hours', (raw.netHrs || '—') + ' hrs');
-  html += metaTile('Made today', '<span style="color:var(--green-dark)">' + totalMade.toLocaleString() + '</span>');
+  html += metaTile('Planned for today', '<span style="color:var(--green-dark)">' + totalMade.toLocaleString() + '</span>');
   if (totalRolls > 0) html += metaTile('Rolls', '<span style="color:var(--red)">' + totalRolls.toLocaleString() + '</span>');
   if (raw.actualToday) html += metaTile('Actually produced', '<span style="color:var(--green-dark)">&#10003; ' + raw.actualToday.toLocaleString() + '</span>');
   html += '</div>';
@@ -4150,7 +4172,7 @@ function viewSavedPlan(storageKey) {
     var actual = (raw.machineActualToday && raw.machineActualToday[m]) || 0;
     html += '<div style="background:var(--bg);border:1px solid var(--border);border-top:3px solid ' + (rolls > 0 ? 'var(--red)' : 'var(--green-dark)') + ';border-radius:6px;padding:10px 12px">';
     html += '<div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Machine ' + m + (down ? ' <span style="color:var(--red)">(DOWN)</span>' : '') + '</div>';
-    html += '<div style="font-size:11px;color:var(--muted)">Made today</div>';
+    html += '<div style="font-size:11px;color:var(--muted)">Planned for today</div>';
     html += '<div style="font-family:\'Lora\',serif;font-size:26px;font-weight:700;color:var(--green-dark);line-height:1.1">' + made.toLocaleString() + '</div>';
     html += '<div style="font-size:11px;color:var(--muted);margin-top:2px">of ' + open.toLocaleString() + ' open</div>';
     if (actual > 0) {
@@ -4260,8 +4282,9 @@ function printSavedPlan() {
     totalRolls += Math.max(0, open - cap);
     totalOpen  += open;
   });
-  // Planned Total = open orders at commit + already made = full shift workload
-  var totalPlanned = totalOpen + (raw.actualToday || 0);
+  // Planned Total = capacity-bound achievable amount + already made — NOT raw open orders,
+  // which would double-count backlog that was never going to fit in the shift anyway.
+  var totalPlanned = totalMade + (raw.actualToday || 0);
 
   // Total operators across all machines
   var totalOps = 0;
@@ -4333,9 +4356,9 @@ function printSavedPlan() {
     s += '</div>';
 
     // Planned + Made row (+ Still Open when work is underway)
-    // planned = open (remaining orders) + actual (already made) = total machine workload
-    // open is already the remaining orders at commit time (actuals subtracted before commit)
-    var machinePlanned = open + actual;
+    // planned = capacity-bound achievable (made) + actual (already made when committed) —
+    // using raw open orders here double-counted backlog that was never going to fit today.
+    var machinePlanned = made + actual;
     s += '<div style="display:flex;gap:1rem;align-items:flex-end;padding-bottom:10px;border-bottom:1px solid #dde8e0;margin-bottom:10px">';
     s += '<div><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#7a9585;margin-bottom:1px">Planned</div>';
     s += '<div class="sp-card-num">' + machinePlanned.toLocaleString() + '</div>';
@@ -6196,13 +6219,17 @@ function fetchFirebaseData() {
   var plannerSettingsPromise = firebase.database().ref('plannerSettings/machineTargetOverrides').once('value')
     .then(function(s){ return s.val() || {}; })
     .catch(function(){ return {}; });
+  var machineBaselinePromise = firebase.database().ref('plannerSettings/machineBaselinePph').once('value')
+    .then(function(s){ return s.val() || {}; })
+    .catch(function(){ return {}; });
   Promise.all([
     firebase.database().ref('sessions').once('value'),
     firebase.database().ref('targets').once('value'),
     firebase.database().ref('maintLog').once('value'),
     firebase.database().ref('waitLog').once('value'),
     oeeParamsPromise,
-    plannerSettingsPromise
+    plannerSettingsPromise,
+    machineBaselinePromise
   ]).then(function(snaps) {
     var fbSessions  = snaps[0].val() || {};
     var fbTargets   = snaps[1].val() || {};
@@ -6210,6 +6237,7 @@ function fetchFirebaseData() {
     var fbWaitLog   = snaps[3].val() || {};
     var fbOeeParams = snaps[4] || {};
     var fbPphOverrides = snaps[5] || {};
+    var fbMachineBaseline = snaps[6] || {};
     // Apply Firebase PPH overrides on top of code defaults (Firebase wins over localStorage)
     if (Object.keys(fbPphOverrides).length) {
       Object.keys(fbPphOverrides).forEach(function(k) {
@@ -6219,6 +6247,13 @@ function fetchFirebaseData() {
         });
       });
       try { localStorage.setItem('machineTargetOverrides', JSON.stringify(fbPphOverrides)); } catch(e) {}
+    }
+    // Same pattern for the flat machine baseline rates (Firebase wins over localStorage)
+    if (Object.keys(fbMachineBaseline).length) {
+      Object.keys(fbMachineBaseline).forEach(function(m) {
+        if (fbMachineBaseline[m]) MACHINE_PPH[m] = fbMachineBaseline[m];
+      });
+      try { localStorage.setItem('machinePPH', JSON.stringify(fbMachineBaseline)); } catch(e) {}
     }
     var newRAW = { sessions: {}, targets: fbTargets, maint: [], wait: [],
       oeeParams: Object.keys(fbOeeParams).length ? fbOeeParams : DEFAULT_OEE_PARAMS, shiftMin: 570 };
@@ -6553,7 +6588,7 @@ function renderSettings() {
   // ── Section 1: Machine Baseline Rates ────────────────────────────────────
   h += '<div class="section animate">';
   h += '<div class="section-head">Machine baseline rates</div>';
-  h += '<div class="settings-note">These are the <strong>fallback speeds</strong> used when a product has no individual target in Firebase. If a product IS in Firebase targets, that number is used instead — these only kick in as a backup. Changes here are saved to your browser.</div>';
+  h += '<div class="settings-note">These are the <strong>fallback speeds</strong> used when a product has no individual target in Firebase. If a product IS in Firebase targets, that number is used instead — these only kick in as a backup. Changes here save to your browser — click "Commit to all devices" below to push them to Firebase too.</div>';
   h += '<div class="table-wrap"><table class="settings-table">';
   h += '<thead><tr><th>Machine</th><th>Pieces per hour</th><th>Full-shift goal</th><th>Net hours</th><th></th></tr></thead><tbody>';
   var mDesc = { '30': 'Coir mats', '30+': 'Flocked / Overflow', 'H5': 'PVC · Signs · Canvas', 'Drinkware M1': 'Drinkware', 'Drinkware M2': 'Drinkware' };
@@ -6571,6 +6606,13 @@ function renderSettings() {
   });
   h += '</tbody></table></div>';
   h += '<div style="font-size:11px;color:var(--muted);margin-top:6px">Tip: The full-shift goal updates automatically when you adjust shift length or break time in the Planning tab.</div>';
+  h += '<div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin-top:10px">';
+  h += '<button id="commit-machine-pph-btn" onclick="commitMachinePphToFirebase()" ';
+  h += 'style="background:var(--green-dark);color:#fff;border:none;border-radius:var(--radius);padding:9px 20px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">';
+  h += '&#9729; Commit to all devices</button>';
+  h += '<span style="font-size:12px;color:var(--muted)">Saves these machine baseline rates to Firebase so every device uses the same numbers on next load.</span>';
+  h += '<span id="commit-machine-pph-msg" style="font-size:12px;font-weight:600"></span>';
+  h += '</div>';
   h += '</div>';
 
   // ── Section 2: Product Speed Targets — per machine ───────────────────────
