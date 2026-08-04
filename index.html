@@ -597,6 +597,19 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     <div id="fsa-file-label" style="display:none;font-size:12px;color:var(--muted);margin-top:6px"></div>
     <div id="csv-status" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
 
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <button id="coir-fsa-connect-btn" onclick="coirFsaConnect()" style="background:var(--white);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">Connect coir art folder</button>
+      <button id="coir-fsa-reload-btn" onclick="coirFsaReload()" style="display:none;background:var(--white);color:var(--green-dark);border:2px solid var(--green-win-border);border-radius:var(--radius);padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">&#8635; Rescan folder</button>
+      <span style="font-size:11px;color:var(--muted)">Used to tell One Color coir (&rarr; Machine 30) from Full Color coir (&rarr; Machine 30+) by matching order SKUs against Y:\CATEGORY PRINT FILES</span>
+    </div>
+    <div id="coir-fsa-file-label" style="display:none;font-size:12px;color:var(--muted);margin-top:6px"></div>
+    <div id="coir-fsa-status" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
+    <div style="margin-top:8px;display:flex;align-items:center;gap:8px">
+      <input type="text" id="coir-sku-test-input" placeholder="Test a SKU, e.g. 2RM1746ECMR" style="padding:6px 9px;border:1px solid var(--border);border-radius:6px;font-size:12px;width:220px;font-family:inherit" onkeydown="if(event.key==='Enter')testCoirSku()">
+      <button onclick="testCoirSku()" style="background:var(--white);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit">Check SKU</button>
+      <span id="coir-sku-test-result" style="font-size:12px;color:var(--muted)"></span>
+    </div>
+
     <div id="manual-item-form" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
       <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Production not in the order file &mdash; samples, rework, internal jobs, etc.</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
@@ -2366,7 +2379,7 @@ function _saveRoutingOverrides() {
 function _getProductHome(name, iname) {
   var key = name || iname;
   if (key && _routingOverrides[key] && _routingOverrides[key].home) return _routingOverrides[key].home;
-  return deriveMachineFromProduct(name || iname);
+  return deriveMachineFromProduct(name, iname);
 }
 
 // Returns the flex machines for a product, checking routing overrides first.
@@ -2814,24 +2827,71 @@ function _canonicalProductKey(name) {
   return n;
 }
 
-// Derive home machine from product name when no Machine column exists (LMContainers format)
-function deriveMachineFromProduct(name) {
-  if (!name) return null;
-  if (_routingOverrides[name] && _routingOverrides[name].home) return _routingOverrides[name].home;
-  if (isDrinkware(name, ''))        return 'Drinkware M1';
-  if (isFlocked(name, ''))          return '30+';
-  if (isCoir(name, ''))             return '30';
-  if (isCircle(name, ''))           return '30+';
-  if (isYardSign(name, ''))         return 'H5';
-  if (isPVC(name, ''))              return 'H5';
-  if (isHangingSign18x18(name, '')) return 'H5';
-  if (isHangingSign(name, ''))      return '30+';
-  if (isAntiFatigue(name, ''))      return 'H5';
-  if (isPorchLeaner(name, ''))      return 'H5';
-  if (isCanvas(name, ''))           return 'H5';
-  if (isWallArt(name, ''))          return '30+';
-  if (isWoodSign(name, ''))         return '30+';
+// Derive home machine from product name when no Machine column exists (LMContainers format).
+// coirSku is the dedicated item_id-based SKU used only for coir color matching —
+// see the comment on _coirHomeMachine for why this can't just reuse `iname`.
+function deriveMachineFromProduct(name, iname, coirSku) {
+  if (!name && !iname) return null;
+  var key = name || iname;
+  if (_routingOverrides[key] && _routingOverrides[key].home) return _routingOverrides[key].home;
+  if (isDrinkware(key, ''))         return 'Drinkware M1';
+  if (isFlocked(key, ''))           return '30+';
+  if (isCoir(key, ''))              return _coirHomeMachine(coirSku || iname, name);
+  if (isCircle(key, ''))            return '30+';
+  if (isYardSign(key, ''))          return 'H5';
+  if (isPVC(key, ''))               return 'H5';
+  if (isHangingSign18x18(key, '')) return 'H5';
+  if (isHangingSign(key, ''))       return '30+';
+  if (isAntiFatigue(key, ''))       return 'H5';
+  if (isPorchLeaner(key, ''))       return 'H5';
+  if (isCanvas(key, ''))            return 'H5';
+  if (isWallArt(key, ''))           return '30+';
+  if (isWoodSign(key, ''))          return '30+';
   return null;
+}
+
+// Plain-coir home machine: One Color -> 30, Full Color -> 30+ (Flocked Coir is
+// unaffected — it stays on 30+ regardless of color, see isFlocked() above).
+// Primary signal is the order's item_id (the real design SKU, matches the art
+// file naming, e.g. "2RM1744ECMA" — NOT kids_item, which is a generic
+// kit/container code shared by many unrelated orders, confirmed 2026-08-04)
+// matched against the art-file index built from Y:\CATEGORY PRINT FILES (see
+// _coirSkuColorMap / coirFsaConnect). If the SKU isn't in the index (folder
+// not connected yet, or a brand-new SKU), falls back to an FC/OC token in the
+// product name itself (Print Track's own naming, e.g. "Coir · 28x16 FC"),
+// then finally to 30 (the old default) if neither
+// signal is available.
+function _coirHomeMachine(sku, name) {
+  return _coirColorFor(sku, name) === 'FC' ? '30+' : '30';
+}
+
+// Resolves a plain-coir item's color using the same priority order as
+// _coirHomeMachine, but returns 'FC' / 'OC' / null (null = unresolved, not
+// defaulted) so callers like the plan-breakdown badge can show "unmatched"
+// instead of silently implying a color that was never actually confirmed.
+function _coirColorFor(sku, name) {
+  var color = _lookupCoirColor(sku);
+  if (!color && name) {
+    var tokens = String(name).toUpperCase().split(/[^A-Z0-9]+/);
+    if (tokens.indexOf('FC') !== -1) color = 'FC';
+    else if (tokens.indexOf('OC') !== -1) color = 'OC';
+  }
+  return color || null;
+}
+
+// Appends the resolved color to a plain-coir item's display name, e.g.
+// "COIR 60x24" -> "COIR 60x24 FC" / "COIR 60x24 OC", so the SKU-matched
+// color is visible directly in the plan breakdown text. Only ever used for
+// the text shown to the owner — r.name itself (used for dragging, selection,
+// and matching elsewhere) is never touched. Leaves the name alone if it
+// already ends in FC/OC (Print Track's own naming) or if the color couldn't
+// be resolved at all.
+function _coirDisplayName(name, coirSku) {
+  name = name || '';
+  if (!isCoir(name, coirSku || '')) return name;
+  if (/\b(FC|OC)\s*$/i.test(name)) return name;
+  var color = _coirColorFor(coirSku, name);
+  return color ? (name + ' ' + color) : name;
 }
 
 // Look up PPH for a plan item. Priority:
@@ -3136,6 +3196,264 @@ async function _fsaLoadFromHandle(dirHandle) {
   }
 }
 
+// ─── COIR ART-FILE FOLDER — SKU → Full/One Color lookup ───────────────────────
+// Connects (once) to Y:\CATEGORY PRINT FILES via the same File System Access
+// API pattern as the order-file connection above, then walks the four plain
+// coir size folders to build a SKU -> 'FC'|'OC' index used by
+// _coirHomeMachine() to route orders to their home machine (30 = One Color,
+// 30+ = Full Color). Flocked Coir is intentionally excluded from this scan —
+// its home machine doesn't depend on color.
+//
+// Folder conventions on disk (confirmed 2026-08-04):
+//   INLINE           -> "Full Color" / "One Color" subfolders
+//   SPORTS           -> "1 COLOR" (One) / "4 COLOR" (Full) subfolders, except
+//                        COIR 30x18\SPORTS which has no split at all
+//   KASS             -> no split (COIR 28x16 only)
+// KASS folders, and any SPORTS folder with no color split, are indexed as
+// Full Color by convention (owner confirmed 2026-08-04).
+var _COIR_CATEGORY_FOLDERS = ['COIR 28x16', 'COIR 30x18', 'COIR 36x24', 'COIR 60x24'];
+
+var _coirFsaHandle = null;
+var _coirSkuColorMap = {};
+var _coirIndexMeta = { scannedAt: null, folderName: null, skuCount: 0 };
+
+(function() {
+  try {
+    var s = localStorage.getItem('coirSkuColorMap');
+    if (s) _coirSkuColorMap = JSON.parse(s) || {};
+    var m = localStorage.getItem('coirIndexMeta');
+    if (m) _coirIndexMeta = JSON.parse(m) || _coirIndexMeta;
+  } catch(e) {}
+})();
+
+function _saveCoirIndex() {
+  try {
+    localStorage.setItem('coirSkuColorMap', JSON.stringify(_coirSkuColorMap));
+    localStorage.setItem('coirIndexMeta', JSON.stringify(_coirIndexMeta));
+  } catch(e) {}
+}
+
+function _lookupCoirColor(sku) {
+  if (!sku) return null;
+  return _coirSkuColorMap[String(sku).trim().toUpperCase()] || null;
+}
+
+// Diagnostic tool (Planning tab, next to the coir folder connect button) — lets
+// the owner check a SKU against the live in-memory index directly, bypassing
+// the whole plan-grouping pipeline, to isolate whether a "no color shown"
+// report is an indexing problem or something further downstream.
+function testCoirSku() {
+  var input = document.getElementById('coir-sku-test-input');
+  var result = document.getElementById('coir-sku-test-result');
+  if (!input || !result) return;
+  var raw = input.value;
+  var key = String(raw).trim().toUpperCase();
+  if (!key) { result.style.color = 'var(--muted)'; result.textContent = 'Enter a SKU first.'; return; }
+  var total = Object.keys(_coirSkuColorMap).length;
+  var color = _coirSkuColorMap[key];
+  if (color) {
+    result.style.color = 'var(--green-dark)';
+    result.textContent = '✓ Found — ' + (color === 'FC' ? 'Full Color (home Machine 30+)' : 'One Color (home Machine 30)');
+    return;
+  }
+  // Not an exact match — look for indexed SKUs that contain this text or vice versa,
+  // to catch a trailing/leading character difference between the order data and
+  // the art file name.
+  var near = Object.keys(_coirSkuColorMap).filter(function(k) {
+    return k.indexOf(key) !== -1 || key.indexOf(k) !== -1;
+  }).slice(0, 5);
+  result.style.color = 'var(--red)';
+  result.textContent = '✗ Not found in the ' + total.toLocaleString() + '-SKU index.' +
+    (near.length ? ' Close matches on disk: ' + near.join(', ') : ' No similar SKUs found either.');
+}
+
+// Deeper diagnostic — finds the actual loaded order(s) carrying this SKU (if
+// any) and reports the fields that decide whether it shows up on today's plan
+// at all: its order type, wave date, and the machine it resolved to. Run from
+// the browser console as testCoirSkuDeep('SKU') when the on-page tool alone
+// isn't enough to explain a mismatch.
+function testCoirSkuDeep(raw) {
+  var key = String(raw).trim().toUpperCase();
+  var orders = window._planOrders || [];
+  var matches = orders.filter(function(o) { return String(o.coirSku || '').trim().toUpperCase() === key; });
+  if (!matches.length) {
+    console.log('No loaded order has item_id "' + key + '". Loaded order count:', orders.length);
+    return;
+  }
+  var planDate = document.getElementById('plan-datepicker') ? document.getElementById('plan-datepicker').value : '';
+  var activeTypes = SHIFT_CONFIG[ACTIVE_SHIFT].orderTypes;
+  matches.forEach(function(o, i) {
+    var passesType = activeTypes[o.orderType] === true;
+    var passesDate = !planDate || !o.waveDate || o.waveDate <= planDate;
+    console.log('Match ' + (i + 1) + ':', {
+      shortName: o.shortName, coirSku: o.coirSku, itemName: o.itemName, machine: o.machine, orderType: o.orderType,
+      waveDate: o.waveDate, qty: o.qty, _fromLMContainers: o._fromLMContainers,
+      passesActiveShiftFilter: passesType, passesPlanDateFilter: passesDate,
+      groupKeyWouldBe: (o.shortName || o.itemName || 'Unknown') + '||' + (o.machine || 'Unknown')
+    });
+  });
+}
+
+// Lists real, currently-loaded coir orders with their actual SKUs and whether
+// each one resolved to a color — run from the console as listCoirOrders() to
+// get genuine SKUs to test with, instead of guessing or picking one from the
+// art-file folder (which may not be an order that's actually loaded).
+function listCoirOrders(limit) {
+  var orders = window._planOrders || [];
+  var coirOrders = orders.filter(function(o) { return isCoir(o.shortName || '', o.coirSku || ''); });
+  console.log('Loaded coir orders: ' + coirOrders.length + ' of ' + orders.length + ' total.');
+  coirOrders.slice(0, limit || 20).forEach(function(o) {
+    console.log({
+      shortName: o.shortName, coirSku: o.coirSku, itemName: o.itemName, machine: o.machine, qty: o.qty,
+      resolvedColor: _coirColorFor(o.coirSku, o.shortName)
+    });
+  });
+}
+
+// Recovers the bare SKU from filenames like "2RM1136_print.pdf" or
+// "CM07Z5EGSCOS print.pdf" — strips the extension, then a trailing
+// "_print"/" print" (any case) if present.
+function _extractSkuFromFilename(filename) {
+  var base = filename.replace(/\.[^.]+$/, '');
+  base = base.replace(/[\s_]+print$/i, '');
+  return base.trim().toUpperCase();
+}
+
+function _fsaSaveCoirHandle(handle) {
+  if (!_fsaDB) return;
+  _fsaDB.transaction('handles', 'readwrite').objectStore('handles').put(handle, 'coirArtFolder');
+}
+function _fsaGetCoirHandle(cb) {
+  if (!_fsaDB) { cb(null); return; }
+  var req = _fsaDB.transaction('handles', 'readonly').objectStore('handles').get('coirArtFolder');
+  req.onsuccess = function(e) { cb(e.target.result || null); };
+  req.onerror   = function()  { cb(null); };
+}
+
+function _coirFsaUpdateUI() {
+  var connectBtn = document.getElementById('coir-fsa-connect-btn');
+  var reloadBtn  = document.getElementById('coir-fsa-reload-btn');
+  var label      = document.getElementById('coir-fsa-file-label');
+  if (!connectBtn) return;
+  if (_coirIndexMeta.scannedAt) {
+    connectBtn.textContent = '↻ Reconnect coir art folder';
+    if (reloadBtn) reloadBtn.style.display = '';
+    if (label) {
+      label.style.display = '';
+      label.textContent = '✓ Coir art index: ' + _coirIndexMeta.skuCount.toLocaleString() + ' SKUs from "' +
+        (_coirIndexMeta.folderName || 'folder') + '" (scanned ' + new Date(_coirIndexMeta.scannedAt).toLocaleString() + ')';
+    }
+  }
+}
+
+function coirFsaInit() {
+  if (!window.showDirectoryPicker) return;
+  _fsaOpenDB(function() {
+    _fsaGetCoirHandle(function(handle) {
+      if (handle) _coirFsaHandle = handle;
+      _coirFsaUpdateUI();
+    });
+  });
+}
+
+async function coirFsaConnect() {
+  if (!window.showDirectoryPicker) {
+    alert('Your browser doesn\'t support connecting directly to a folder. Try Chrome or Edge.');
+    return;
+  }
+  try {
+    var handle = await window.showDirectoryPicker({ mode: 'read' });
+    _coirFsaHandle = handle;
+    _fsaSaveCoirHandle(handle);
+    await coirFsaReload();
+  } catch(e) {
+    // user cancelled the picker — do nothing
+  }
+}
+
+async function coirFsaReload() {
+  var status = document.getElementById('coir-fsa-status');
+  if (!_coirFsaHandle) {
+    if (status) { status.style.color = 'var(--muted)'; status.textContent = 'Click Connect and pick the CATEGORY PRINT FILES folder.'; }
+    return;
+  }
+  if (status) { status.style.color = 'var(--muted)'; status.textContent = 'Scanning ' + _coirFsaHandle.name + ' — this can take a minute…'; }
+  try {
+    var perm = await _coirFsaHandle.queryPermission({ mode: 'read' });
+    if (perm !== 'granted') perm = await _coirFsaHandle.requestPermission({ mode: 'read' });
+    if (perm !== 'granted') {
+      if (status) { status.style.color = 'var(--red)'; status.textContent = '✗ Permission denied — click Connect to try again'; }
+      return;
+    }
+    var map = {};
+    for (var ci = 0; ci < _COIR_CATEGORY_FOLDERS.length; ci++) {
+      var catHandle;
+      try { catHandle = await _coirFsaHandle.getDirectoryHandle(_COIR_CATEGORY_FOLDERS[ci]); } catch(e) { continue; } // size folder missing — skip
+      await _scanCoirCategoryFolder(catHandle, map);
+    }
+    _coirSkuColorMap = map;
+    _coirIndexMeta = { scannedAt: Date.now(), folderName: _coirFsaHandle.name, skuCount: Object.keys(map).length };
+    _saveCoirIndex();
+    _coirFsaUpdateUI();
+    if (status) { status.style.color = 'var(--green-dark)'; status.textContent = '✓ Indexed ' + _coirIndexMeta.skuCount.toLocaleString() + ' coir SKUs'; }
+    // Orders already loaded before this folder was connected have their home
+    // machine baked in from parse time (when the index was still empty, so
+    // every coir item defaulted to 30). Re-derive it now that the index is
+    // populated — otherwise nothing changes until the order file is reloaded.
+    if (window._planOrders) {
+      window._planOrders.forEach(function(o) {
+        if (o._fromLMContainers && isCoir(o.shortName || '', o.coirSku || '')) {
+          o.machine = deriveMachineFromProduct(o.shortName, o.itemName, o.coirSku);
+        }
+      });
+      runPlan(window._planOrders);
+    }
+  } catch(err) {
+    if (status) { status.style.color = 'var(--red)'; status.textContent = '✗ ' + err.message; }
+    console.error(err);
+  }
+}
+
+// Walks one size folder (e.g. "COIR 28x16") — KASS -> Full Color, INLINE and
+// SPORTS -> look for the Full/One Color split (SPORTS falls back to Full
+// Color if no split exists, matching the KASS convention).
+async function _scanCoirCategoryFolder(catHandle, map) {
+  for await (var entry of catHandle.values()) {
+    if (entry.kind !== 'directory') continue;
+    var subName = entry.name.toUpperCase();
+    if (subName.indexOf('KASS') !== -1) {
+      await _indexFilesAsColor(entry, map, 'FC');
+    } else if (subName.indexOf('INLINE') !== -1) {
+      await _scanColorSplitFolder(entry, map);
+    } else if (subName.indexOf('SPORTS') !== -1) {
+      var hadSplit = await _scanColorSplitFolder(entry, map);
+      if (!hadSplit) await _indexFilesAsColor(entry, map, 'FC');
+    }
+  }
+}
+
+// Looks for "Full Color"/"4 COLOR" and "One Color"/"1 COLOR" subfolders
+// inside dirHandle and indexes each. Returns true if it found at least one.
+async function _scanColorSplitFolder(dirHandle, map) {
+  var found = false;
+  for await (var entry of dirHandle.values()) {
+    if (entry.kind !== 'directory') continue;
+    var n = entry.name.toLowerCase();
+    if (n.indexOf('full') !== -1 || /^4\s*color/.test(n)) { await _indexFilesAsColor(entry, map, 'FC'); found = true; }
+    else if (n.indexOf('one') !== -1 || /^1\s*color/.test(n)) { await _indexFilesAsColor(entry, map, 'OC'); found = true; }
+  }
+  return found;
+}
+
+async function _indexFilesAsColor(dirHandle, map, color) {
+  for await (var entry of dirHandle.values()) {
+    if (entry.kind !== 'file') continue;
+    if (!/\.(pdf|ai|eps|psd|png)$/i.test(entry.name)) continue;
+    var sku = _extractSkuFromFilename(entry.name);
+    if (sku) map[sku] = color;
+  }
+}
+
 function normalizeDate(val) {
   // Handles: Date objects, "2026-05-04 05:09:21.06", "2026-05-04", serial numbers
   if (!val && val !== 0) return '';
@@ -3200,13 +3518,19 @@ function parseLMContainersRows(jsonRows) {
     // Product description lives in the "BlankLine" column (confusing name, real data)
     var productName = String(r['BlankLine'] || '').trim();
     var skuCode     = String(r['kids_item'] || '').trim();
+    // item_id is the real design/art SKU (matches the print-file folder naming,
+    // e.g. "2RM1744ECMA") — kids_item is a generic kit/container identifier
+    // that's the same across many unrelated orders (e.g. "2NCJ017BLANK") and
+    // must not be used for coir color matching. Confirmed against a live
+    // export 2026-08-04: item_id matched 496/496 open coir rows.
+    var coirSkuCode = String(r['item_id'] || '').trim();
     // Skip rows with no product info (footer/total rows)
     if (!productName && !skuCode) return;
     var waveDateRaw = r['WaveDate'] || '';
     var qty         = parseInt(r['kid_qty'] || 1) || 1;
     var orderType   = parseOrderType(String(r['OrderType'] || ''));
     var orderId     = String(r['order_id'] || '');
-    var machine     = deriveMachineFromProduct(productName);
+    var machine     = deriveMachineFromProduct(productName, skuCode, coirSkuCode);
     rows.push({
       waveDate:  normalizeDate(waveDateRaw),
       qty:       qty,
@@ -3214,7 +3538,9 @@ function parseLMContainersRows(jsonRows) {
       machine:   machine,
       shortName: productName,
       itemName:  skuCode,
-      orderId:   orderId
+      coirSku:   coirSkuCode,
+      orderId:   orderId,
+      _fromLMContainers: true
     });
   });
   if (!rows.length) throw new Error('No open orders found — all tasks may be closed or confirmed');
@@ -3363,10 +3689,18 @@ function runPlan(orders) {
       groups[k] = {
         shortName: o.shortName || o.itemName || 'Unknown',
         itemName: o.itemName || '',
+        coirSku: o.coirSku || '',
         machine: o.machine,
         qty: 0, dsQty: 0, regQty: 0, asapQty: 0, fbaQty: 0,
         hasDSOrders: false, hasRegOrders: false, earliestWave: null
       };
+    } else if (isCoir(groups[k].shortName, groups[k].coirSku) && !_coirColorFor(groups[k].coirSku, groups[k].shortName) && _coirColorFor(o.coirSku, o.shortName)) {
+      // Multiple SKUs can share the same product name + machine and get bundled into
+      // one display row — the row only shows one representative SKU. If the SKU that
+      // happened to create this group didn't resolve to a color (unmatched in the art
+      // index) but this order's SKU does, swap it in so the FC/OC label actually shows,
+      // instead of staying stuck on whichever order arrived first.
+      groups[k].coirSku = o.coirSku || '';
     }
     groups[k].qty += o.qty;
     if      (o.orderType === 'DS')   { groups[k].dsQty  += o.qty; groups[k].hasDSOrders  = true; }
@@ -3526,6 +3860,7 @@ function runPlan(orders) {
     var moved = false;
     var name  = item.shortName;
     var iname = item.itemName;
+    var coirSku = item.coirSku || '';
 
     // Reduce qty by what the other shift has already committed to, and (if the
     // "subtract actual production" box is checked) by what's already been
@@ -3558,7 +3893,7 @@ function runPlan(orders) {
 
     // If no machine was set by the CSV parser, try to derive it from the product name.
     // This covers standard-format files where the Machine column is blank for some products.
-    if (!assignedMachine) assignedMachine = deriveMachineFromProduct(name || iname);
+    if (!assignedMachine) assignedMachine = deriveMachineFromProduct(name, iname, coirSku);
 
     // Manual/custom entries are explicitly lowest-priority — if their home machine is
     // already full, route them to an available flex machine right away instead of
@@ -3684,7 +4019,7 @@ function runPlan(orders) {
     }
 
     planRows.push({
-      name: name, itemName: iname,
+      name: name, itemName: iname, coirSku: coirSku,
       qty: effectiveQty, totalQty: item.qty, priorQty: priorQty,
       dsQty:   Math.round(item.dsQty   * effFrac),
       regQty:  Math.round(item.regQty  * effFrac),
@@ -3779,7 +4114,7 @@ function runPlan(orders) {
         row.notes.push('Shifted: ' + fromMachine + ' → ' + toMachine + ' (' + toMove.toLocaleString() + ' pcs — ' + reason + ')');
       } else {
         planRows.push({
-          name: row.name, itemName: row.itemName,
+          name: row.name, itemName: row.itemName, coirSku: row.coirSku,
           qty: toMove, dsQty: dsMove, regQty: regMove, asapQty: asapMove, fbaQty: fbaMove,
           orderType: row.orderType,
           machine: toMachine, originalMachine: fromMachine,
@@ -5473,7 +5808,7 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
             ? ' <a href="#" onclick="event.preventDefault();event.stopPropagation();rollRowForward(\'' + _jsEsc(r.name) + '\',\'' + _jsEsc(r.itemName) + '\',\'' + bucketType + '\',\'' + m + '\',' + q + ')" title="Roll forward to next shift" style="color:var(--amber);text-decoration:none;font-size:12px">&#8618;</a>'
             : '';
           h += '<div' + dragAttrs + ' style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0 2px ' + (bucketType ? '10px' : '0') + ';border-bottom:1px solid var(--border)">';
-          h += '<span style="color:var(--text)">' + checkSpan + r.name + (showNote && r._manualNote ? ' <span style="color:var(--muted);font-style:italic">&mdash; ' + r._manualNote + '</span>' : '') + movedBadge + '</span>';
+          h += '<span style="color:var(--text)">' + checkSpan + _coirDisplayName(r.name, r.coirSku) + (showNote && r._manualNote ? ' <span style="color:var(--muted);font-style:italic">&mdash; ' + r._manualNote + '</span>' : '') + movedBadge + '</span>';
           h += '<span style="display:flex;align-items:center;gap:6px"><span style="font-weight:600;color:' + color + '">' + q.toLocaleString() + '</span>' + rollLink + '</span>';
           h += '</div>';
         });
@@ -5494,8 +5829,9 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
           if (need <= 0) return;
           var produce = Math.min(need, cpRemaining);
           cpRemaining -= produce;
-          if (produce > 0) produced.push({ name: r.name, produce: produce, total: need, note: r._manualNote || '' });
-          if (produce < need) rolled.push({ name: r.name, roll: need - produce, note: r._manualNote || '' });
+          var dispName = _coirDisplayName(r.name, r.coirSku);
+          if (produce > 0) produced.push({ name: dispName, produce: produce, total: need, note: r._manualNote || '' });
+          if (produce < need) rolled.push({ name: dispName, roll: need - produce, note: r._manualNote || '' });
         });
         if (produced.length || rolled.length) sections.push({ label: label, color: color, produced: produced, rolled: rolled });
       }
@@ -5574,7 +5910,7 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
         var movedHtml = r._manualMoved ? ' <span style="color:var(--muted);font-style:italic;font-size:10px">&mdash; moved from ' + r._manualMoveFrom + ' <a href="#" onclick="event.preventDefault();event.stopPropagation();undoBunchMove(\'' + _jsEsc(r.name) + '\',\'' + _jsEsc(r.itemName) + '\',\'' + r._manualMoveFrom + '\',\'' + m + '\',' + (r._manualMoveAmount||0) + ')" style="color:var(--blue)">&#8634; undo</a></span>' : '';
         breakdownHtml += '<div' + dragAttrs + ' style="display:flex;align-items:center;gap:6px;font-size:11px;padding:4px 2px;border-bottom:1px solid var(--border)">';
         breakdownHtml += badge;
-        breakdownHtml += '<span style="flex:1;color:var(--text)">' + checkSpan + r.name + noteHtml + movedHtml + '</span>';
+        breakdownHtml += '<span style="flex:1;color:var(--text)">' + checkSpan + _coirDisplayName(r.name, r.coirSku) + noteHtml + movedHtml + '</span>';
         breakdownHtml += '<span style="font-weight:600;color:' + col + ';flex-shrink:0">' + q.toLocaleString() + '</span>';
         breakdownHtml += rollLink;
         breakdownHtml += '</div>';
@@ -6181,6 +6517,7 @@ function startReportApp() {
     else { hideLoading(); showLoginScreen(); }
   });
   fsaInit();
+  coirFsaInit();
 }
 function doLogin() {
   var passcode = document.getElementById('report-passcode').value;
