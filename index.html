@@ -2279,7 +2279,22 @@ var _MACHINE_PPH_DEFAULTS = {
   'Signs · 12x8 Plock':         { '30+': 45.0 },
   'Signs · 6x6 Plock':          { '30+': 478.9 },
   'Signs · 16x24':              { '30+': 49.3 },
-  'Signs · 11x6 Plock':         { '30+': 80.7 }
+  'Signs · 11x6 Plock':         { '30+': 80.7 },
+  // Drinkware print-type settings (added 2026-08-05, owner to fill in real
+  // speeds in the Targets & Rules tab) — CWCV/CV/WCV mirror the coir FC/OC
+  // split: same piece type, different print process, different speed.
+  // Seeded at 60 pph (the existing flat Drinkware fallback) as a placeholder.
+  'Drinkware · Pint Glass CWCV':            { 'Drinkware M1': 60, 'Drinkware M2': 60 },
+  'Drinkware · Pint Glass CV':              { 'Drinkware M1': 60, 'Drinkware M2': 60 },
+  'Drinkware · Pint Glass WCV':             { 'Drinkware M1': 60, 'Drinkware M2': 60 },
+  'Drinkware · Acrylic Cup CWCV':           { 'Drinkware M1': 60, 'Drinkware M2': 60 },
+  'Drinkware · Acrylic Cup CV':             { 'Drinkware M1': 60, 'Drinkware M2': 60 },
+  'Drinkware · Acrylic Cup WCV':            { 'Drinkware M1': 60, 'Drinkware M2': 60 },
+  'Drinkware · Stainless Steel Tumbler CV':   { 'Drinkware M1': 60, 'Drinkware M2': 60 },
+  'Drinkware · Stainless Steel Tumbler WCV':  { 'Drinkware M1': 60, 'Drinkware M2': 60 },
+  'Drinkware · Stemless Pint Glass CWCV':   { 'Drinkware M1': 60, 'Drinkware M2': 60 },
+  'Drinkware · Stemless Pint Glass CV':     { 'Drinkware M1': 60, 'Drinkware M2': 60 },
+  'Drinkware · Stemless Pint Glass WCV':    { 'Drinkware M1': 60, 'Drinkware M2': 60 }
 };
 
 var _machineTargetOverrides = {};
@@ -6834,6 +6849,20 @@ function onTargetPphChange(input) {
   _markUnsaved();
 }
 
+// Same as onTargetPphChange, but for a product whose speed is shared across
+// several machines (currently just Drinkware M1 & M2) — one input sets the
+// same pph on all of them via a comma-separated data-machines attribute.
+function onTargetPphChangeBoth(input) {
+  var productKey = input.getAttribute('data-key');
+  var machines   = (input.getAttribute('data-machines') || '').split(',').filter(Boolean);
+  var parsed = parseFloat(input.value);
+  if (!productKey || !machines.length || !parsed || parsed <= 0) return;
+  if (!_machineTargetOverrides[productKey]) _machineTargetOverrides[productKey] = {};
+  machines.forEach(function(m) { _machineTargetOverrides[productKey][m] = parsed; });
+  if (window._planOrders) runPlan(window._planOrders);
+  _markUnsaved();
+}
+
 function saveAllOverrides() {
   _saveMachineTargetOverrides();
   _saveRoutingOverrides();
@@ -7035,6 +7064,15 @@ function renderSettings() {
   var _tkSeen = {}, targetKeys = [];
   Object.keys(_MACHINE_PPH_DEFAULTS).forEach(function(k){ if (!_tkSeen[k]){ _tkSeen[k]=true; targetKeys.push(k); } });
   Object.keys(RAW.targets||{}).forEach(function(k){ if (!_tkSeen[k] && RAW.targets[k] && RAW.targets[k].pph){ _tkSeen[k]=true; targetKeys.push(k); } });
+  // Hides legacy Drinkware Firebase targets saved before CWCV/CV/WCV tracking
+  // existed (e.g. a bare "Drinkware · Pint Glass" with no print-type suffix).
+  // Display-only — the underlying Firebase target is untouched, so PPH lookups
+  // and open-order matching for any real order still using the old bare name
+  // keep working exactly as before; this only keeps it out of this settings
+  // list so it doesn't look like a 4th, color-less option next to the real ones.
+  targetKeys = targetKeys.filter(function(k) {
+    return !(k.indexOf('Drinkware · ') === 0 && !/ (CWCV|CV|WCV)$/.test(k));
+  });
   targetKeys.sort();
   if (!targetKeys.length) {
     h += '<div class="settings-note">No Firebase targets loaded yet. Go to <strong>Today\'s Results</strong> first — that loads the data from Firebase — then come back here.</div>';
@@ -7042,9 +7080,11 @@ function renderSettings() {
     h += '<div class="settings-note">Each product shows a separate speed for every machine it can run on. The <strong>grey number</strong> is the committed baseline — your baked-in reference rate for that machine. Type a new number to override it.</div>';
 
     // Build per-machine product list: { machine: [ {key, firebasePph, machines} ] }
-    var machineRows = { '30': [], '30+': [], 'H5': [] };
+    var machineRows = { '30': [], '30+': [], 'H5': [], 'Drinkware M1': [], 'Drinkware M2': [] };
     targetKeys.slice().sort().forEach(function(key) {
-      var tgt = RAW.targets[key];
+      // Falls back to {} for products that only exist as a local baseline
+      // default (e.g. the new Drinkware entries) with no Firebase target yet.
+      var tgt = RAW.targets[key] || {};
       var productMachines = _productMachines(key);
       productMachines.forEach(function(m) {
         if (!machineRows[m]) return;
@@ -7052,16 +7092,24 @@ function renderSettings() {
       });
     });
 
-    ['30', '30+', 'H5'].forEach(function(m) {
+    var _mLabels = {
+      '30': 'Machine 30 — Coir', '30+': 'Machine 30+ — Flocked / Overflow', 'H5': 'Machine H5 — Signs / PVC / Canvas',
+      'Drinkware M1': 'Drinkware (M1 & M2)'
+    };
+    // Drinkware M1 and M2 always run at the same speed, so they share one row
+    // with one input instead of two — M2 is intentionally skipped here since
+    // its product list is identical to M1's (see _productMachines).
+    ['30', '30+', 'H5', 'Drinkware M1'].forEach(function(m) {
       var items = machineRows[m];
       if (!items || !items.length) return;
-      var mLabel = m === '30' ? 'Machine 30 — Coir' : m === '30+' ? 'Machine 30+ — Flocked / Overflow' : 'Machine H5 — Signs / PVC / Canvas';
+      var isDW    = m === 'Drinkware M1';
+      var mLabel  = _mLabels[m];
       h += '<div style="margin-bottom:1.75rem">';
       h += '<div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">';
       h += _machineBadge(m) + '&nbsp; ' + mLabel;
       h += '</div>';
       h += '<div class="table-wrap"><table class="settings-table"><thead><tr>';
-      h += '<th>Product</th><th style="text-align:center">Committed baseline</th><th>Speed on ' + _machineBadge(m) + '</th><th></th>';
+      h += '<th>Product</th><th style="text-align:center">Committed baseline</th><th>Speed' + (isDW ? '' : ' on ' + _machineBadge(m)) + '</th><th></th>';
       h += '</tr></thead><tbody>';
 
       items.forEach(function(item) {
@@ -7077,14 +7125,19 @@ function renderSettings() {
         h += '<tr>';
         h += '<td>';
         h += '<span style="font-weight:600">' + item.key + '</span>';
-        if (!isHome) h += ' <span style="font-size:10px;color:var(--amber);font-weight:600;margin-left:4px">⇄ flex</span>';
+        if (!isHome && !isDW) h += ' <span style="font-size:10px;color:var(--amber);font-weight:600;margin-left:4px">⇄ flex</span>';
         h += '</td>';
         h += '<td style="text-align:center;color:var(--muted);font-size:13px">' + committed + ' pph</td>';
         h += '<td>';
         h += '<input class="pph-input" type="number" min="1" max="999" step="1" ';
         h += 'value="' + inputVal + '" ';
-        h += 'data-key="' + safeKey + '" data-machine="' + m + '" ';
-        h += 'onchange="onTargetPphChange(this)" ';
+        if (isDW) {
+          h += 'data-key="' + safeKey + '" data-machines="Drinkware M1,Drinkware M2" ';
+          h += 'onchange="onTargetPphChangeBoth(this)" ';
+        } else {
+          h += 'data-key="' + safeKey + '" data-machine="' + m + '" ';
+          h += 'onchange="onTargetPphChange(this)" ';
+        }
         h += 'style="' + (hasOverride ? 'border-color:var(--green-dark);' : '') + '">';
         h += ' <span style="font-size:11px;color:var(--muted)">pph</span>';
         h += '</td>';
