@@ -1389,7 +1389,8 @@ function showTab(tab) {
 // ─── TOTALS DATA ──────────────────────────────────────────
 var DAILY = {};
 var calView = 'all';
-var calYear = 2026, calMonth = 2; // 0-indexed, so 2 = March
+var _calNow = new Date();
+var calYear = _calNow.getFullYear(), calMonth = _calNow.getMonth(); // defaults to the current month
 var selectedDay = null;
 
 var MONTH_NAMES = ['January','February','March','April','May','June',
