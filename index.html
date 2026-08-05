@@ -598,9 +598,9 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     <div id="csv-status" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
 
     <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <button id="coir-fsa-connect-btn" onclick="coirFsaConnect()" style="background:var(--white);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">Connect coir art folder</button>
+      <button id="coir-fsa-connect-btn" onclick="coirFsaConnect()" style="background:var(--white);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">Connect art files folder</button>
       <button id="coir-fsa-reload-btn" onclick="coirFsaReload()" style="display:none;background:var(--white);color:var(--green-dark);border:2px solid var(--green-win-border);border-radius:var(--radius);padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">&#8635; Rescan folder</button>
-      <span style="font-size:11px;color:var(--muted)">Used to tell One Color coir (&rarr; Machine 30) from Full Color coir (&rarr; Machine 30+) by matching order SKUs against Y:\CATEGORY PRINT FILES</span>
+      <span style="font-size:11px;color:var(--muted)">Matches order SKUs against Y:\CATEGORY PRINT FILES to tell One Color coir (&rarr; Machine 30) from Full Color coir (&rarr; Machine 30+), and Drinkware print types apart once those folders are organized the same way</span>
     </div>
     <div id="coir-fsa-file-label" style="display:none;font-size:12px;color:var(--muted);margin-top:6px"></div>
     <div id="coir-fsa-status" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
@@ -2391,6 +2391,21 @@ function _saveRoutingOverrides() {
   try { localStorage.setItem('routingOverrides', JSON.stringify(_routingOverrides)); } catch(e) {}
 }
 
+// Manually-curated Drinkware kids_item -> target-key lookup (e.g.
+// "TURD7EGSC" -> "Drinkware · Pint Glass CWCV"). Used by parseLMContainersRows
+// to figure out the real piece type + print process for an order, since
+// BlankLine only ever says the bare word "Drinkware" — see the comment there.
+var _drinkwareSkuMap = { 'TURD7EGSC': 'Drinkware · Pint Glass CWCV' };
+(function() {
+  try {
+    var s = localStorage.getItem('drinkwareSkuMap');
+    if (s) _drinkwareSkuMap = JSON.parse(s) || _drinkwareSkuMap;
+  } catch(e) {}
+})();
+function _saveDrinkwareSkuMap() {
+  try { localStorage.setItem('drinkwareSkuMap', JSON.stringify(_drinkwareSkuMap)); } catch(e) {}
+}
+
 // Returns the home machine for a product, checking routing overrides first.
 function _getProductHome(name, iname) {
   var key = name || iname;
@@ -3352,12 +3367,14 @@ function _coirFsaUpdateUI() {
   var label      = document.getElementById('coir-fsa-file-label');
   if (!connectBtn) return;
   if (_coirIndexMeta.scannedAt) {
-    connectBtn.textContent = '↻ Reconnect coir art folder';
+    connectBtn.textContent = '↻ Reconnect art files folder';
     if (reloadBtn) reloadBtn.style.display = '';
     if (label) {
       label.style.display = '';
-      label.textContent = '✓ Coir art index: ' + _coirIndexMeta.skuCount.toLocaleString() + ' SKUs from "' +
-        (_coirIndexMeta.folderName || 'folder') + '" (scanned ' + new Date(_coirIndexMeta.scannedAt).toLocaleString() + ')';
+      var dwCount = Object.keys(_drinkwareSkuColorMap || {}).length;
+      label.textContent = '✓ Index: ' + _coirIndexMeta.skuCount.toLocaleString() + ' coir SKUs' +
+        (dwCount ? ', ' + dwCount.toLocaleString() + ' Drinkware SKUs' : ', 0 Drinkware SKUs (folders not reorganized yet)') +
+        ' from "' + (_coirIndexMeta.folderName || 'folder') + '" (scanned ' + new Date(_coirIndexMeta.scannedAt).toLocaleString() + ')';
     }
   }
 }
@@ -3410,15 +3427,35 @@ async function coirFsaReload() {
     _coirSkuColorMap = map;
     _coirIndexMeta = { scannedAt: Date.now(), folderName: _coirFsaHandle.name, skuCount: Object.keys(map).length };
     _saveCoirIndex();
+
+    // Drinkware lives in the same connected folder — scan it too. Not yet
+    // reorganized by the art team as of 2026-08-05, so this commonly finds 0
+    // until that's done; the manual kids_item mapping table covers the gap.
+    var dwMap = {};
+    try {
+      var dwHandle = await _coirFsaHandle.getDirectoryHandle('Drinkware');
+      await _scanDrinkwareFolder(dwHandle, dwMap);
+    } catch(e) { /* Drinkware folder missing — skip */ }
+    _drinkwareSkuColorMap = dwMap;
+    _saveDrinkwareSkuColorMap();
+
     _coirFsaUpdateUI();
-    if (status) { status.style.color = 'var(--green-dark)'; status.textContent = '✓ Indexed ' + _coirIndexMeta.skuCount.toLocaleString() + ' coir SKUs'; }
+    if (status) {
+      status.style.color = 'var(--green-dark)';
+      status.textContent = '✓ Indexed ' + _coirIndexMeta.skuCount.toLocaleString() + ' coir SKUs, ' + Object.keys(dwMap).length.toLocaleString() + ' Drinkware SKUs';
+    }
     // Orders already loaded before this folder was connected have their home
-    // machine baked in from parse time (when the index was still empty, so
-    // every coir item defaulted to 30). Re-derive it now that the index is
+    // machine/product baked in from parse time (when the index was still
+    // empty). Re-derive both coir and Drinkware now that the index is
     // populated — otherwise nothing changes until the order file is reloaded.
     if (window._planOrders) {
       window._planOrders.forEach(function(o) {
-        if (o._fromLMContainers && isCoir(o.shortName || '', o.coirSku || '')) {
+        if (!o._fromLMContainers) return;
+        if (isCoir(o.shortName || '', o.coirSku || '')) {
+          o.machine = deriveMachineFromProduct(o.shortName, o.itemName, o.coirSku);
+        } else if (isDrinkware(o._rawShortName || o.shortName || '', '')) {
+          var mapped = _drinkwareSkuColorMap[o.coirSku] || _drinkwareSkuMap[o.itemName];
+          o.shortName = mapped || o._rawShortName || o.shortName;
           o.machine = deriveMachineFromProduct(o.shortName, o.itemName, o.coirSku);
         }
       });
@@ -3467,6 +3504,97 @@ async function _indexFilesAsColor(dirHandle, map, color) {
     if (!/\.(pdf|ai|eps|psd|png)$/i.test(entry.name)) continue;
     var sku = _extractSkuFromFilename(entry.name);
     if (sku) map[sku] = color;
+  }
+}
+
+// ─── DRINKWARE ART-FILE FOLDER — item_id → target-key lookup ──────────────────
+// Same idea as the coir SKU→color index, one level deeper: a Drinkware order's
+// BlankLine is just the bare word "Drinkware" (no piece type at all — see the
+// comment in parseLMContainersRows), so the folder scan has to recover BOTH
+// the piece type AND the print process from where the art file sits, and map
+// straight to a full _MACHINE_PPH_DEFAULTS key like "Drinkware · Pint Glass CWCV".
+//
+// Expected (planned, not yet built by the art team as of 2026-08-05) layout:
+//   Drinkware/<Glass Type>/<Inline or Sport>/<CWCV|CV|WCV>/<SKU files>
+// Piece-type and color folder names are matched by keyword, not exact string,
+// since the art team hasn't finalized naming yet — this is deliberately
+// tolerant: unrecognized folders (e.g. "Wine Glasses", not currently a
+// tracked piece type) are skipped rather than erroring, and it's fine for
+// this scan to find nothing until the reorg happens — the manual kids_item
+// mapping table keeps working as the fallback in the meantime.
+var _drinkwareSkuColorMap = {}; // item_id -> full target key, e.g. "Drinkware · Pint Glass CWCV"
+(function() {
+  try {
+    var s = localStorage.getItem('drinkwareSkuColorMap');
+    if (s) _drinkwareSkuColorMap = JSON.parse(s) || {};
+  } catch(e) {}
+})();
+function _saveDrinkwareSkuColorMap() {
+  try { localStorage.setItem('drinkwareSkuColorMap', JSON.stringify(_drinkwareSkuColorMap)); } catch(e) {}
+}
+
+// Longest-token-first so "CWCV" and "WCV" (which both end in "CV") aren't
+// misread as plain "CV".
+function _drinkwareColorFor(folderName) {
+  var n = folderName.toUpperCase();
+  if (n.indexOf('CWCV') !== -1) return 'CWCV';
+  if (n.indexOf('WCV')  !== -1) return 'WCV';
+  if (n.indexOf('CV')   !== -1) return 'CV';
+  return null;
+}
+
+// Checked in this order so "Stemless Pint Glass" doesn't get caught by the
+// plain "pint" keyword before the more specific "stemless" one is tried.
+var _DRINKWARE_PIECE_KEYWORDS = [
+  { re: /stemless/i, target: 'Stemless Pint Glass' },
+  { re: /pint/i,      target: 'Pint Glass' },
+  { re: /acrylic/i,   target: 'Acrylic Cup' },
+  { re: /stainless|tumbler/i, target: 'Stainless Steel Tumbler' }
+];
+function _drinkwarePieceTypeFor(folderName) {
+  for (var i = 0; i < _DRINKWARE_PIECE_KEYWORDS.length; i++) {
+    if (_DRINKWARE_PIECE_KEYWORDS[i].re.test(folderName)) return _DRINKWARE_PIECE_KEYWORDS[i].target;
+  }
+  return null; // e.g. "Wine Glasses" — not a tracked piece type, skipped
+}
+
+// Walks Drinkware/<Glass Type>/... . Handles the color folder sitting either
+// directly under the piece type (no Inline/Sport split) or one level deeper
+// under an Inline/Sport channel folder, same flexibility coir's scan has.
+async function _scanDrinkwareFolder(dwHandle, map) {
+  for await (var pieceEntry of dwHandle.values()) {
+    if (pieceEntry.kind !== 'directory') continue;
+    var pieceType = _drinkwarePieceTypeFor(pieceEntry.name);
+    if (!pieceType) continue;
+    for await (var subEntry of pieceEntry.values()) {
+      if (subEntry.kind !== 'directory') continue;
+      var directColor = _drinkwareColorFor(subEntry.name);
+      if (directColor) {
+        await _indexDrinkwareFiles(subEntry, map, pieceType, directColor);
+        continue;
+      }
+      // Not a color folder itself — treat as an Inline/Sport channel folder
+      // and look for color folders one level further in.
+      for await (var colorEntry of subEntry.values()) {
+        if (colorEntry.kind !== 'directory') continue;
+        var color = _drinkwareColorFor(colorEntry.name);
+        if (color) await _indexDrinkwareFiles(colorEntry, map, pieceType, color);
+      }
+    }
+  }
+}
+
+async function _indexDrinkwareFiles(dirHandle, map, pieceType, color) {
+  var targetKey = 'Drinkware · ' + pieceType + ' ' + color;
+  // Skip combinations that were deliberately removed as options (e.g.
+  // Stainless Steel Tumbler has no CWCV) rather than indexing a target that
+  // doesn't exist in the settings table.
+  if (!_MACHINE_PPH_DEFAULTS[targetKey]) return;
+  for await (var entry of dirHandle.values()) {
+    if (entry.kind !== 'file') continue;
+    if (!/\.(pdf|ai|eps|psd|png)$/i.test(entry.name)) continue;
+    var sku = _extractSkuFromFilename(entry.name);
+    if (sku) map[sku] = targetKey;
   }
 }
 
@@ -3540,6 +3668,20 @@ function parseLMContainersRows(jsonRows) {
     // must not be used for coir color matching. Confirmed against a live
     // export 2026-08-04: item_id matched 496/496 open coir rows.
     var coirSkuCode = String(r['item_id'] || '').trim();
+    // Drinkware is the mirror image of coir: BlankLine is just the bare word
+    // "Drinkware" (no piece type at all), item_id is a per-design art file
+    // reference, and kids_item currently identifies the product + print-process
+    // SKU (confirmed 2026-08-05: kids_item "TURD7EGSC" appears across many
+    // different item_id designs, all really "Pint Glass CWCV") — but once the
+    // art team reorganizes the Drinkware folders (see _scanDrinkwareFolder),
+    // item_id becomes the reliable signal, same as it already is for coir.
+    // Try the folder-based item_id match first, fall back to the manual
+    // kids_item mapping table for anything the art reorg hasn't reached yet.
+    var rawProductName = productName;
+    if (isDrinkware(productName, '')) {
+      var _dwMatch = _drinkwareSkuColorMap[coirSkuCode] || _drinkwareSkuMap[skuCode];
+      if (_dwMatch) productName = _dwMatch;
+    }
     // Skip rows with no product info (footer/total rows)
     if (!productName && !skuCode) return;
     var waveDateRaw = r['WaveDate'] || '';
@@ -3553,6 +3695,7 @@ function parseLMContainersRows(jsonRows) {
       orderType: orderType,
       machine:   machine,
       shortName: productName,
+      _rawShortName: rawProductName,
       itemName:  skuCode,
       coirSku:   coirSkuCode,
       orderId:   orderId,
@@ -6863,6 +7006,51 @@ function onTargetPphChangeBoth(input) {
   _markUnsaved();
 }
 
+// Re-derives shortName/machine for every already-loaded Drinkware order from
+// its original BlankLine value (_rawShortName) plus the current
+// _drinkwareSkuMap — so adding, editing, or removing a mapping takes effect
+// immediately without needing to reload the order file. Mirrors the same
+// re-derive-in-place pattern used for the coir art-folder connect.
+function _reapplyDrinkwareSkuMap() {
+  if (!window._planOrders) return;
+  window._planOrders.forEach(function(o) {
+    if (!o._fromLMContainers || !isDrinkware(o._rawShortName || o.shortName || '', '')) return;
+    // Same precedence as parseLMContainersRows: folder-based item_id match
+    // (o.coirSku) first, manual kids_item mapping (o.itemName) as fallback.
+    var mapped = _drinkwareSkuColorMap[o.coirSku] || _drinkwareSkuMap[o.itemName];
+    o.shortName = mapped || o._rawShortName || o.shortName;
+    o.machine = deriveMachineFromProduct(o.shortName, o.itemName, o.coirSku);
+  });
+  runPlan(window._planOrders);
+}
+
+function onDrinkwareSkuMapChange(select) {
+  var sku = select.getAttribute('data-sku');
+  if (!sku) return;
+  _drinkwareSkuMap[sku] = select.value;
+  _saveDrinkwareSkuMap();
+  _reapplyDrinkwareSkuMap();
+}
+
+function removeDrinkwareSkuMapping(sku) {
+  delete _drinkwareSkuMap[sku];
+  _saveDrinkwareSkuMap();
+  _reapplyDrinkwareSkuMap();
+  renderSettings();
+}
+
+function addDrinkwareSkuMapping() {
+  var skuInput = document.getElementById('new-dw-sku');
+  var targetSel = document.getElementById('new-dw-target');
+  if (!skuInput || !targetSel) return;
+  var sku = skuInput.value.trim();
+  if (!sku) { alert('Enter the kids_item SKU first.'); return; }
+  _drinkwareSkuMap[sku] = targetSel.value;
+  _saveDrinkwareSkuMap();
+  _reapplyDrinkwareSkuMap();
+  renderSettings();
+}
+
 function saveAllOverrides() {
   _saveMachineTargetOverrides();
   _saveRoutingOverrides();
@@ -7151,6 +7339,47 @@ function renderSettings() {
       h += '</tbody></table></div></div>';
     });
   }
+  h += '</div>';
+
+  // ── Drinkware SKU matching ────────────────────────────────────────────────
+  // LMContainers' BlankLine column just says the bare word "Drinkware" for
+  // every drinkware order — no piece type, no print process. There's no
+  // folder-based auto-detection possible here either (unlike coir's art files,
+  // which are cleanly split into Full/One Color subfolders, Drinkware's art
+  // files aren't organized by CWCV/CV/WCV at all) — so this list is manually
+  // curated: each row maps one kids_item SKU to the real product + print-type
+  // target, and parseLMContainersRows uses it to fix up the product name
+  // before routing/PPH lookup ever sees it.
+  h += '<div class="section animate">';
+  h += '<div class="section-head">Drinkware SKU matching</div>';
+  h += '<div class="settings-note">LMContainers only ever shows "Drinkware" as the product name, with no piece type or print process — so unlike coir (which is matched automatically from an art-file folder), each real SKU here has to be mapped by hand to tell the planner what it actually is. Match on the <strong>kids_item</strong> value from the order file, not item_id.</div>';
+
+  var _dwTargetKeys = Object.keys(_MACHINE_PPH_DEFAULTS).filter(function(k){ return k.indexOf('Drinkware · ') === 0; }).sort();
+  function _dwTargetOptions(selected) {
+    return _dwTargetKeys.map(function(k) {
+      return '<option value="' + k.replace(/"/g,'&quot;') + '"' + (k === selected ? ' selected' : '') + '>' + k.replace('Drinkware · ', '') + '</option>';
+    }).join('');
+  }
+
+  h += '<div class="table-wrap"><table class="settings-table"><thead><tr>';
+  h += '<th>kids_item SKU</th><th>Matches to</th><th></th>';
+  h += '</tr></thead><tbody>';
+  Object.keys(_drinkwareSkuMap).sort().forEach(function(sku) {
+    var safeSku = sku.replace(/"/g, '&quot;');
+    h += '<tr>';
+    h += '<td style="font-weight:600;font-family:monospace">' + sku + '</td>';
+    h += '<td><select data-sku="' + safeSku + '" onchange="onDrinkwareSkuMapChange(this)" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:4px 8px;font-size:13px;font-family:inherit;color:var(--text);background:var(--white);cursor:pointer">';
+    h += _dwTargetOptions(_drinkwareSkuMap[sku]);
+    h += '</select></td>';
+    h += '<td><a href="#" onclick="event.preventDefault();removeDrinkwareSkuMapping(\'' + safeSku.replace(/'/g,"\\'") + '\')" style="color:var(--red);font-size:12px;text-decoration:none">&times; Remove</a></td>';
+    h += '</tr>';
+  });
+  h += '<tr>';
+  h += '<td><input type="text" id="new-dw-sku" placeholder="e.g. TURD7EGSC" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:monospace;width:140px"></td>';
+  h += '<td><select id="new-dw-target" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:4px 8px;font-size:13px;font-family:inherit;color:var(--text);background:var(--white);cursor:pointer">' + _dwTargetOptions(null) + '</select></td>';
+  h += '<td><button onclick="addDrinkwareSkuMapping()" style="background:var(--green-dark);color:#fff;border:none;border-radius:var(--radius-sm);padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">+ Add</button></td>';
+  h += '</tr>';
+  h += '</tbody></table></div>';
   h += '</div>';
 
   // ── Commit PPH to Firebase ───────────────────────────────────────────────
