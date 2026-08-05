@@ -4480,20 +4480,28 @@ function importPlansBackup(input) {
   reader.readAsText(file);
 }
 
-// Returns { open, made, rolls } for one machine on a saved plan. Prefers the
-// exact numbers frozen at commit time (raw.machineLivePlan, added 2026-08-05 —
-// see the comment on _currentPlanSnapshot.machineLivePlan) so the saved/printed
-// plan always matches what was on screen when the owner clicked Commit,
-// including any manual rolls. Falls back to recomputing from full-shift
-// capacity for plans saved before this field existed.
+// Returns { open, made, rolls } for one machine on a saved plan. `made` is
+// always the FINAL "Planned for today" number — already includes pieces
+// actually produced today, in both branches below. Callers must show it as-is
+// and never add actualToday/machineActualToday on top of it again (that was
+// the cause of the print output showing higher totals than the preview modal
+// on 2026-08-05 — printSavedPlan's per-card and grand-total figures were each
+// re-adding actual on top of a `made` that, after the machineLivePlan change,
+// already had it baked in).
+// Prefers the exact numbers frozen at commit time (raw.machineLivePlan, added
+// 2026-08-05 — see the comment on _currentPlanSnapshot.machineLivePlan) so the
+// saved/printed plan always matches what was on screen when the owner clicked
+// Commit, including any manual rolls. Falls back to recomputing from
+// full-shift capacity for plans saved before this field existed.
 function _savedMachineStat(raw, m) {
   if (raw.machineLivePlan && raw.machineLivePlan[m]) {
     var lp = raw.machineLivePlan[m];
     return { open: lp.open || 0, made: lp.planned || 0, rolls: lp.rolls || 0 };
   }
-  var cap  = (raw.machineActualCap && raw.machineActualCap[m] != null) ? raw.machineActualCap[m] : ((raw.machineCap||{})[m] || 0);
-  var open = (raw.machineLoad||{})[m] || 0;
-  return { open: open, made: Math.min(open, cap), rolls: Math.max(0, open - cap) };
+  var cap    = (raw.machineActualCap && raw.machineActualCap[m] != null) ? raw.machineActualCap[m] : ((raw.machineCap||{})[m] || 0);
+  var open   = (raw.machineLoad||{})[m] || 0;
+  var actual = (raw.machineActualToday && raw.machineActualToday[m]) || 0;
+  return { open: open, made: Math.min(open, cap) + actual, rolls: Math.max(0, open - cap) };
 }
 
 function viewSavedPlan(storageKey) {
@@ -4652,9 +4660,9 @@ function printSavedPlan() {
     totalRolls += stat.rolls;
     totalOpen  += stat.open;
   });
-  // Planned Total = capacity-bound achievable amount + already made — NOT raw open orders,
-  // which would double-count backlog that was never going to fit in the shift anyway.
-  var totalPlanned = totalMade + (raw.actualToday || 0);
+  // totalMade (from _savedMachineStat) already includes actual production —
+  // do not add raw.actualToday again here (that double-counted it).
+  var totalPlanned = totalMade;
 
   // Total operators across all machines
   var totalOps = 0;
@@ -4727,9 +4735,10 @@ function printSavedPlan() {
     s += '</div>';
 
     // Planned + Made row (+ Still Open when work is underway)
-    // planned = capacity-bound achievable (made) + actual (already made when committed) —
-    // using raw open orders here double-counted backlog that was never going to fit today.
-    var machinePlanned = made + actual;
+    // `made` (from _savedMachineStat) already includes actual production —
+    // do not add `actual` again here (that double-counted it, showing print
+    // totals higher than the preview modal — found 2026-08-05).
+    var machinePlanned = made;
     s += '<div style="display:flex;gap:1rem;align-items:flex-end;padding-bottom:10px;border-bottom:1px solid #dde8e0;margin-bottom:10px">';
     s += '<div><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#7a9585;margin-bottom:1px">Planned</div>';
     s += '<div class="sp-card-num">' + machinePlanned.toLocaleString() + '</div>';
