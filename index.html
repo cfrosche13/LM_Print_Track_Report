@@ -3657,6 +3657,26 @@ function _renderManualPlanItems() {
   }).join('');
 }
 
+// Diagnostic — inspects the raw Firebase sessions behind the Planning tab's
+// "Printed" stat for one machine/date, so a "Printed always shows 0" report
+// can be checked against real data instead of guessed at. Run from the
+// browser console as debugPrintedToday('30', '2026-08-04').
+function debugPrintedToday(machine, date) {
+  date = date || (document.getElementById('plan-datepicker') ? document.getElementById('plan-datepicker').value : '');
+  var all = RAW.sessions[machine] || [];
+  var forDate = all.filter(function(s) { return s.t === date; });
+  console.log('Machine ' + machine + ' — ' + all.length + ' total sessions loaded, ' + forDate.length + ' on ' + date + '. MACHINE_UP[' + machine + ']:', MACHINE_UP[machine]);
+  var dayTotal = 0, nightTotal = 0;
+  forDate.forEach(function(s) {
+    var h = new Date(s.ts).getHours();
+    var inDay = h >= 4 && h <= 15, inNight = h >= 15 && h <= 23;
+    if (inDay) dayTotal += (s.g || 0);
+    if (inNight) nightTotal += (s.g || 0);
+    console.log('good=' + s.g + ' bad=' + s.b + ' mode=' + s.m + ' piece="' + s.p + '" hour=' + h + ' inDay=' + inDay + ' inNight=' + inNight + ' ts=' + s.ts);
+  });
+  console.log('DAY WINDOW (4am-3pm) TOTAL GOOD PIECES: ' + dayTotal + '   NIGHT WINDOW (3pm-11pm) TOTAL GOOD PIECES: ' + nightTotal);
+}
+
 function runPlan(orders) {
   recomputeGoals();
   // Manual machine-shift moves and roll-forwards only last for the current
@@ -4459,6 +4479,22 @@ function importPlansBackup(input) {
   reader.readAsText(file);
 }
 
+// Returns { open, made, rolls } for one machine on a saved plan. Prefers the
+// exact numbers frozen at commit time (raw.machineLivePlan, added 2026-08-05 —
+// see the comment on _currentPlanSnapshot.machineLivePlan) so the saved/printed
+// plan always matches what was on screen when the owner clicked Commit,
+// including any manual rolls. Falls back to recomputing from full-shift
+// capacity for plans saved before this field existed.
+function _savedMachineStat(raw, m) {
+  if (raw.machineLivePlan && raw.machineLivePlan[m]) {
+    var lp = raw.machineLivePlan[m];
+    return { open: lp.open || 0, made: lp.planned || 0, rolls: lp.rolls || 0 };
+  }
+  var cap  = (raw.machineActualCap && raw.machineActualCap[m] != null) ? raw.machineActualCap[m] : ((raw.machineCap||{})[m] || 0);
+  var open = (raw.machineLoad||{})[m] || 0;
+  return { open: open, made: Math.min(open, cap), rolls: Math.max(0, open - cap) };
+}
+
 function viewSavedPlan(storageKey) {
   var raw;
   var key = storageKey.indexOf('committed-plan:') === 0 ? storageKey : ('committed-plan:' + storageKey);
@@ -4483,10 +4519,9 @@ function viewSavedPlan(storageKey) {
   }
   var totalMade = 0, totalRolls = 0;
   machines.forEach(function(m) {
-    var cap  = (raw.machineActualCap && raw.machineActualCap[m] != null) ? raw.machineActualCap[m] : (raw.machineCap[m] || 0);
-    var open = raw.machineLoad[m] || 0;
-    totalMade  += Math.min(open, cap);
-    totalRolls += Math.max(0, open - cap);
+    var stat = _savedMachineStat(raw, m);
+    totalMade  += stat.made;
+    totalRolls += stat.rolls;
   });
   html += metaTile('Saved at', when);
   html += metaTile('Shift', shiftLabel);
@@ -4499,10 +4534,10 @@ function viewSavedPlan(storageKey) {
   // Machine summary cards
   html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:1.25rem">';
   machines.forEach(function(m) {
-    var cap   = (raw.machineActualCap && raw.machineActualCap[m] != null) ? raw.machineActualCap[m] : (raw.machineCap[m] || 0);
-    var open  = raw.machineLoad[m] || 0;
-    var made  = Math.min(open, cap);
-    var rolls = Math.max(0, open - cap);
+    var stat  = _savedMachineStat(raw, m);
+    var open  = stat.open;
+    var made  = stat.made;
+    var rolls = stat.rolls;
     var down  = raw.machineUp && raw.machineUp[m] === false;
     var actual = (raw.machineActualToday && raw.machineActualToday[m]) || 0;
     html += '<div style="background:var(--bg);border:1px solid var(--border);border-top:3px solid ' + (rolls > 0 ? 'var(--red)' : 'var(--green-dark)') + ';border-radius:6px;padding:10px 12px">';
@@ -4611,11 +4646,10 @@ function printSavedPlan() {
 
   var totalMade = 0, totalRolls = 0, totalOpen = 0;
   machines.forEach(function(m) {
-    var cap  = (raw.machineActualCap && raw.machineActualCap[m] != null) ? raw.machineActualCap[m] : ((raw.machineCap||{})[m]||0);
-    var open = (raw.machineLoad||{})[m] || 0;
-    totalMade  += Math.min(open, cap);
-    totalRolls += Math.max(0, open - cap);
-    totalOpen  += open;
+    var stat = _savedMachineStat(raw, m);
+    totalMade  += stat.made;
+    totalRolls += stat.rolls;
+    totalOpen  += stat.open;
   });
   // Planned Total = capacity-bound achievable amount + already made — NOT raw open orders,
   // which would double-count backlog that was never going to fit in the shift anyway.
@@ -4666,9 +4700,10 @@ function printSavedPlan() {
   machines.forEach(function(m) {
     var cap     = (raw.machineActualCap && raw.machineActualCap[m] != null) ? raw.machineActualCap[m] : ((raw.machineCap||{})[m]||0);
     var fullCap = (raw.machineCap||{})[m] || cap; // full shift goal — bar denominator matches planner screen
-    var open    = (raw.machineLoad||{})[m] || 0;
-    var made    = Math.min(open, cap);
-    var rolls   = Math.max(0, open - cap);
+    var stat    = _savedMachineStat(raw, m);
+    var open    = stat.open;
+    var made    = stat.made;
+    var rolls   = stat.rolls;
     var ops     = raw.machineOperators ? (raw.machineOperators[m] || 1) : 1;
     var down    = raw.machineUp && raw.machineUp[m] === false;
     var actual  = (raw.machineActualToday && raw.machineActualToday[m]) || 0;
@@ -5306,13 +5341,27 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
   // Uses the active shift's schedule from SHIFT_SCHEDULE.
   // Before shift ends: scales capacity by fraction of net hours remaining.
   // After shift ends: capacity = 0 (everything rolls).
+  // This only applies when viewing TODAY's plan — the "time remaining in the
+  // shift" concept is tied to the real-world clock, so it only makes sense for
+  // today. Viewing tomorrow's (or any other date's) plan while today's shift
+  // has already ended used to incorrectly zero out capacity for that date too
+  // (found 2026-08-04 — "Today's Plan" showed 0 pcs when viewing tomorrow
+  // after today's shift had ended); any other date now gets the full
+  // scheduled shift instead of being scaled by right-now's clock.
   var _sched = SHIFT_SCHEDULE[ACTIVE_SHIFT] || SHIFT_SCHEDULE.day;
   var _now = new Date();
-  var _endH   = _sched.endHour;
-  var _endMs  = new Date(_now.getFullYear(), _now.getMonth(), _now.getDate(), Math.floor(_endH), Math.round((_endH % 1) * 60), 0).getTime();
-  var _remainingMs  = Math.max(0, _endMs - _now.getTime());
-  var _remainingHrs = Math.min(_sched.netHours, _remainingMs / 3600000);
-  var _shiftOver    = _remainingHrs === 0;
+  var _isViewingToday = planDate === isoToLocalDate(_now);
+  var _remainingHrs, _shiftOver;
+  if (_isViewingToday) {
+    var _endH   = _sched.endHour;
+    var _endMs  = new Date(_now.getFullYear(), _now.getMonth(), _now.getDate(), Math.floor(_endH), Math.round((_endH % 1) * 60), 0).getTime();
+    var _remainingMs  = Math.max(0, _endMs - _now.getTime());
+    _remainingHrs = Math.min(_sched.netHours, _remainingMs / 3600000);
+    _shiftOver    = _remainingHrs === 0;
+  } else {
+    _remainingHrs = _sched.netHours;
+    _shiftOver    = false;
+  }
 
   // ── Compute totals ────────────────────────────────────────────────────────
   var totalCap = 0, totalCanDo = 0, totalDS = 0, totalOpen = 0;
@@ -5522,6 +5571,13 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
   // ── Per-machine capacity cards ────────────────────────────────────────────
   // Question answered: "How many CAN this machine make vs. how many do we need?"
   var summaryHtml = '';
+  // Captures the exact numbers shown on this live card (time-remaining-aware,
+  // includes any manual rolls already applied) so that committing the plan
+  // freezes these as-is — see machineLivePlan on _currentPlanSnapshot below.
+  // Without this, the saved/printed plan recomputed its own "made"/"rolls"
+  // from full-shift capacity instead of hours actually left at commit time,
+  // so it never matched what the owner saw on screen when they hit Commit.
+  var _liveMachinePlan = {};
 
   GROUP_MACHINES[PLAN_GROUP].forEach(function(m) {
     if (!MACHINE_UP[m]) {
@@ -5529,6 +5585,7 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
       summaryHtml += '<div class="plan-card-machine" style="color:var(--muted)">Machine ' + m + '</div>';
       summaryHtml += '<div style="font-size:13px;color:var(--muted);margin-top:8px">DOWN — not in today\'s plan</div>';
       summaryHtml += '</div>';
+      _liveMachinePlan[m] = { open: 0, made: 0, canDo: 0, leftToPrint: 0, planned: 0, rolls: 0 };
       return;
     }
 
@@ -5598,6 +5655,7 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
     var madeToday    = machineActualToday[m] || 0;
     var machineLeftToPrint = canDo;
     var machinePlanTotal   = madeToday + canDo;
+    _liveMachinePlan[m] = { open: open, made: madeToday, canDo: canDo, leftToPrint: machineLeftToPrint, planned: machinePlanTotal, rolls: leftOver };
 
     // Row 1: Open Orders | Today's Plan
     summaryHtml += '<div style="display:flex;gap:1.5rem;margin-top:10px;margin-bottom:8px;flex-wrap:wrap;align-items:flex-end">';
@@ -5957,6 +6015,13 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
     machineLoad:      _buildMachineMap(GROUP_MACHINES[PLAN_GROUP], function(m){ return load[m] || 0; }),
     machineCap:       _buildMachineMap(GROUP_MACHINES[PLAN_GROUP], function(m){ return MACHINE_GOALS[m]; }),
     machineActualCap: _buildMachineMap(GROUP_MACHINES[PLAN_GROUP], function(m){ return machineActualCap[m] || MACHINE_GOALS[m]; }),
+    // Exact numbers shown on the live capacity cards at the moment of commit
+    // (time-remaining-aware, already reflects any manual rolls) — the saved
+    // preview and print now read straight from this instead of recomputing
+    // "made"/"rolls" from full-shift capacity, so committing freezes exactly
+    // what was on screen. Falls back to the old min(open,cap) math for plans
+    // saved before this field existed (see viewSavedPlan/printSavedPlan).
+    machineLivePlan:  _liveMachinePlan,
     machineUp:        _buildMachineMap(GROUP_MACHINES[PLAN_GROUP], function(m){ return MACHINE_UP[m]; }),
     machineOperators: _buildMachineMap(GROUP_MACHINES[PLAN_GROUP], function(m){ return _machineOperators[m] || 1; }),
     machineMaints:    _buildMachineMap(GROUP_MACHINES[PLAN_GROUP], function(m){ return (SHIFT_CONFIG[ACTIVE_SHIFT].machineMaints || {})[m] || 0; }),
