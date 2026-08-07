@@ -1801,9 +1801,9 @@ function computeWarnings(load, rows) {
       warnings.push('⚠ Machine H5 is over capacity even after flex — review Anti-Fatigue / PVC / Leaner volume.');
   } else if (PLAN_GROUP === 'drinkware') {
     if (load['Drinkware M1'] > MACHINE_GOALS['Drinkware M1'])
-      warnings.push('⚠ Drinkware M1 is still over capacity after overflow to M2 — DS triage required or accept rollover.');
+      warnings.push('⚠ Drinkware M1 is still over capacity even after balancing with M2 — DS triage required or accept rollover.');
     if (load['Drinkware M2'] > MACHINE_GOALS['Drinkware M2'])
-      warnings.push('⚠ Drinkware M2 is over capacity.');
+      warnings.push('⚠ Drinkware M2 is over capacity even after balancing with M1.');
   }
   var blocked = rows.filter(function(r){ return r.machine === 'BLOCKED' && r.qty > 0; });
   if (blocked.length)
@@ -2510,14 +2510,18 @@ function loadShiftDefaults() {
 
 var ACTIVE_SHIFT = 'day';
 
+// All order types default to ON for both shifts (changed 2026-08-07, at the
+// owner's request) — there's no longer a built-in "FBA is night-only" rule.
+// Which order types actually run each shift is decided solely by manually
+// clicking the DS/REG/ASAP/FBA/Manual toggle pills in the Planning tab.
 var SHIFT_CONFIG = {
   day: {
-    orderTypes: { DS: true, REG: true, ASAP: true, FBA: false, Manual: true },
+    orderTypes: { DS: true, REG: true, ASAP: true, FBA: true, Manual: true },
     machineHrs:    { '30': 8, '30+': 8, 'H5': 8, 'Drinkware M1': 8, 'Drinkware M2': 8 },
     machineMaints: { '30': 0, '30+': 0, 'H5': 0, 'Drinkware M1': 0, 'Drinkware M2': 0 }
   },
   night: {
-    orderTypes: { DS: false, REG: false, ASAP: false, FBA: true, Manual: true },
+    orderTypes: { DS: true, REG: true, ASAP: true, FBA: true, Manual: true },
     machineHrs:    { '30': 8, '30+': 8, 'H5': 0, 'Drinkware M1': 0, 'Drinkware M2': 0 },
     machineMaints: { '30': 0, '30+': 0, 'H5': 0, 'Drinkware M1': 0, 'Drinkware M2': 0 }
   }
@@ -3687,6 +3691,15 @@ function parseLMContainersRows(jsonRows) {
     var waveDateRaw = r['WaveDate'] || '';
     var qty         = parseInt(r['kid_qty'] || 1) || 1;
     var orderType   = parseOrderType(String(r['OrderType'] || ''));
+    // OrderType alone doesn't actually say "FBA" for Amazon-fulfilled orders —
+    // confirmed 2026-08-07 against a live export: WHOLE_S_ID 430428
+    // ("Pembroke Amazon FBA") shows OrderType values like "ASAP(SS)" and
+    // "REG(T2)", never "FBA", so those ~4,000 orders were silently
+    // classified as ASAP/REG instead. WHOLE_S_ID is the reliable signal.
+    // Two other Amazon-channel client codes exist (354389 "Pembroke- Amazon",
+    // 492786 "Woodstock Amazon Seller Central") but aren't labeled FBA and
+    // were deliberately left out per the owner's confirmation.
+    if (String(r['WHOLE_S_ID'] || '').trim() === '430428') orderType = 'FBA';
     var orderId     = String(r['order_id'] || '');
     var machine     = deriveMachineFromProduct(productName, skuCode, coirSkuCode);
     rows.push({
@@ -4306,6 +4319,73 @@ function runPlan(orders) {
     });
   }
 
+  // Splits Drinkware work across M1 and M2 proportional to each machine's own
+  // capacity (usually an even 50/50 since both run the same speed, but stays
+  // correct if the owner ever schedules them for different hours) instead of
+  // loading everything onto M1 and only spilling to M2 once M1 is already
+  // over its own capacity. That old behavior meant M2 sat idle any time total
+  // Drinkware demand fit on M1 alone, cutting the shift's real throughput in
+  // half instead of running both machines in parallel (found 2026-08-05).
+  function _balanceDrinkwareMachines() {
+    var m1 = 'Drinkware M1', m2 = 'Drinkware M2';
+    if (!MACHINE_UP[m1] || !MACHINE_UP[m2]) return; // one machine not scheduled — nothing to balance
+    var capM1 = MACHINE_GOALS[m1] || 1, capM2 = MACHINE_GOALS[m2] || 1;
+    var total = (machineLoad[m1] || 0) + (machineLoad[m2] || 0);
+    var targetM1 = Math.round(total * capM1 / (capM1 + capM2));
+    var toBalance = (machineLoad[m1] || 0) - targetM1;
+    if (toBalance <= 0) return; // M1 already at or under its fair share
+
+    var hrsRoomM2 = Math.max(0, (MACHINE_NET_HRS[m2] || NET_HRS) - (machineHrsUsed[m2] || 0));
+    var eligible = planRows.filter(function(r) { return r.machine === m1 && !r._manual; });
+    // REG/ASAP moves first; must-ship DS-only rows stay on M1 unless there's no other way to balance.
+    eligible.sort(function(a, b) {
+      var aDS = (a.dsQty > 0 && a.regQty === 0 && a.asapQty === 0 && (a.fbaQty||0) === 0) ? 1 : 0;
+      var bDS = (b.dsQty > 0 && b.regQty === 0 && b.asapQty === 0 && (b.fbaQty||0) === 0) ? 1 : 0;
+      return aDS - bDS || b.qty - a.qty;
+    });
+
+    eligible.forEach(function(row) {
+      if (toBalance <= 0) return;
+      var pph = lookupPph(row.name, row.itemName, m2) || MACHINE_PPH[m2] || 60;
+      var roomPcs = Math.floor(hrsRoomM2 * pph);
+      if (roomPcs <= 0) return;
+      var toMove = Math.min(row.qty, toBalance, roomPcs);
+      if (toMove <= 0) return;
+
+      var frac     = row.qty > 0 ? toMove / row.qty : 0;
+      var dsMove   = Math.round(row.dsQty * frac);
+      var fbaMove  = Math.round((row.fbaQty || 0) * frac);
+      var asapMove = Math.round(row.asapQty * frac);
+      var regMove  = Math.max(0, toMove - dsMove - fbaMove - asapMove);
+
+      machineLoad[m1]    -= toMove;  machineLoad[m2]    += toMove;
+      machineDSLoad[m1]  -= dsMove;  machineDSLoad[m2]  += dsMove;
+      machineFbaLoad[m1] -= fbaMove; machineFbaLoad[m2] += fbaMove;
+      machineRegLoad[m1] -= (regMove + asapMove); machineRegLoad[m2] += (regMove + asapMove);
+      var hrsMoved = toMove / pph;
+      machineHrsUsed[m1] = Math.max(0, (machineHrsUsed[m1] || 0) - hrsMoved);
+      machineHrsUsed[m2] = (machineHrsUsed[m2] || 0) + hrsMoved;
+      hrsRoomM2 -= hrsMoved;
+      toBalance -= toMove;
+
+      var note = 'Shifted: ' + m1 + ' → ' + m2 + ' (' + toMove.toLocaleString() + ' pcs — balancing load across both Drinkware machines)';
+      if (toMove === row.qty) {
+        row.machine = m2; row.moved = true; row.loadShifted = true; row._shiftTag = null;
+        row.notes.push(note);
+      } else {
+        planRows.push({
+          name: row.name, itemName: row.itemName, coirSku: row.coirSku,
+          qty: toMove, dsQty: dsMove, regQty: regMove, asapQty: asapMove, fbaQty: fbaMove,
+          orderType: row.orderType,
+          machine: m2, originalMachine: m1,
+          notes: [note], moved: true, loadShifted: true, _shiftTag: null,
+          earliestWave: row.earliestWave || null
+        });
+        row.qty -= toMove; row.dsQty -= dsMove; row.regQty -= regMove; row.asapQty -= asapMove; row.fbaQty -= fbaMove;
+      }
+    });
+  }
+
   if (PLAN_GROUP === 'standard') {
     // Step 1 & 2: Free up 30+ for coir by moving flex H5-eligible items off it.
     // Trigger when 30 is over (freeing 30+ to absorb coir) OR when 30+ is at/over capacity.
@@ -4326,10 +4406,10 @@ function runPlan(orders) {
       shiftItems('pvcOnH5', 'H5', '30', 'H5 over capacity — PVC flex to 30');
     }
   } else if (PLAN_GROUP === 'drinkware') {
-    // Drinkware has no category-specific flex rules — just spill M1 overflow onto M2.
-    if (machineLoad['Drinkware M1'] > MACHINE_GOALS['Drinkware M1']) {
-      shiftItems('drinkwareOnM1', 'Drinkware M1', 'Drinkware M2', 'M1 over capacity — Drinkware overflow', true);
-    }
+    // Split the total load across M1 and M2 (see _balanceDrinkwareMachines)
+    // instead of only spilling to M2 once M1 alone is over capacity — runs
+    // both machines whenever there's enough work to keep them both busy.
+    _balanceDrinkwareMachines();
   }
 
   // Override-based flex moves: process any 'ovr_from|to' tags from routing overrides
@@ -5938,6 +6018,11 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
         summaryHtml += '<span style="color:var(--text)">Porch Leaners: <strong>' + leanerQty.toLocaleString() + ' pcs</strong>';
         if (circleQty > 0) summaryHtml += ' &ensp;then 18×18″ Circles: <strong>' + circleQty.toLocaleString() + ' pcs</strong>';
         summaryHtml += '</span>';
+      } else if (m === 'Drinkware M1' || m === 'Drinkware M2') {
+        // Pint Glass is the only piece type currently running — revisit this
+        // once Acrylic Cup / Stainless Steel Tumbler / Stemless Pint Glass
+        // are actually in production and there's a real priority order.
+        summaryHtml += '<span style="color:var(--text)">Pint Glasses</span>';
       }
       summaryHtml += '</div>';
     }
