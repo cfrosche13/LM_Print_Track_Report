@@ -6133,7 +6133,7 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
     var cpRemaining = canDo;
     var cpSections = (function() {
       var sections = [];
-      function fillBucket(label, color, items, getQty) {
+      function fillBucket(label, color, items, getQty, bucketType) {
         var produced = [], rolled = [];
         items.forEach(function(r) {
           var need = getQty(r);
@@ -6141,14 +6141,29 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
           var produce = Math.min(need, cpRemaining);
           cpRemaining -= produce;
           var dispName = _coirDisplayName(r.name, r.coirSku);
-          if (produce > 0) produced.push({ name: dispName, produce: produce, total: need, note: r._manualNote || '' });
-          if (produce < need) rolled.push({ name: dispName, roll: need - produce, note: r._manualNote || '' });
+          var rollInfo = null;
+          if (produce < need) {
+            rollInfo = {
+              roll: need - produce,
+              // rawName (not the display name) is what moveBunchQty actually
+              // matches rows on — using dispName here would fail to find the
+              // row for anything with a coir FC/OC suffix appended.
+              rawName: r.name, itemName: r.itemName, machine: m,
+              // Omitted (left null) for rows this drag system can't move —
+              // loadShifted rows (already load-balanced in from another
+              // machine) and manual entries aren't valid drag sources for
+              // moveBunchQty.
+              bucketType: (bucketType && !r.loadShifted) ? bucketType : null
+            };
+          }
+          if (produce > 0) produced.push({ name: dispName, produce: produce, total: need, note: r._manualNote || '', rollInfo: rollInfo });
+          else if (rollInfo) rolled.push({ name: dispName, note: r._manualNote || '', roll: rollInfo.roll, rawName: rollInfo.rawName, itemName: rollInfo.itemName, machine: rollInfo.machine, bucketType: rollInfo.bucketType });
         });
         if (produced.length || rolled.length) sections.push({ label: label, color: color, produced: produced, rolled: rolled });
       }
-      fillBucket('DS — Must Ship', 'var(--red)',        dsRows,      function(r){ return r.dsQty; });
-      fillBucket('FBA (Amazon)',         'var(--blue)',       fbaRows,     function(r){ return r.fbaQty || 0; });
-      fillBucket('REG / ASAP',          'var(--green-dark)', regRows,     function(r){ return r.regQty + r.asapQty; });
+      fillBucket('DS — Must Ship', 'var(--red)',        dsRows,      function(r){ return r.dsQty; }, 'ds');
+      fillBucket('FBA (Amazon)',         'var(--blue)',       fbaRows,     function(r){ return r.fbaQty || 0; }, 'fba');
+      fillBucket('REG / ASAP',          'var(--green-dark)', regRows,     function(r){ return r.regQty + r.asapQty; }, 'reg');
       fillBucket('Manual / Other',       '#8e6fc9',           manualRows,  function(r){ return r.qty; });
       if (shiftedRows.length) fillBucket('Shifted In', 'var(--amber)', shiftedRows, function(r){ return r.qty; });
       return sections;
@@ -6163,21 +6178,30 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
     cpSections.forEach(function(sec) {
       canProduceHtml += '<div style="margin-top:6px">';
       canProduceHtml += '<div style="font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:' + sec.color + ';margin-bottom:3px">' + sec.label + '</div>';
+      // Draggable straight to another machine's card — lets the owner override
+      // an auto-roll they disagree with without having to hunt the same line
+      // down in "All open work" first (added 2026-08-10). Shared by both a
+      // fully-rolled item and the rolling remainder of a partially-made one.
+      function rolledLineHtml(item, indent) {
+        var canDrag = !!item.bucketType;
+        var dragAttrs = canDrag
+          ? ' draggable="true" ondragstart="startBunchDrag(event,\'' + _jsEsc(item.rawName) + '\',\'' + _jsEsc(item.itemName) + '\',\'' + item.bucketType + '\',\'' + item.machine + '\',' + item.roll + ')" title="Drag to shift these ' + item.roll + ' pcs to another machine instead of letting them roll" style="cursor:grab"'
+          : '';
+        var h = '<div' + dragAttrs + ' style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0 2px ' + (indent ? '10px' : '0') + ';border-bottom:1px solid var(--border);opacity:0.55">';
+        h += '<span style="color:var(--muted);font-style:italic">' + (indent ? '' : item.name) + '</span>';
+        h += '<span style="font-size:10px;color:var(--amber)">' + item.roll.toLocaleString() + ' rolls &#8594;</span>';
+        h += '</div>';
+        return h;
+      }
       sec.produced.forEach(function(item) {
         var partial = item.produce < item.total;
         canProduceHtml += '<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;border-bottom:1px solid var(--border)">';
         canProduceHtml += '<span style="color:var(--text)">' + item.name + (item.note ? ' <span style="color:var(--muted);font-style:italic">&mdash; ' + item.note + '</span>' : '') + (partial ? ' <span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;background:var(--amber-bg);color:var(--amber)">partial</span>' : '') + '</span>';
         canProduceHtml += '<span style="font-weight:600;color:' + sec.color + '">' + item.produce.toLocaleString() + (partial ? ' <span style="font-size:10px;font-weight:400;color:var(--muted)">of ' + item.total.toLocaleString() + '</span>' : '') + '</span>';
         canProduceHtml += '</div>';
+        if (item.rollInfo) canProduceHtml += rolledLineHtml(item.rollInfo, true);
       });
-      sec.rolled.forEach(function(item) {
-        var alreadyPartial = sec.produced.some(function(p){ return p.name === item.name; });
-        if (alreadyPartial) return;
-        canProduceHtml += '<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;border-bottom:1px solid var(--border);opacity:0.55">';
-        canProduceHtml += '<span style="color:var(--muted);font-style:italic">' + item.name + '</span>';
-        canProduceHtml += '<span style="font-size:10px;color:var(--amber)">' + item.roll.toLocaleString() + ' rolls &#8594;</span>';
-        canProduceHtml += '</div>';
-      });
+      sec.rolled.forEach(function(item) { canProduceHtml += rolledLineHtml(item, false); });
       canProduceHtml += '</div>';
     });
     if (!cpSections.length) {
