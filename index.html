@@ -297,16 +297,32 @@ input[type="date"]:focus { border-color: var(--green-dark); }
   .report-gap { padding: 1rem 1.5rem; }
   .report-event-row { display: flex; gap: 10px; align-items: flex-start; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
   .report-event-row:last-child { border-bottom: none; }
+  .report-print-bar { display: none; }
+  .report-print-bar-track { height: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+  .report-print-bar-fill { height: 100%; }
 
   @media print {
-    @page { margin: 1.5cm; }
+    @page { margin: 1cm; }
 
     /* ── Default: print the Plan vs. Actual report tab ─────────────────────── */
-    .topbar, .subnav, .report-controls, .footer { display: none !important; }
+    .topbar, .subnav, .report-controls, .footer, .page-head { display: none !important; }
     #page-report { display: block !important; }
     #page-report .main { padding: 0 !important; max-width: 100% !important; }
-    .report-block { break-inside: avoid; page-break-inside: avoid; margin-bottom: 1.5cm; box-shadow: none; border: 1px solid #ccc; }
-    .report-chart-area { break-inside: avoid; }
+    .report-block { break-inside: avoid; page-break-inside: avoid; margin-bottom: 0.25cm; box-shadow: none; border: 1px solid #ccc; }
+    .report-page-break { break-before: page; page-break-before: always; }
+
+    /* Compact per-machine cards: Planned / Actual / % to Plan + a simple % to Plan
+       progress bar — the per-piece-type Chart.js chart is too dense to read at print
+       size, so it's replaced with a plain CSS bar. Open-orders breakdown, the
+       hourly/pieces chart canvases, and gap analysis are all hidden so a full
+       shift's machines fit on one printed page. */
+    .report-block-header { padding: 0.4rem 0.9rem; }
+    .report-pva-cell { padding: 0.4rem 0.9rem; }
+    .report-pva-num { font-size: 20px; }
+    .report-pva-sub { font-size: 10px; margin-top: 1px; }
+    .report-open-orders, .report-gap, .report-chart-area { display: none !important; }
+    .report-print-bar { display: block !important; padding: 0 0.9rem 0.6rem; }
+    .report-print-bar-fill { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 
     /* ── body.print-saved-plan: print the Saved Plan modal ─────────────────── */
     /* Use both the generic > * rule AND explicit ID overrides so high-specificity
@@ -6422,14 +6438,23 @@ function generateReport() {
   }
 
   var html = noPlanNote;
-  // One report block per shift per machine
+  // One report block per shift per machine, grouped per-shift so print can force
+  // each shift onto its own page (day, then night) without a blank leading page.
+  var shiftsPresent = [];
   plans.forEach(function(plan) {
     var sk = plan._reportShift || plan.shift || 'day';
-    var grp = plan._group || plan.group || 'standard';
-    html += _planSourceSelectorHtml(grp, sk, plan._planSource, plan._hasAlt);
-    GROUP_MACHINES[grp].forEach(function(m) {
-      html += _buildMachineReportBlock(m, date, plan, sk);
+    if (shiftsPresent.indexOf(sk) === -1) shiftsPresent.push(sk);
+  });
+  shiftsPresent.forEach(function(sk, idx) {
+    html += '<div class="report-shift-group' + (idx > 0 ? ' report-page-break' : '') + '">';
+    plans.filter(function(plan) { return (plan._reportShift || plan.shift || 'day') === sk; }).forEach(function(plan) {
+      var grp = plan._group || plan.group || 'standard';
+      html += _planSourceSelectorHtml(grp, sk, plan._planSource, plan._hasAlt);
+      GROUP_MACHINES[grp].forEach(function(m) {
+        html += _buildMachineReportBlock(m, date, plan, sk);
+      });
     });
+    html += '</div>';
   });
 
   output.innerHTML = html;
@@ -6470,11 +6495,9 @@ function _buildMachineReportBlock(machine, date, plan, shiftKey) {
   var planQty    = (openOrders !== null && planCap !== null) ? Math.min(openOrders, planCap) : (planCap !== null ? planCap : openOrders);
   var planRows   = (plan.rows || []).filter(function(r){ return r.machine === machine; });
 
-  // Gap vs committed production target
-  var gap      = planQty !== null ? actualGood - planQty : null;
-  var gapPct   = (planQty > 0 && gap !== null) ? Math.round((gap/planQty)*100) : null;
-  var gapColor = gap === null ? 'var(--muted)' : gap >= 0 ? 'var(--green-dark)' : 'var(--red)';
-  var gapSign  = gap > 0 ? '+' : '';
+  // % to plan vs committed production target
+  var pctToPlan = (planQty > 0) ? Math.round((actualGood/planQty)*100) : null;
+  var pctColor  = pctToPlan === null ? 'var(--muted)' : pctToPlan >= 100 ? 'var(--green-dark)' : 'var(--red)';
 
   var mColor = machine==='30' ? 'var(--blue)' : machine==='30+' ? 'var(--amber)' : machine.indexOf('Drinkware')===0 ? '#1565c0' : 'var(--green-dark)';
   var chartId = 'rchart-' + _machineIdKey(machine) + '-' + shiftKey;
@@ -6518,10 +6541,9 @@ function _buildMachineReportBlock(machine, date, plan, shiftKey) {
   h += '</div>';
 
   h += '<div class="report-pva-cell">';
-  h += '<div class="report-pva-label">Gap</div>';
-  if (gap !== null) {
-    h += '<div class="report-pva-num" style="color:' + gapColor + '">' + gapSign + gap.toLocaleString() + '</div>';
-    if (gapPct !== null) h += '<div class="report-pva-sub" style="color:' + gapColor + '">' + gapSign + gapPct + '%</div>';
+  h += '<div class="report-pva-label">% to Plan</div>';
+  if (pctToPlan !== null) {
+    h += '<div class="report-pva-num" style="color:' + pctColor + '">' + pctToPlan + '%</div>';
   } else {
     h += '<div class="report-pva-num" style="color:var(--muted);font-size:24px">&mdash;</div>';
   }
@@ -6529,12 +6551,18 @@ function _buildMachineReportBlock(machine, date, plan, shiftKey) {
 
   h += '</div>'; // report-pva
 
+  // ── Print-only % to Plan bar (screen shows the toggleable Chart.js charts below instead) ──
+  if (pctToPlan !== null) {
+    var barPct = Math.min(100, Math.max(0, pctToPlan));
+    h += '<div class="report-print-bar"><div class="report-print-bar-track"><div class="report-print-bar-fill" style="width:' + barPct + '%;background:' + pctColor + '"></div></div></div>';
+  }
+
   // ── Open orders breakdown (from committed rows) ──────────────────────────
   // These are the open order quantities assigned to this machine in the plan,
   // NOT the committed production target (which is capped at machine capacity).
   var visibleRows = planRows.filter(function(r){ return r.totalQty > 0 || r.qty > 0; });
   if (visibleRows.length) {
-    h += '<div style="padding:0.75rem 1.5rem;border-bottom:1px solid var(--border)">';
+    h += '<div class="report-open-orders" style="padding:0.75rem 1.5rem;border-bottom:1px solid var(--border)">';
     h += '<div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Open orders assigned to this machine</div>';
     h += '<div style="display:flex;flex-wrap:wrap;gap:6px">';
     visibleRows.forEach(function(r) {
@@ -6555,10 +6583,10 @@ function _buildMachineReportBlock(machine, date, plan, shiftKey) {
     h += '<button id="' + chartId + '-btn-pieces" class="report-chart-toggle-btn" onclick="setReportChartView(\'' + chartId + '\',\'pieces\')">Planned vs actual</button>';
     h += '</div>';
     h += '</div>';
-    h += '<div id="' + chartId + '-hourly-wrap">';
+    h += '<div id="' + chartId + '-hourly-wrap" class="report-chart-hourly-wrap">';
     h += sessions.length ? '<canvas id="' + chartId + '" height="130"></canvas>' : '<div class="empty">No production sessions recorded for this machine this shift.</div>';
     h += '</div>';
-    h += '<div id="' + chartId + '-pieces-wrap" style="display:none">';
+    h += '<div id="' + chartId + '-pieces-wrap" class="report-chart-pieces-wrap" style="display:none">';
     h += '<canvas id="' + chartId + '-pieces" height="130"></canvas>';
     h += '</div>';
     h += '</div>';
@@ -6667,6 +6695,17 @@ function setReportChartView(baseId, view) {
   var piecesWrap = document.getElementById(baseId + '-pieces-wrap');
   if (hourlyWrap) hourlyWrap.style.display = view === 'hourly' ? '' : 'none';
   if (piecesWrap) piecesWrap.style.display = view === 'pieces' ? '' : 'none';
+  // Charts created while their wrap was display:none render at zero size and never
+  // recover on their own — force a resize now that the wrap is actually visible.
+  if (view === 'pieces') {
+    var piecesCanvas = document.getElementById(baseId + '-pieces');
+    var piecesChart = piecesCanvas && Chart.getChart(piecesCanvas);
+    if (piecesChart) piecesChart.resize();
+  } else {
+    var hourlyCanvas = document.getElementById(baseId);
+    var hourlyChart = hourlyCanvas && Chart.getChart(hourlyCanvas);
+    if (hourlyChart) hourlyChart.resize();
+  }
   var hourlyBtn = document.getElementById(baseId + '-btn-hourly');
   var piecesBtn = document.getElementById(baseId + '-btn-pieces');
   if (hourlyBtn) hourlyBtn.classList.toggle('report-chart-toggle-active', view === 'hourly');
