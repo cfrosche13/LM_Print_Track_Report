@@ -4352,11 +4352,16 @@ function runPlan(orders) {
     if (toBalance <= 0) return; // M1 already at or under its fair share
 
     var hrsRoomM2 = Math.max(0, (MACHINE_NET_HRS[m2] || NET_HRS) - (machineHrsUsed[m2] || 0));
-    var eligible = planRows.filter(function(r) { return r.machine === m1 && !r._manual; });
+    // Manual (hand-typed) Drinkware orders are included here too — excluding them
+    // meant any day where most Drinkware volume was manual (common, since order-file
+    // parsing isn't fully set up for Drinkware yet) left M2 nearly empty regardless
+    // of how full M1 got (found 2026-08-12).
+    var eligible = planRows.filter(function(r) { return r.machine === m1; });
     // REG/ASAP moves first; must-ship DS-only rows stay on M1 unless there's no other way to balance.
+    // Manual rows sort alongside DS as lowest-priority-to-move (last resort).
     eligible.sort(function(a, b) {
-      var aDS = (a.dsQty > 0 && a.regQty === 0 && a.asapQty === 0 && (a.fbaQty||0) === 0) ? 1 : 0;
-      var bDS = (b.dsQty > 0 && b.regQty === 0 && b.asapQty === 0 && (b.fbaQty||0) === 0) ? 1 : 0;
+      var aDS = (a._manual || (a.dsQty > 0 && a.regQty === 0 && a.asapQty === 0 && (a.fbaQty||0) === 0)) ? 1 : 0;
+      var bDS = (b._manual || (b.dsQty > 0 && b.regQty === 0 && b.asapQty === 0 && (b.fbaQty||0) === 0)) ? 1 : 0;
       return aDS - bDS || b.qty - a.qty;
     });
 
@@ -4368,16 +4373,18 @@ function runPlan(orders) {
       var toMove = Math.min(row.qty, toBalance, roomPcs);
       if (toMove <= 0) return;
 
+      var manualMove = row._manual ? toMove : 0;
       var frac     = row.qty > 0 ? toMove / row.qty : 0;
-      var dsMove   = Math.round(row.dsQty * frac);
-      var fbaMove  = Math.round((row.fbaQty || 0) * frac);
-      var asapMove = Math.round(row.asapQty * frac);
-      var regMove  = Math.max(0, toMove - dsMove - fbaMove - asapMove);
+      var dsMove   = row._manual ? 0 : Math.round(row.dsQty * frac);
+      var fbaMove  = row._manual ? 0 : Math.round((row.fbaQty || 0) * frac);
+      var asapMove = row._manual ? 0 : Math.round(row.asapQty * frac);
+      var regMove  = row._manual ? 0 : Math.max(0, toMove - dsMove - fbaMove - asapMove);
 
       machineLoad[m1]    -= toMove;  machineLoad[m2]    += toMove;
       machineDSLoad[m1]  -= dsMove;  machineDSLoad[m2]  += dsMove;
       machineFbaLoad[m1] -= fbaMove; machineFbaLoad[m2] += fbaMove;
       machineRegLoad[m1] -= (regMove + asapMove); machineRegLoad[m2] += (regMove + asapMove);
+      machineManualLoad[m1] -= manualMove; machineManualLoad[m2] += manualMove;
       var hrsMoved = toMove / pph;
       machineHrsUsed[m1] = Math.max(0, (machineHrsUsed[m1] || 0) - hrsMoved);
       machineHrsUsed[m2] = (machineHrsUsed[m2] || 0) + hrsMoved;
@@ -4395,6 +4402,7 @@ function runPlan(orders) {
           orderType: row.orderType,
           machine: m2, originalMachine: m1,
           notes: [note], moved: true, loadShifted: true, _shiftTag: null,
+          _manual: row._manual || false, _manualNote: row._manualNote || '',
           earliestWave: row.earliestWave || null
         });
         row.qty -= toMove; row.dsQty -= dsMove; row.regQty -= regMove; row.asapQty -= asapMove; row.fbaQty -= fbaMove;
