@@ -5418,34 +5418,38 @@ function _shiftScopedByMachine(date, shift) {
   return byMachine;
 }
 
-// Returns the most recent `n` shift instances whose scheduled end time has
-// already passed, most-recent-first — e.g. printed Tuesday at 9am returns
-// Monday Night then Monday Day, since today's Day shift hasn't ended yet.
-function _lastCompletedShifts(n) {
+// Returns the most recent instance of one shift type (day/night) whose
+// scheduled end time has already passed — e.g. asking for 'day' at 9am
+// returns yesterday's Day shift, since today's hasn't ended yet.
+function _mostRecentCompletedShift(shiftType) {
   var now = new Date();
-  var candidates = [];
-  for (var back = 0; back <= 4; back++) {
+  var sched = SHIFT_SCHEDULE[shiftType];
+  for (var back = 0; back <= 8; back++) {
     var day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - back);
-    var dateStr = day.getFullYear() + '-' + String(day.getMonth() + 1).padStart(2, '0') + '-' + String(day.getDate()).padStart(2, '0');
-    ['night', 'day'].forEach(function(shift) {
-      var sched = SHIFT_SCHEDULE[shift];
-      var end = new Date(day);
-      end.setHours(Math.floor(sched.endHour), Math.round((sched.endHour % 1) * 60), 0, 0);
-      candidates.push({ date: dateStr, shift: shift, end: end });
-    });
+    var end = new Date(day);
+    end.setHours(Math.floor(sched.endHour), Math.round((sched.endHour % 1) * 60), 0, 0);
+    if (end <= now) {
+      var dateStr = day.getFullYear() + '-' + String(day.getMonth() + 1).padStart(2, '0') + '-' + String(day.getDate()).padStart(2, '0');
+      return { date: dateStr, shift: shiftType };
+    }
   }
-  candidates.sort(function(a, b) { return b.end - a.end; });
-  return candidates.filter(function(c) { return c.end <= now; }).slice(0, n);
+  return null;
 }
 
-// Fills the tc-date-a/b + tc-shift-a/b pickers with the last 2 completed
-// shifts, once (won't clobber a date the owner already picked).
+// Fills the tc-date-a/b + tc-shift-a/b pickers, once (won't clobber a date
+// the owner already picked). Slot A is always the most recently completed
+// Day shift and slot B the most recently completed Night shift — pinned by
+// shift type, not "whichever completed most recently", so the order stays
+// Day-then-Night no matter what time of day this runs (previously this used
+// the last 2 completed shifts by time, which flips to Night-then-Day once
+// today's Day shift ends and Night is in progress — found 2026-08-13).
 function _initTotalsComboDefaults() {
   var dA = document.getElementById('tc-date-a');
   if (!dA || dA.value) return;
-  var last2 = _lastCompletedShifts(2);
-  if (last2[0]) { document.getElementById('tc-date-a').value = last2[0].date; document.getElementById('tc-shift-a').value = last2[0].shift; }
-  if (last2[1]) { document.getElementById('tc-date-b').value = last2[1].date; document.getElementById('tc-shift-b').value = last2[1].shift; }
+  var lastDay = _mostRecentCompletedShift('day');
+  var lastNight = _mostRecentCompletedShift('night');
+  if (lastDay)   { document.getElementById('tc-date-a').value = lastDay.date;   document.getElementById('tc-shift-a').value = 'day'; }
+  if (lastNight) { document.getElementById('tc-date-b').value = lastNight.date; document.getElementById('tc-shift-b').value = 'night'; }
 }
 
 function _comboShiftLabel(date, shift) {
@@ -5455,24 +5459,113 @@ function _comboShiftLabel(date, shift) {
   return dayLabel + ' — ' + (shift === 'night' ? '🌙 Night Shift' : '☀ Day Shift');
 }
 
-// One row of the % to Plan table for a given date+shift. "Actual" and
-// "Drinkware" are computed directly from session data (not gated on a plan
-// existing) so real production still shows even if nothing was committed
-// that shift; "Plan" comes from the committed Standard plan, if any.
-function _comboPlanRow(date, shift) {
+// One machine's row in the per-machine % to Plan table. "Actual" is computed
+// directly from session data (not gated on a plan existing) so real
+// production still shows even if nothing was committed that shift; "Plan"
+// is '—' (not 0) when there's no committed plan at all for that group/shift,
+// so a genuine "machine down, target 0" reads differently from "never planned".
+function _comboMachineRow(m, plan, byM) {
+  var actual = (byM[m] && byM[m].good) || 0;
+  var planVal = null;
+  if (plan) {
+    var up = !plan.machineUp || plan.machineUp[m] !== false;
+    planVal = up ? _plannedQtyFromPlan(plan, m) : 0;
+  }
+  var pct = (planVal != null && planVal > 0) ? Math.round(actual / planVal * 100) : null;
+  return '<tr><td>' + m + '</td>'
+    + '<td class="col-num">' + (planVal != null ? planVal.toLocaleString() : '—') + '</td>'
+    + '<td class="col-num">' + actual.toLocaleString() + '</td>'
+    + '<td class="col-num">' + (pct != null ? pct + '%' : '—') + '</td></tr>';
+}
+
+// Bold subtotal row summing a group's machines (Print Floor or Drinkware).
+// Compact side-by-side total card (Print Floor left, Drinkware right) —
+// replaces a 2-row table with two cards sharing one row, so the % to Plan
+// totals use half the vertical space (owner request, fits report on one
+// printed page). Machine breakdown tables below are intentionally untouched.
+function _comboTotalCard(label, machines, plan, byM) {
+  var actual = machines.reduce(function(sum, m) { return sum + ((byM[m] && byM[m].good) || 0); }, 0);
+  var planVal = null;
+  if (plan) {
+    planVal = machines.reduce(function(sum, m) {
+      var up = !plan.machineUp || plan.machineUp[m] !== false;
+      return sum + (up ? _plannedQtyFromPlan(plan, m) : 0);
+    }, 0);
+  }
+  var pct = (planVal != null && planVal > 0) ? Math.round(actual / planVal * 100) : null;
+  var h = '<div style="flex:1;min-width:0;background:var(--white);border:1px solid var(--border);border-radius:6px;padding:5px 12px">';
+  h += '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--green-dark);margin-bottom:1px;white-space:nowrap">' + label + '</div>';
+  h += '<div style="font-size:12px;color:var(--text);white-space:nowrap">';
+  h += '<strong>Plan:</strong> ' + (planVal != null ? planVal.toLocaleString() : '—');
+  h += ' &nbsp;&nbsp; <strong>Actual:</strong> ' + actual.toLocaleString();
+  h += ' &nbsp;&nbsp; <strong>% to Plan:</strong> ' + (pct != null ? pct + '%' : '—');
+  h += '</div></div>';
+  return h;
+}
+
+// One machine's row for the Today's Plan section (Hours/Operators/Plan/Made/Open).
+// "Made" reads from byM (live session data, recomputed every render) rather
+// than plan.machineActualToday, which is frozen at the moment the plan was
+// committed and never updates as more gets printed afterward (found 2026-08-13).
+function _comboPlanMachineRow(m, plan, byM) {
+  var stat = _savedMachineStat(plan, m);
+  var made = (byM[m] && byM[m].good) || 0;
+  var ops  = plan.machineOperators ? (plan.machineOperators[m] || 1) : 1;
+  var up   = !plan.machineUp || plan.machineUp[m] !== false;
+  var hrs  = up ? Math.max(0, (plan.netHrs || 0) - ((plan.machineMaints || {})[m] || 0)) : 0;
+  var pct  = stat.made > 0 ? Math.round(made / stat.made * 100) : null;
+  return '<tr><td>' + (up ? m : m + ' — DOWN') + '</td>'
+    + '<td class="col-num">' + hrs + '</td>'
+    + '<td class="col-num">' + ops + '</td>'
+    + '<td class="col-num">' + stat.made.toLocaleString() + '</td>'
+    + '<td class="col-num">' + made.toLocaleString() + '</td>'
+    + '<td class="col-num">' + (pct != null ? pct + '%' : '—') + '</td>'
+    + '<td class="col-num">' + stat.open.toLocaleString() + '</td></tr>';
+}
+
+// Bold subtotal row summing a group's machines for the Today's Plan section.
+function _comboPlanTotalRow(label, machines, plan, byM) {
+  var hrs = 0, ops = 0, planned = 0, made = 0, open = 0;
+  machines.forEach(function(m) {
+    var stat = _savedMachineStat(plan, m);
+    var up = !plan.machineUp || plan.machineUp[m] !== false;
+    hrs += up ? Math.max(0, (plan.netHrs || 0) - ((plan.machineMaints || {})[m] || 0)) : 0;
+    ops += plan.machineOperators ? (plan.machineOperators[m] || 1) : 1;
+    planned += stat.made;
+    made += (byM[m] && byM[m].good) || 0;
+    open += stat.open;
+  });
+  var pct = planned > 0 ? Math.round(made / planned * 100) : null;
+  return '<tr style="font-weight:700;background:var(--bg)"><td>' + label + '</td>'
+    + '<td class="col-num">' + hrs + '</td>'
+    + '<td class="col-num">' + ops + '</td>'
+    + '<td class="col-num">' + planned.toLocaleString() + '</td>'
+    + '<td class="col-num">' + made.toLocaleString() + '</td>'
+    + '<td class="col-num">' + (pct != null ? pct + '%' : '—') + '</td>'
+    + '<td class="col-num">' + open.toLocaleString() + '</td></tr>';
+}
+
+// Full % to Plan block for one date+shift: every Print Floor and Drinkware
+// machine, each with its own Plan/Actual/%, plus a bold subtotal per group.
+function _comboShiftBlock(date, shift) {
   if (!date) return '';
   var byM = _shiftScopedByMachine(date, shift);
   var stdPlan = _resolvePlanForShiftGroup(date, shift, 'standard', null);
-  var stdPVA = buildPlanVsActual(stdPlan ? [stdPlan] : [], byM, {});
-  var planStd = stdPVA.totalTarget;
-  var actualStd = GROUP_MACHINES.standard.reduce(function(sum, m) { return sum + ((byM[m] && byM[m].good) || 0); }, 0);
-  var actualDw  = GROUP_MACHINES.drinkware.reduce(function(sum, m) { return sum + ((byM[m] && byM[m].good) || 0); }, 0);
-  var pct = (planStd && planStd > 0) ? Math.round(actualStd / planStd * 100) : null;
-  return '<tr><td>' + _comboShiftLabel(date, shift) + '</td>'
-    + '<td class="col-num">' + (planStd != null ? planStd.toLocaleString() : '—') + '</td>'
-    + '<td class="col-num">' + actualStd.toLocaleString() + '</td>'
-    + '<td class="col-num">' + (pct != null ? pct + '%' : '—') + '</td>'
-    + '<td class="col-num">' + actualDw.toLocaleString() + '</td></tr>';
+  var dwPlan  = _resolvePlanForShiftGroup(date, shift, 'drinkware', null);
+  var h = '<div class="tc-section-head">' + _comboShiftLabel(date, shift) + '</div>';
+
+  // Totals first: Print Floor left, Drinkware right, side by side.
+  h += '<div style="display:flex;gap:12px;margin-bottom:0.4rem">';
+  h += _comboTotalCard('Print Floor (30 + 30+ + H5)', GROUP_MACHINES.standard, stdPlan, byM);
+  h += _comboTotalCard('Drinkware (M1 + M2)', GROUP_MACHINES.drinkware, dwPlan, byM);
+  h += '</div>';
+
+  // Then the per-machine breakdown.
+  h += '<table class="tc-table"><thead><tr><th>Machine</th><th class="col-num">Plan</th><th class="col-num">Actual</th><th class="col-num">% to Plan</th></tr></thead><tbody>';
+  GROUP_MACHINES.standard.forEach(function(m) { h += _comboMachineRow(m, stdPlan, byM); });
+  GROUP_MACHINES.drinkware.forEach(function(m) { h += _comboMachineRow(m, dwPlan, byM); });
+  h += '</tbody></table>';
+  return h;
 }
 
 // Builds the full report HTML — shared by the on-screen preview and the
@@ -5490,10 +5583,8 @@ function _buildTotalsComboHtml() {
   h += '</div>';
 
   h += '<div class="tc-section-head" style="margin-top:0">% to Plan</div>';
-  h += '<table class="tc-table"><thead><tr><th>Shift</th><th class="col-num">Plan</th><th class="col-num">Actual (Print Floor)</th><th class="col-num">% to Plan</th><th class="col-num">Drinkware (M1+M2)</th></tr></thead><tbody>';
-  h += _comboPlanRow(dateA, shiftA);
-  h += _comboPlanRow(dateB, shiftB);
-  h += '</tbody></table>';
+  h += _comboShiftBlock(dateA, shiftA);
+  h += _comboShiftBlock(dateB, shiftB);
 
   // Section B — always TODAY's committed plan(s), regardless of the pickers above.
   var todayStr = new Date().toISOString().slice(0, 10);
@@ -5506,24 +5597,21 @@ function _buildTotalsComboHtml() {
     anyPlan = true;
     var shiftLabel = shift === 'night' ? '🌙 Night Shift' : '☀ Day Shift';
     secB += '<div class="tc-section-head">' + shiftLabel + ' — Today\'s Plan</div>';
-    secB += '<table class="tc-table"><thead><tr><th>Machine</th><th class="col-num">Hours</th><th class="col-num">Operators</th><th class="col-num">Plan</th><th class="col-num">Made</th><th class="col-num">Open</th></tr></thead><tbody>';
-    [stdPlan, dwPlan].forEach(function(plan) {
-      if (!plan) return;
-      var group = plan._group || plan.group || 'standard';
-      GROUP_MACHINES[group].forEach(function(m) {
-        var stat = _savedMachineStat(plan, m);
-        var made = (plan.machineActualToday && plan.machineActualToday[m]) || 0;
-        var ops  = plan.machineOperators ? (plan.machineOperators[m] || 1) : 1;
-        var up   = !plan.machineUp || plan.machineUp[m] !== false;
-        var hrs  = up ? Math.max(0, (plan.netHrs || 0) - ((plan.machineMaints || {})[m] || 0)) : 0;
-        secB += '<tr><td>' + (up ? m : m + ' — DOWN') + '</td>'
-          + '<td class="col-num">' + hrs + '</td>'
-          + '<td class="col-num">' + ops + '</td>'
-          + '<td class="col-num">' + stat.made.toLocaleString() + '</td>'
-          + '<td class="col-num">' + made.toLocaleString() + '</td>'
-          + '<td class="col-num">' + stat.open.toLocaleString() + '</td></tr>';
-      });
-    });
+
+    // Live actual production for today's shift, recomputed fresh every render
+    // (not the plan's own frozen machineActualToday snapshot).
+    var byM = _shiftScopedByMachine(todayStr, shift);
+
+    // Totals first: Print Floor combined, Drinkware combined.
+    secB += '<table class="tc-table"><thead><tr><th>Total</th><th class="col-num">Hours</th><th class="col-num">Operators</th><th class="col-num">Plan</th><th class="col-num">Made</th><th class="col-num">% to Plan</th><th class="col-num">Open</th></tr></thead><tbody>';
+    if (stdPlan) secB += _comboPlanTotalRow('Print Floor (30 + 30+ + H5)', GROUP_MACHINES.standard, stdPlan, byM);
+    if (dwPlan)  secB += _comboPlanTotalRow('Drinkware (M1 + M2)', GROUP_MACHINES.drinkware, dwPlan, byM);
+    secB += '</tbody></table>';
+
+    // Then the per-machine breakdown.
+    secB += '<table class="tc-table"><thead><tr><th>Machine</th><th class="col-num">Hours</th><th class="col-num">Operators</th><th class="col-num">Plan</th><th class="col-num">Made</th><th class="col-num">% to Plan</th><th class="col-num">Open</th></tr></thead><tbody>';
+    if (stdPlan) GROUP_MACHINES.standard.forEach(function(m) { secB += _comboPlanMachineRow(m, stdPlan, byM); });
+    if (dwPlan)  GROUP_MACHINES.drinkware.forEach(function(m) { secB += _comboPlanMachineRow(m, dwPlan, byM); });
     secB += '</tbody></table>';
   });
   if (!anyPlan) secB = '<div style="color:var(--muted);font-size:12px;padding:0.5rem 0">No plan committed for today yet.</div>';
