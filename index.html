@@ -282,6 +282,14 @@ input[type="date"]:focus { border-color: var(--green-dark); }
   .report-controls { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.25rem; display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
   .report-controls label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
   .report-controls input[type=date], .report-controls select { padding: 5px 9px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: inherit; color: var(--text); background: var(--bg); }
+
+  /* ── Totals tab: Shift Summary report (numbers-only, no charts) ────────── */
+  .tc-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 1.25rem; background: var(--white); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+  .tc-table th { background: var(--green-light); padding: 7px 12px; font-weight: 600; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid var(--border); text-align: left; }
+  .tc-table td { padding: 7px 12px; border-bottom: 1px solid #eee; color: var(--text); }
+  .tc-table tr:last-child td { border-bottom: none; }
+  .tc-table .col-num { text-align: right; }
+  .tc-section-head { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--green-dark); margin: 1rem 0 6px; }
   .report-block { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 1.5rem; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
   .report-block-header { padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); border-left: 5px solid var(--green-dark); background: var(--green-light); }
   .report-pva { display: grid; grid-template-columns: 1fr 1fr 1fr; border-bottom: 1px solid var(--border); }
@@ -392,6 +400,19 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     body.print-plan .plan-orders-table td { padding: 5px 8px; }
     /* Suppress the prior-shift editable override inputs visual noise */
     body.print-plan .plan-info { font-size: 11px; }
+
+    /* ── body.print-totals-combo: print the Totals tab's Shift Summary report ── */
+    body.print-totals-combo > * { display: none !important; }
+    body.print-totals-combo #page-report   { display: none !important; }
+    body.print-totals-combo #page-planner  { display: none !important; }
+    body.print-totals-combo #page-totals   { display: none !important; }
+    body.print-totals-combo #page-settings { display: none !important; }
+    body.print-totals-combo #totals-combo-print { display: block !important; }
+    #totals-combo-print .tc-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 1rem; }
+    #totals-combo-print .tc-table th { background: var(--green-light); padding: 6px 10px; font-weight: 600; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid var(--border); text-align: left; }
+    #totals-combo-print .tc-table td { padding: 6px 10px; border-bottom: 1px solid #eee; }
+    #totals-combo-print .tc-table .col-num { text-align: right; }
+    #totals-combo-print .tc-section-head { font-size: 13px; font-weight: 700; color: var(--green-dark); margin: 1rem 0 6px; padding-top: 0.5rem; border-top: 2px solid var(--green-dark); }
   }
 </style>
 </head>
@@ -490,6 +511,36 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     <div class="section-head">Calendar</div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Each day: AM/PM/total pieces up top, then per-machine <strong>planned/actual</strong> for AM and PM below &mdash; 0 planned means no plan was committed that shift.</div>
     <div id="cal-grid" class="cal-grid"></div>
+  </div>
+
+  <!-- Shift Summary Report -->
+  <div class="section animate">
+    <div class="section-head">Shift Summary Report</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:10px">% to Plan below always reflects the two shifts picked here (defaults to the last 2 that ran). Today's Plan further down always reflects whatever's currently committed on the Planning tab.</div>
+    <div class="report-controls" style="margin-bottom:1rem">
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <label>Shift A</label>
+        <div style="display:flex;gap:6px">
+          <input type="date" id="tc-date-a" onchange="renderTotalsComboReport()">
+          <select id="tc-shift-a" onchange="renderTotalsComboReport()">
+            <option value="day">Day</option>
+            <option value="night">Night</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <label>Shift B</label>
+        <div style="display:flex;gap:6px">
+          <input type="date" id="tc-date-b" onchange="renderTotalsComboReport()">
+          <select id="tc-shift-b" onchange="renderTotalsComboReport()">
+            <option value="day">Day</option>
+            <option value="night">Night</option>
+          </select>
+        </div>
+      </div>
+      <button class="qbtn" onclick="printTotalsComboReport()" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark);align-self:flex-end">&#128424; Print Report</button>
+    </div>
+    <div id="totals-combo-summary"></div>
   </div>
 
   <!-- Clicked day detail -->
@@ -1387,7 +1438,11 @@ function showTab(tab) {
   document.getElementById('tab-planner').classList.toggle('active',  tab === 'planner');
   document.getElementById('tab-settings').classList.toggle('active', tab === 'settings');
   document.getElementById('tab-report').classList.toggle('active',   tab === 'report');
-  if (tab === 'totals') renderCalendar();
+  if (tab === 'totals') {
+    renderCalendar();
+    _initTotalsComboDefaults();
+    renderTotalsComboReport();
+  }
   if (tab === 'planner') {
     var today = new Date().toISOString().slice(0, 10);
     var dp = document.getElementById('plan-datepicker');
@@ -5332,6 +5387,163 @@ function buildPlanVsActual(plans, byMachine, downMachines) {
   return { html: html, planHit: overallHit, totalTarget: grandTotalTarget, totalActual: grandTotalActual };
 }
 
+// ── TOTALS TAB: Shift Summary print report ────────────────────────────────
+// Combines an abbreviated (numbers-only, no charts) Plan vs Actual view for
+// two owner-picked shifts with a live breakdown of today's committed plan(s)
+// per machine (hours/operators/plan/made/open). Added 2026-08-13 per owner
+// request — the top section always uses whatever the tc-date-a/b + tc-shift-a/b
+// pickers say (defaulted to the last 2 completed shifts on tab load); the
+// bottom section always reflects TODAY's committed plan(s), independent of
+// the picker, and re-renders any time runPlan()/commitPlan() runs since it's
+// only ever generated on demand (render or print), never cached.
+
+// Aggregates RAW.sessions into {machine: {good,bad,sec}} for one date, scoped
+// to one shift's hour window — same AM/PM cutoff used elsewhere in the app
+// (Day 4am-3pm, Night 3pm-11pm; see the identical _actHourMin/_actHourMax
+// logic in runPlan()) so a report printed for "Day Shift" doesn't pick up
+// night-shift pieces logged after 3pm on the same date.
+function _shiftScopedByMachine(date, shift) {
+  var hourMin = shift === 'night' ? 15 : 4;
+  var hourMax = shift === 'night' ? 23 : 15;
+  var byMachine = {};
+  Object.keys(RAW.sessions).forEach(function(machine) {
+    (RAW.sessions[machine] || []).forEach(function(s) {
+      if (s.t !== date || !s.ts) return;
+      var h = new Date(s.ts).getHours();
+      if (h < hourMin || h > hourMax) return;
+      if (!byMachine[machine]) byMachine[machine] = { good: 0, bad: 0, sec: 0 };
+      byMachine[machine].good += s.g || 0; byMachine[machine].bad += s.b || 0; byMachine[machine].sec += s.s || 0;
+    });
+  });
+  return byMachine;
+}
+
+// Returns the most recent `n` shift instances whose scheduled end time has
+// already passed, most-recent-first — e.g. printed Tuesday at 9am returns
+// Monday Night then Monday Day, since today's Day shift hasn't ended yet.
+function _lastCompletedShifts(n) {
+  var now = new Date();
+  var candidates = [];
+  for (var back = 0; back <= 4; back++) {
+    var day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - back);
+    var dateStr = day.getFullYear() + '-' + String(day.getMonth() + 1).padStart(2, '0') + '-' + String(day.getDate()).padStart(2, '0');
+    ['night', 'day'].forEach(function(shift) {
+      var sched = SHIFT_SCHEDULE[shift];
+      var end = new Date(day);
+      end.setHours(Math.floor(sched.endHour), Math.round((sched.endHour % 1) * 60), 0, 0);
+      candidates.push({ date: dateStr, shift: shift, end: end });
+    });
+  }
+  candidates.sort(function(a, b) { return b.end - a.end; });
+  return candidates.filter(function(c) { return c.end <= now; }).slice(0, n);
+}
+
+// Fills the tc-date-a/b + tc-shift-a/b pickers with the last 2 completed
+// shifts, once (won't clobber a date the owner already picked).
+function _initTotalsComboDefaults() {
+  var dA = document.getElementById('tc-date-a');
+  if (!dA || dA.value) return;
+  var last2 = _lastCompletedShifts(2);
+  if (last2[0]) { document.getElementById('tc-date-a').value = last2[0].date; document.getElementById('tc-shift-a').value = last2[0].shift; }
+  if (last2[1]) { document.getElementById('tc-date-b').value = last2[1].date; document.getElementById('tc-shift-b').value = last2[1].shift; }
+}
+
+function _comboShiftLabel(date, shift) {
+  if (!date) return '—';
+  var d = new Date(date + 'T12:00:00');
+  var dayLabel = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  return dayLabel + ' — ' + (shift === 'night' ? '🌙 Night Shift' : '☀ Day Shift');
+}
+
+// One row of the % to Plan table for a given date+shift. "Actual" and
+// "Drinkware" are computed directly from session data (not gated on a plan
+// existing) so real production still shows even if nothing was committed
+// that shift; "Plan" comes from the committed Standard plan, if any.
+function _comboPlanRow(date, shift) {
+  if (!date) return '';
+  var byM = _shiftScopedByMachine(date, shift);
+  var stdPlan = _resolvePlanForShiftGroup(date, shift, 'standard', null);
+  var stdPVA = buildPlanVsActual(stdPlan ? [stdPlan] : [], byM, {});
+  var planStd = stdPVA.totalTarget;
+  var actualStd = GROUP_MACHINES.standard.reduce(function(sum, m) { return sum + ((byM[m] && byM[m].good) || 0); }, 0);
+  var actualDw  = GROUP_MACHINES.drinkware.reduce(function(sum, m) { return sum + ((byM[m] && byM[m].good) || 0); }, 0);
+  var pct = (planStd && planStd > 0) ? Math.round(actualStd / planStd * 100) : null;
+  return '<tr><td>' + _comboShiftLabel(date, shift) + '</td>'
+    + '<td class="col-num">' + (planStd != null ? planStd.toLocaleString() : '—') + '</td>'
+    + '<td class="col-num">' + actualStd.toLocaleString() + '</td>'
+    + '<td class="col-num">' + (pct != null ? pct + '%' : '—') + '</td>'
+    + '<td class="col-num">' + actualDw.toLocaleString() + '</td></tr>';
+}
+
+// Builds the full report HTML — shared by the on-screen preview and the
+// print output so they can never drift out of sync with each other.
+function _buildTotalsComboHtml() {
+  var dateA = (document.getElementById('tc-date-a') || {}).value || '';
+  var shiftA = (document.getElementById('tc-shift-a') || {}).value || 'day';
+  var dateB = (document.getElementById('tc-date-b') || {}).value || '';
+  var shiftB = (document.getElementById('tc-shift-b') || {}).value || 'day';
+
+  var h = '';
+  h += '<div style="border-bottom:3px solid var(--green-dark);margin-bottom:0.75rem;padding-bottom:0.75rem">';
+  h += '<div style="font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:var(--green-dark);margin-bottom:1px">Evergreen Studio</div>';
+  h += '<div style="font-family:\'Lora\',serif;font-size:22px;font-weight:700;color:var(--green-dark);line-height:1.1">Shift Summary Report</div>';
+  h += '</div>';
+
+  h += '<div class="tc-section-head" style="margin-top:0">% to Plan</div>';
+  h += '<table class="tc-table"><thead><tr><th>Shift</th><th class="col-num">Plan</th><th class="col-num">Actual (Print Floor)</th><th class="col-num">% to Plan</th><th class="col-num">Drinkware (M1+M2)</th></tr></thead><tbody>';
+  h += _comboPlanRow(dateA, shiftA);
+  h += _comboPlanRow(dateB, shiftB);
+  h += '</tbody></table>';
+
+  // Section B — always TODAY's committed plan(s), regardless of the pickers above.
+  var todayStr = new Date().toISOString().slice(0, 10);
+  var anyPlan = false;
+  var secB = '';
+  ['day', 'night'].forEach(function(shift) {
+    var stdPlan = _resolvePlanForShiftGroup(todayStr, shift, 'standard', null);
+    var dwPlan  = _resolvePlanForShiftGroup(todayStr, shift, 'drinkware', null);
+    if (!stdPlan && !dwPlan) return;
+    anyPlan = true;
+    var shiftLabel = shift === 'night' ? '🌙 Night Shift' : '☀ Day Shift';
+    secB += '<div class="tc-section-head">' + shiftLabel + ' — Today\'s Plan</div>';
+    secB += '<table class="tc-table"><thead><tr><th>Machine</th><th class="col-num">Hours</th><th class="col-num">Operators</th><th class="col-num">Plan</th><th class="col-num">Made</th><th class="col-num">Open</th></tr></thead><tbody>';
+    [stdPlan, dwPlan].forEach(function(plan) {
+      if (!plan) return;
+      var group = plan._group || plan.group || 'standard';
+      GROUP_MACHINES[group].forEach(function(m) {
+        var stat = _savedMachineStat(plan, m);
+        var made = (plan.machineActualToday && plan.machineActualToday[m]) || 0;
+        var ops  = plan.machineOperators ? (plan.machineOperators[m] || 1) : 1;
+        var up   = !plan.machineUp || plan.machineUp[m] !== false;
+        var hrs  = up ? Math.max(0, (plan.netHrs || 0) - ((plan.machineMaints || {})[m] || 0)) : 0;
+        secB += '<tr><td>' + (up ? m : m + ' — DOWN') + '</td>'
+          + '<td class="col-num">' + hrs + '</td>'
+          + '<td class="col-num">' + ops + '</td>'
+          + '<td class="col-num">' + stat.made.toLocaleString() + '</td>'
+          + '<td class="col-num">' + made.toLocaleString() + '</td>'
+          + '<td class="col-num">' + stat.open.toLocaleString() + '</td></tr>';
+      });
+    });
+    secB += '</tbody></table>';
+  });
+  if (!anyPlan) secB = '<div style="color:var(--muted);font-size:12px;padding:0.5rem 0">No plan committed for today yet.</div>';
+
+  h += secB;
+  return h;
+}
+
+function renderTotalsComboReport() {
+  var el = document.getElementById('totals-combo-summary');
+  if (el) el.innerHTML = _buildTotalsComboHtml();
+}
+
+function printTotalsComboReport() {
+  document.getElementById('totals-combo-print').innerHTML = _buildTotalsComboHtml();
+  document.body.classList.add('print-totals-combo');
+  window.print();
+  setTimeout(function() { document.body.classList.remove('print-totals-combo'); }, 500);
+}
+
 // Shared priority-fill helper: DS first then REG/ASAP/FBA.
 // Returns { [rowName]: { dsMade, dsRolls, regMade, regRolls } }
 function calcMadeRolls(mRows, cap) {
@@ -7625,6 +7837,7 @@ function renderSettings() {
 </script>
 <!-- Print target for saved plan: direct child of body so parent display:none cannot hide it -->
 <div id="saved-plan-print" style="display:none"></div>
+<div id="totals-combo-print" style="display:none"></div>
 <script>
 (function() {
   var img = document.querySelector('.topbar-brand img');
