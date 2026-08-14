@@ -1896,7 +1896,7 @@ var _dragBunch = null;      // [{ name, itemName, bucketType, fromMachine, avail
 var _pendingMove = null;    // { items, targetMachine } while the qty modal is open
 var _selectedBunches = [];  // click-to-select queue, same shape as _dragBunch entries — all from one machine at a time
 
-var BUCKET_LABELS = { ds: 'DS — Must Ship', reg: 'REG / ASAP', fba: 'FBA (Amazon)', manual: 'Manual / Other' };
+var BUCKET_LABELS = { ds: 'DS — Must Ship', reg: 'REG / ASAP', fba: 'FBA (Amazon)', manual: 'Manual / Other', shifted: 'Shifted In' };
 
 // ─── PRIORITY ORDER WITHIN A BUCKET (oldest wave date first, drag to override) ──
 // Manual overrides are keyed by planDate so they never carry over to a different
@@ -2138,13 +2138,18 @@ function moveBunchQty(name, itemName, bucketType, fromMachine, toMachine, amount
   var rows = window._livePlanRows;
   if (!rows) return;
 
-  // Exclude auto-load-balanced rows and require the row to actually carry qty
-  // in the dragged bucket — otherwise two rows sharing the same product+machine
-  // (a visible native row and an invisible "shifted in" row) could collide and
-  // the wrong one gets decremented, silently duplicating quantity instead of
+  // bucketType 'shifted' is a load-balancer-placed row the owner wants to
+  // re-route — match ON loadShifted instead of excluding it. Every other
+  // bucketType still excludes loadShifted rows, since a normal drag and an
+  // auto-shifted row can otherwise share the same product+machine signature
+  // (a visible native row and an invisible "shifted in" row) and the wrong
+  // one would get decremented, silently duplicating quantity instead of
   // moving it.
+  var wantShifted = bucketType === 'shifted';
   var srcMatches = rows.filter(function(r) {
-    return r.name === name && r.itemName === itemName && r.machine === fromMachine && !r.loadShifted && _bucketQty(r, bucketType) > 0;
+    return r.name === name && r.itemName === itemName && r.machine === fromMachine
+      && (wantShifted ? r.loadShifted === true : !r.loadShifted)
+      && _bucketQty(r, bucketType) > 0;
   });
   var srcRow = srcMatches[0];
   if (!srcRow) return;
@@ -2158,6 +2163,16 @@ function moveBunchQty(name, itemName, bucketType, fromMachine, toMachine, amount
   else if (bucketType === 'reg') {
     movedReg  = Math.min(amount, srcRow.regQty || 0);
     movedAsap = amount - movedReg;
+  } else if (bucketType === 'shifted') {
+    // A shifted row carries a mix of DS/REG/ASAP/FBA from the original
+    // order — split the moved amount proportionally to the row's own
+    // composition, the same math the load balancer uses when it splits a
+    // row across machines.
+    var frac = srcRow.qty > 0 ? amount / srcRow.qty : 0;
+    movedDs   = Math.round(srcRow.dsQty * frac);
+    movedFba  = Math.round((srcRow.fbaQty || 0) * frac);
+    movedAsap = Math.round(srcRow.asapQty * frac);
+    movedReg  = Math.max(0, amount - movedDs - movedFba - movedAsap);
   }
   // bucketType === 'manual': no separate bucket field, only qty moves.
 
@@ -6552,14 +6567,18 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
         var r = e.row, bt = e.bt, col = e.col, q = e.qty;
         var isShifted = (bt === 'shifted');
         var selected = !isShifted && _isBunchSelected(r.name, r.itemName, bt, m);
-        // Shifted rows: no drag (moveBunchQty can't handle loadShifted), but show a remove link.
-        // Normal rows: full drag + click to select.
-        var dragAttrs = (!isShifted)
-          ? ' class="bunch-row" draggable="true"' +
-            ' ondragstart="startBunchDrag(event,\'' + _jsEsc(r.name) + '\',\'' + _jsEsc(r.itemName) + '\',\'' + bt + '\',\'' + m + '\',' + q + ')"' +
-            ' onclick="toggleBunchSelection(event,\'' + _jsEsc(r.name) + '\',\'' + _jsEsc(r.itemName) + '\',\'' + bt + '\',\'' + m + '\',' + q + ')"' +
-            ' style="cursor:grab' + (selected ? ';background:var(--green-light)' : '') + '"'
-          : '';
+        // Shifted rows: draggable to override the load balancer's pick (bucketType
+        // 'shifted' tells moveBunchQty to match on loadShifted rows instead of
+        // excluding them — see the comment there). No click-to-multiselect for
+        // these, to keep the multi-select/family-drag machinery, which assumes
+        // real ds/reg/fba/manual buckets, out of this path. A remove/roll link is
+        // still offered alongside drag (found 2026-08-14: owner couldn't override
+        // an auto-shift they disagreed with — drag was disabled entirely before).
+        var dragAttrs = ' class="bunch-row" draggable="true"' +
+          ' ondragstart="startBunchDrag(event,\'' + _jsEsc(r.name) + '\',\'' + _jsEsc(r.itemName) + '\',\'' + bt + '\',\'' + m + '\',' + q + ')"' +
+          (isShifted ? '' : ' onclick="toggleBunchSelection(event,\'' + _jsEsc(r.name) + '\',\'' + _jsEsc(r.itemName) + '\',\'' + bt + '\',\'' + m + '\',' + q + ')"') +
+          ' title="Drag to move to another machine"' +
+          ' style="cursor:grab' + (selected ? ';background:var(--green-light)' : '') + '"';
         var checkSpan = (!isShifted && selected) ? '<span class="bunch-check" style="display:inline;color:var(--green-dark);font-weight:700;margin-right:4px">&#10003;</span>' : '';
         var rollLink = isShifted
           ? ' <a href="#" onclick="event.preventDefault();event.stopPropagation();rollShiftedRow(\'' + _jsEsc(r.name) + '\',\'' + _jsEsc(r.itemName) + '\',\'' + m + '\')" title="Remove from today\'s plan" style="color:var(--amber);text-decoration:none;font-size:14px;line-height:1;flex-shrink:0">&#8618;</a>'
