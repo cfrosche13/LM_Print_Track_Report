@@ -810,7 +810,7 @@ input[type="date"]:focus { border-color: var(--green-dark); }
       </select>
     </div>
     <button class="qbtn" onclick="generateReport()" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark);align-self:flex-end">Generate Report</button>
-    <button class="qbtn" onclick="window.print()" style="align-self:flex-end">&#128424; Print</button>
+    <button class="qbtn" onclick="printPlanVsActualReport()" style="align-self:flex-end">&#128424; Print</button>
   </div>
 
   <div id="report-output"></div>
@@ -4616,6 +4616,21 @@ function printPlan() {
   setTimeout(function() { document.body.classList.remove('print-plan'); }, 500);
 }
 
+// Formats YYYY-MM-DD as MMDDYY for print/PDF filenames
+function _mmddyy(dateStr) {
+  var p = (dateStr || '').split('-');
+  return p.length === 3 ? (p[1] + p[2] + p[0].slice(2)) : (dateStr || '');
+}
+
+// Temporarily swaps document.title so the browser's "Save as PDF" dialog
+// suggests this filename; restores the real title once the dialog closes.
+function _printAs(filename) {
+  var prevTitle = document.title;
+  document.title = filename;
+  window.print();
+  setTimeout(function() { document.title = prevTitle; }, 500);
+}
+
 function applyPriorActual() {
   _priorCompletionOverride = {};
   GROUP_MACHINES[PLAN_GROUP].forEach(function(m) {
@@ -5164,7 +5179,11 @@ function printSavedPlan() {
 
   document.getElementById('saved-plan-print').innerHTML = h;
   document.body.classList.add('print-saved-plan');
-  window.print();
+  var kind = (raw.group === 'drinkware') ? 'DW' : 'Print';
+  var fShift = raw.shift === 'night' ? 'Night' : 'Day';
+  var fName = 'EGStudio_' + kind + '_' + _mmddyy(raw.planDate) + '_' + fShift
+    + (raw.slot === 'mid' ? '_Midshift' : '');
+  _printAs(fName);
   setTimeout(function() { document.body.classList.remove('print-saved-plan'); }, 500);
 }
 
@@ -5637,7 +5656,7 @@ function renderTotalsComboReport() {
 function printTotalsComboReport() {
   document.getElementById('totals-combo-print').innerHTML = _buildTotalsComboHtml();
   document.body.classList.add('print-totals-combo');
-  window.print();
+  _printAs('EGStudio_Recap_' + _mmddyy(new Date().toISOString().slice(0, 10)));
   setTimeout(function() { document.body.classList.remove('print-totals-combo'); }, 500);
 }
 
@@ -6788,6 +6807,13 @@ function generateReport() {
       _renderReportPieceChart(m, date, sk, plan);
     });
   });
+}
+
+function printPlanVsActualReport() {
+  var date     = document.getElementById('report-datepicker').value;
+  var shiftSel = document.getElementById('report-shift-select').value;
+  var fShift = shiftSel === 'day' ? 'Day' : shiftSel === 'night' ? 'Night' : 'Both';
+  _printAs('EGStudio_PlanVsActual_' + _mmddyy(date) + '_' + fShift);
 }
 
 function _buildMachineReportBlock(machine, date, plan, shiftKey) {
