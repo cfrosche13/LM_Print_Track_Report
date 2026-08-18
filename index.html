@@ -5560,8 +5560,14 @@ function _buildTotalsComboHtml() {
   var anyPlan = false;
   var secB = '';
   ['day', 'night'].forEach(function(shift) {
-    var stdPlan = _resolvePlanForShiftGroup(todayStr, shift, 'standard', null);
-    var dwPlan  = _resolvePlanForShiftGroup(todayStr, shift, 'drinkware', null);
+    // Prefer the midshift snapshot over the morning plan when both exist,
+    // so committing an updated snapshot mid-shift immediately refreshes
+    // this section instead of sticking with the stale morning numbers.
+    var todayOverride = {};
+    todayOverride['standard:' + shift]  = 'mid';
+    todayOverride['drinkware:' + shift] = 'mid';
+    var stdPlan = _resolvePlanForShiftGroup(todayStr, shift, 'standard', todayOverride);
+    var dwPlan  = _resolvePlanForShiftGroup(todayStr, shift, 'drinkware', todayOverride);
     if (!stdPlan && !dwPlan) return;
     anyPlan = true;
     var shiftLabel = shift === 'night' ? '🌙 Night Shift' : '☀ Day Shift';
