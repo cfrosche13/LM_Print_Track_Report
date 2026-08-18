@@ -2629,7 +2629,6 @@ function setActiveShift(shift) {
   // Save current UI values back to the current shift config before switching
   _saveShiftUIToConfig(ACTIVE_SHIFT);
   ACTIVE_SHIFT = shift;
-  _priorCompletionOverride = {}; // clear overrides — they're specific to one shift pair
   document.getElementById('shift-tab-day').classList.toggle('active', shift === 'day');
   document.getElementById('shift-tab-night').classList.toggle('active', shift === 'night');
   _loadShiftConfigToUI(shift);
@@ -4006,14 +4005,15 @@ function runPlan(orders) {
   });
 
   // ── Prior-shift awareness ─────────────────────────────────────────────────
-  // If the other shift (day↔night) has a committed plan for this same date,
-  // subtract its committed production from open orders so this shift only
-  // plans the remainder. Uses machine capacity cap (not raw open orders)
-  // and respects any manual completion override set by the user.
-  var _priorShiftKey   = ACTIVE_SHIFT === 'day' ? 'night' : 'day';
-  var _priorShiftLabel = ACTIVE_SHIFT === 'day' ? 'Night Shift' : 'Day Shift';
+  // Looks up the other shift's (day↔night) committed plan purely for informational
+  // display (e.g. the "planned to roll these to you" panel). This used to also
+  // deduct an assumed completion amount from this shift's open orders, but that
+  // assumption was redundant with — and less accurate than — the live "units
+  // printed today" subtraction below, which reflects real floor data. Removed
+  // 2026-08-18 per owner request; open-order reduction now comes solely from
+  // actual production (see _actualLookup below).
+  var _priorShiftKey = ACTIVE_SHIFT === 'day' ? 'night' : 'day';
   var _priorPlan = null;
-  var _priorLookup = {}; // { productName: qty to deduct from this shift }
   var _groupKeySuffix = PLAN_GROUP === 'drinkware' ? ':drinkware' : '';
   if (planDate) {
     try {
@@ -4024,47 +4024,11 @@ function runPlan(orders) {
         // Day and night can be configured to handle entirely different order
         // types (e.g. day = DS/REG/ASAP, night = FBA only) — when that's the
         // case there's no shared backlog between them at all, so the other
-        // shift's committed work shouldn't reduce this shift's open orders.
-        // Only run the deduction (and show the "enter actual completion"
-        // banner) when the two shifts' configured order types actually overlap.
+        // shift's committed work isn't relevant to this shift's plan.
         var _priorShiftTypes = SHIFT_CONFIG[_priorShiftKey].orderTypes;
         var _typesOverlap = ['DS', 'REG', 'ASAP', 'FBA', 'Manual'].some(function(t) { return activeTypes[t] && _priorShiftTypes[t]; });
 
-        if (_typesOverlap) {
-          _priorPlan = _candidatePriorPlan;
-
-          // Sum open-order qty per machine from the committed rows
-          var _priorMachineTotal = {};
-          (_priorPlan.rows || []).forEach(function(r) {
-            if (r.machine) _priorMachineTotal[r.machine] = (_priorMachineTotal[r.machine] || 0) + (r.totalQty || r.qty || 0);
-          });
-
-          // Get committed production cap per machine (min of open orders vs shift capacity)
-          var _priorCommittedCap = {};
-          GROUP_MACHINES[PLAN_GROUP].forEach(function(m) {
-            var openM = _priorMachineTotal[m] || 0;
-            var capM  = _priorPlan.machineActualCap ? (_priorPlan.machineActualCap[m] != null ? _priorPlan.machineActualCap[m] : (_priorPlan.machineCap ? (_priorPlan.machineCap[m]||0) : 0)) : (_priorPlan.machineCap ? (_priorPlan.machineCap[m]||0) : 0);
-            _priorCommittedCap[m] = capM > 0 ? Math.min(openM, capM) : openM;
-          });
-
-          // Build deduction lookup: scale each product proportionally to committed cap,
-          // then further reduce by any manual completion override.
-          (_priorPlan.rows || []).forEach(function(r) {
-            if (!r.name) return;
-            var machine  = r.machine;
-            var rowQty   = r.totalQty || r.qty || 0;
-            var machineOpen = _priorMachineTotal[machine] || 0;
-            var committed   = _priorCommittedCap[machine] || 0;
-
-            // Override: if user entered an actual completion for this machine, use it
-            var effectiveCap = (_priorCompletionOverride[machine] !== undefined && _priorCompletionOverride[machine] !== null)
-              ? Math.min(_priorCompletionOverride[machine], machineOpen)
-              : committed;
-
-            var deduct = machineOpen > 0 ? Math.round(rowQty * (effectiveCap / machineOpen)) : 0;
-            _priorLookup[r.name] = (_priorLookup[r.name] || 0) + deduct;
-          });
-        }
+        if (_typesOverlap) _priorPlan = _candidatePriorPlan;
       }
     } catch(e) {}
   }
@@ -4134,21 +4098,16 @@ function runPlan(orders) {
     var iname = item.itemName;
     var coirSku = item.coirSku || '';
 
-    // Reduce qty by what the other shift has already committed to, and (if the
-    // "subtract actual production" box is checked) by what's already been
-    // made so far today during this shift.
-    var priorQty     = _priorLookup[name] || _priorLookup[iname] || 0;
+    // Reduce qty by what's already been made so far today during this shift
+    // (if the "subtract actual production" box is checked) — this is real
+    // floor data, not an assumption about the other shift's completion.
     // Try exact match first, then fall back to canonical cross-system matching
     var _lmCanon      = _canonicalProductKey(name) || _canonicalProductKey(iname);
     var actualQty     = _actualLookup[name] || _actualLookup[iname]
                         || _actualLookupCanon[_lmCanon] || 0;
-    var afterPrior    = Math.max(0, item.qty - priorQty);
     // Only subtract actuals from open-order qty when the checkbox is checked
-    var effectiveQty  = _subtractActuals ? Math.max(0, afterPrior - actualQty) : afterPrior;
+    var effectiveQty  = _subtractActuals ? Math.max(0, item.qty - actualQty) : item.qty;
     var effFrac       = item.qty > 0 ? effectiveQty / item.qty : 0;
-    if (priorQty > 0 && priorQty <= item.qty) {
-      notes.push(_priorShiftLabel + ' committed ' + priorQty.toLocaleString() + ' — ' + afterPrior.toLocaleString() + ' remaining for this shift');
-    }
     if (actualQty > 0) {
       // Record which Print Track key(s) matched — for the subtract-actuals diagnostic
       if (_actualLookup[name] || _actualLookup[iname]) {
@@ -4292,7 +4251,7 @@ function runPlan(orders) {
 
     planRows.push({
       name: name, itemName: iname, coirSku: coirSku,
-      qty: effectiveQty, totalQty: item.qty, priorQty: priorQty,
+      qty: effectiveQty, totalQty: item.qty, priorQty: 0,
       dsQty:   Math.round(item.dsQty   * effFrac),
       regQty:  Math.round(item.regQty  * effFrac),
       asapQty: Math.round(item.asapQty * effFrac),
@@ -4604,11 +4563,6 @@ function fbSyncPlans(done) {
 // The current plan snapshot, populated by renderPlan
 var _currentPlanSnapshot = null;
 
-// Manual completion override for the prior shift — keyed by machine name.
-// If set, overrides the committed production cap so this shift can plan
-// around what the prior shift actually finished vs. what they committed to.
-var _priorCompletionOverride = {};
-
 function printPlan() {
   document.body.classList.add('print-plan');
   window.print();
@@ -4629,19 +4583,6 @@ function _printAs(filename) {
   document.title = filename;
   window.print();
   setTimeout(function() { document.title = prevTitle; }, 500);
-}
-
-function applyPriorActual() {
-  _priorCompletionOverride = {};
-  GROUP_MACHINES[PLAN_GROUP].forEach(function(m) {
-    var inputId = 'prior-actual-' + _machineIdKey(m);
-    var el = document.getElementById(inputId);
-    if (el && el.value !== '') {
-      var v = parseInt(el.value);
-      if (!isNaN(v)) _priorCompletionOverride[m] = Math.max(0, v);
-    }
-  });
-  if (window._planOrders) runPlan(window._planOrders);
 }
 
 // Machine-down overrides for the daily results view
@@ -6049,47 +5990,11 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
 
   heroHtml += '</div>'; // hero
 
-  // Prior-shift committed banner — shows committed production per machine
-  // with editable inputs so the user can enter actual completion if different
+  // Prior-shift info — read-only now (see "Prior-shift awareness" comment
+  // above; the editable completion-override banner was removed 2026-08-18).
   var priorBannerHtml = '';
   if (priorPlan) {
     var priorShiftLabel = (priorPlan.shift === 'day' || priorPlan._shift === 'day') ? 'Day Shift' : 'Night Shift';
-
-    // Build per-machine committed production summary with override inputs
-    var priorMachineSummary = '';
-    var hasAnyPriorMachine = false;
-    GROUP_MACHINES[PLAN_GROUP].forEach(function(m) {
-      var open = priorPlan.machineLoad ? (priorPlan.machineLoad[m] || 0) : 0;
-      var cap  = priorPlan.machineActualCap ? (priorPlan.machineActualCap[m] != null ? priorPlan.machineActualCap[m] : (priorPlan.machineCap ? (priorPlan.machineCap[m]||0) : 0)) : (priorPlan.machineCap ? (priorPlan.machineCap[m]||0) : 0);
-      var committed = open > 0 ? (cap > 0 ? Math.min(open, cap) : open) : 0;
-      if (!committed) return;
-      hasAnyPriorMachine = true;
-
-      // Current value: respect any already-applied override
-      var currentVal = (_priorCompletionOverride[m] !== undefined && _priorCompletionOverride[m] !== null)
-        ? _priorCompletionOverride[m]
-        : committed;
-
-      var inputId = 'prior-actual-' + _machineIdKey(m);
-      priorMachineSummary += '<div style="display:flex;flex-direction:column;gap:3px">';
-      priorMachineSummary += '<label for="' + inputId + '" style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--green-dark)">Machine ' + m + '</label>';
-      priorMachineSummary += '<div style="display:flex;align-items:center;gap:5px">';
-      priorMachineSummary += '<input type="number" id="' + inputId + '" value="' + currentVal + '" min="0" max="' + open + '"';
-      priorMachineSummary += ' style="width:72px;padding:4px 7px;border:1px solid var(--border);border-radius:5px;font-size:13px;font-weight:600;font-family:inherit;color:var(--text);background:var(--white)">';
-      priorMachineSummary += '<span style="font-size:11px;color:var(--green-dark)">of&nbsp;' + committed.toLocaleString() + '&nbsp;planned</span>';
-      priorMachineSummary += '</div></div>';
-    });
-
-    if (hasAnyPriorMachine) {
-      priorBannerHtml = '<div class="plan-info" style="margin-bottom:1rem;padding:12px 14px">';
-      priorBannerHtml += '<div style="font-weight:700;margin-bottom:9px">&#128197; ' + priorShiftLabel + ' committed for ' + priorPlan.planDate + ' — enter actual pieces completed if different from plan</div>';
-      priorBannerHtml += '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end">';
-      priorBannerHtml += priorMachineSummary;
-      priorBannerHtml += '<button class="qbtn" onclick="applyPriorActual()" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark);align-self:flex-end">Recalculate</button>';
-      priorBannerHtml += '</div>';
-      priorBannerHtml += '<div style="font-size:11px;color:var(--green-dark);margin-top:7px;opacity:0.8">Quantities below already reflect what remains for this shift.</div>';
-      priorBannerHtml += '</div>';
-    }
 
     // Items the prior shift manually flagged to roll forward — read-only,
     // informational. Doesn't feed into the capacity math above; it's just so
