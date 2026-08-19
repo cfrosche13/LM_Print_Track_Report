@@ -5519,8 +5519,14 @@ function _comboPlanTotalRow(label, machines, plan, byM) {
 function _comboShiftBlock(date, shift) {
   if (!date) return '';
   var byM = _shiftScopedByMachine(date, shift);
-  var stdPlan = _resolvePlanForShiftGroup(date, shift, 'standard', null);
-  var dwPlan  = _resolvePlanForShiftGroup(date, shift, 'drinkware', null);
+  // Prefer the midshift snapshot over the original morning plan when both
+  // exist — a committed midshift update supersedes the original for this
+  // date/shift, same as the "Today's Plan" section below.
+  var override = {};
+  override['standard:' + shift]  = 'mid';
+  override['drinkware:' + shift] = 'mid';
+  var stdPlan = _resolvePlanForShiftGroup(date, shift, 'standard', override);
+  var dwPlan  = _resolvePlanForShiftGroup(date, shift, 'drinkware', override);
   var h = '<div class="tc-section-head">' + _comboShiftLabel(date, shift) + '</div>';
 
   // Totals first: Print Floor left, Drinkware right, side by side.
