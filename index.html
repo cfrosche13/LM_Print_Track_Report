@@ -682,7 +682,8 @@ input[type="date"]:focus { border-color: var(--green-dark); }
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
         <div>
           <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px">Piece type</label>
-          <input type="text" id="manual-item-piecetype" placeholder="e.g. Coir · 28x16 FC" style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:200px;font-family:inherit">
+          <input type="text" id="manual-item-piecetype" list="manual-piecetype-list" placeholder="e.g. Coir · 28x16 FC" style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:200px;font-family:inherit">
+          <datalist id="manual-piecetype-list"></datalist>
         </div>
         <div>
           <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:3px">Qty</label>
@@ -3864,7 +3865,20 @@ function toggleManualItemForm() {
   var f = document.getElementById('manual-item-form');
   if (!f) return;
   f.style.display = f.style.display === 'none' ? '' : 'none';
-  if (f.style.display !== 'none') _renderManualPlanItems();
+  if (f.style.display !== 'none') { _renderManualPlanItems(); _populateManualPieceTypeOptions(); }
+}
+// Fills the piece-type datalist behind the manual-item input so typing a
+// few letters (e.g. "coir") narrows the browser's suggestion list to
+// matching applicable types, while still allowing free text for anything
+// not in the list (deriveMachineFromProduct's confirm prompt still covers that).
+function _populateManualPieceTypeOptions() {
+  var dl = document.getElementById('manual-piecetype-list');
+  if (!dl) return;
+  var names = {};
+  Object.keys(_machineTargetOverrides).forEach(function(k) { names[k] = true; });
+  Object.keys(RAW.targets).forEach(function(k) { names[k] = true; });
+  var sorted = Object.keys(names).sort(function(a,b){ return a.localeCompare(b); });
+  dl.innerHTML = sorted.map(function(n) { return '<option value="' + n.replace(/"/g,'&quot;') + '">'; }).join('');
 }
 function addManualPlanItem() {
   var planDate = document.getElementById('plan-datepicker').value;
