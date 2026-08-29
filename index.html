@@ -2862,6 +2862,14 @@ function isPorchLeaner(name, shortName) {
   return h.indexOf('leaner') !== -1 || h.indexOf('porch') !== -1;
 }
 
+// Bamboo / Burlap mats (added 2026-08-29) — home machine is 30+, no flex.
+function isBambooMat(name, shortName) {
+  return haystack(name, shortName).indexOf('bamboo') !== -1;
+}
+function isBurlapMat(name, shortName) {
+  return haystack(name, shortName).indexOf('burlap') !== -1;
+}
+
 function isHangingSign18x18(name, shortName) {
   var h = haystack(name, shortName);
   return (h.indexOf('hang') !== -1 || h.indexOf('door decor') !== -1) && h.indexOf('18x18') !== -1;
@@ -2968,6 +2976,8 @@ function deriveMachineFromProduct(name, iname, coirSku) {
   if (isCanvas(key, ''))            return 'H5';
   if (isWallArt(key, ''))           return '30+';
   if (isWoodSign(key, ''))          return '30+';
+  if (isBambooMat(key, ''))         return '30+';
+  if (isBurlapMat(key, ''))         return '30+';
   return null;
 }
 
@@ -7406,6 +7416,7 @@ function _productMachines(key) {
   if (isHangingSign(key, ''))                            return ['30+'];
   if (isPVC(key, ''))                                    return ['H5',  '30+', '30'];
   if (isAntiFatigue(key, '') || isPorchLeaner(key, '')) return ['H5',  '30+'];
+  if (isBambooMat(key, '') || isBurlapMat(key, ''))     return ['30+'];
   var m = _targetMachine(key);
   return (m && m !== '—') ? [m] : [];
 }
