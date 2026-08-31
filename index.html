@@ -556,9 +556,17 @@ input[type="date"]:focus { border-color: var(--green-dark); }
 <!-- PLANNER PAGE -->
 <div id="page-planner" style="display:none">
 <div class="main">
-  <div class="page-head">
-    <h1>Planning</h1>
-    <p>Upload today's order CSV to see how work distributes across machines and what REG/ASAP can flex to accommodate DS turns.</p>
+  <div class="page-head" style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <div>
+      <h1>Planning</h1>
+      <p>Upload today's order CSV to see how work distributes across machines and what REG/ASAP can flex to accommodate DS turns.</p>
+    </div>
+    <div style="position:relative">
+      <button class="qbtn" id="saved-plans-btn-top" onclick="toggleSavedPlansDropdown('-top')" style="background:var(--white);color:var(--text);border-color:var(--border)">&#128203; Saved Plans &#9662;</button>
+      <div id="saved-plans-dropdown-top" style="display:none;position:absolute;right:0;top:calc(100% + 4px);min-width:240px;background:var(--white);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 4px 12px rgba(0,0,0,0.1);z-index:200;overflow:hidden">
+        <div id="saved-plans-list-top" style="max-height:260px;overflow-y:auto"></div>
+      </div>
+    </div>
   </div>
 
   <!-- Shift selector + config -->
@@ -706,6 +714,7 @@ input[type="date"]:focus { border-color: var(--green-dark); }
       <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);background:var(--green-light)">
         <span id="saved-plan-modal-title" style="font-size:14px;font-weight:700;color:var(--green-dark)"></span>
         <div style="display:flex;align-items:center;gap:10px">
+          <button onclick="loadSavedPlanForEditing()" title="Bring this plan's numbers back into the Planning tab, locked on every machine, so you can reload latest orders and selectively re-plan only the machines you unlock" style="background:none;border:1px solid var(--border);border-radius:var(--radius-sm);padding:3px 10px;font-size:12px;font-weight:600;color:var(--text);cursor:pointer;font-family:inherit">&#128194; Load for editing</button>
           <button onclick="printSavedPlan()" style="background:none;border:1px solid var(--green-win-border);border-radius:var(--radius-sm);padding:3px 10px;font-size:12px;font-weight:600;color:var(--green-dark);cursor:pointer;font-family:inherit">&#128424; Print</button>
           <button id="saved-plan-delete-btn" onclick="deleteSavedPlan()" style="background:none;border:1px solid var(--red-border);border-radius:var(--radius-sm);padding:3px 10px;font-size:12px;font-weight:600;color:var(--red);cursor:pointer;font-family:inherit">&#128465; Delete</button>
           <button onclick="closeSavedPlanModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted);line-height:1">&#x2715;</button>
@@ -1721,6 +1730,18 @@ var MACHINE_PPH = { '30': 45.2, '30+': 90.3, 'H5': 141.9, 'Drinkware M1': 60, 'D
 // 'standard' = 30/30+/H5 (existing flex-routing engine). 'drinkware' = Drinkware M1/M2.
 var GROUP_MACHINES = { standard: ['30','30+','H5'], drinkware: ['Drinkware M1','Drinkware M2'] };
 var PLAN_GROUP = 'standard';
+
+// Machine locks: a locked machine keeps exactly the rows it currently shows
+// (including any manual drags) instead of recalculating on the next
+// runPlan() — so hitting "Reload latest" or tweaking another machine's
+// hours doesn't reshuffle work you've already placed. See runPlan()'s
+// "Locked machines" block and togglePlanMachineLock().
+var _lockedMachines = {}; // { machine: true }
+function togglePlanMachineLock(m) {
+  if (_lockedMachines[m]) delete _lockedMachines[m];
+  else _lockedMachines[m] = true;
+  if (window._planOrders) runPlan(window._planOrders);
+}
 (function() {
   try { var g = localStorage.getItem('planGroup'); if (g === 'drinkware' || g === 'standard') PLAN_GROUP = g; } catch(e) {}
 })();
@@ -4500,6 +4521,38 @@ function runPlan(orders) {
     }
   });
 
+  // ── Locked machines ──────────────────────────────────────────────────────
+  // A locked machine (see togglePlanMachineLock, toggled from its capacity
+  // card) keeps exactly the rows it currently shows on screen — including
+  // any manual drags via moveBunchQty — instead of the fresh computation
+  // above, so "Reload latest" or tweaking another machine's hours/
+  // maintenance doesn't reshuffle work already placed. window._livePlanRows
+  // is always whatever's currently rendered (renderPlan/_rerenderPlanAfterMove
+  // keep it current); _currentPlanSnapshot (set at the end of the last
+  // renderPlan) tells us whether that live state is actually for this same
+  // date+group — if the date or group changed, there's nothing valid to
+  // freeze, so every locked machine just falls back to a normal fresh
+  // computation for this one run instead (self-heals on the next matching run).
+  var _lockedInGroup = groupMachines.filter(function(m){ return _lockedMachines[m]; });
+  if (_lockedInGroup.length && window._livePlanRows && _currentPlanSnapshot &&
+      _currentPlanSnapshot.planDate === planDate && _currentPlanSnapshot.group === PLAN_GROUP) {
+    var _priorLiveRows = window._livePlanRows;
+    var _lockedSet = _lockedMachines;
+    planRows = planRows.filter(function(r){ return !_lockedSet[r.machine]; })
+      .concat(_priorLiveRows.filter(function(r){ return _lockedSet[r.machine]; }));
+    groupMachines.forEach(function(m) {
+      machineLoad[m] = machineDSLoad[m] = machineRegLoad[m] = machineFbaLoad[m] = machineManualLoad[m] = 0;
+    });
+    planRows.forEach(function(r) {
+      if (!r.machine || r.machine === 'BLOCKED' || machineLoad[r.machine] === undefined) return;
+      machineLoad[r.machine]    += r.qty;
+      machineDSLoad[r.machine]  += r.dsQty || 0;
+      machineRegLoad[r.machine] += (r.regQty || 0) + (r.asapQty || 0);
+      machineFbaLoad[r.machine] += r.fbaQty || 0;
+      if (r._manual) machineManualLoad[r.machine] += r.qty;
+    });
+  }
+
   // Build std vs shifted display buckets.
   // Only load-balance overflow moves (r.loadShifted) count as "shifted in".
   // Machine-down redirects (r.moved but not r.loadShifted) count as standard
@@ -4692,33 +4745,39 @@ function getAllCommittedPlans() {
   return plans;
 }
 
-function toggleSavedPlansDropdown() {
-  var dd = document.getElementById('saved-plans-dropdown');
+// suffix distinguishes the commit-bar's dropdown ('') from the page-head one
+// ('-top') so the same saved-plans UI can live in two places on the tab.
+function toggleSavedPlansDropdown(suffix) {
+  suffix = suffix || '';
+  var dd = document.getElementById('saved-plans-dropdown' + suffix);
+  var btnId = 'saved-plans-btn' + suffix;
+  if (!dd) return;
   if (dd.style.display !== 'none') { dd.style.display = 'none'; return; }
   // Show immediately with local data
-  _renderSavedPlansList();
+  _renderSavedPlansList(suffix);
   dd.style.display = 'block';
   // Sync from Firebase in background — refresh list if new plans were found
   fbSyncPlans(function(added) {
-    if (added > 0 && document.getElementById('saved-plans-dropdown').style.display !== 'none') {
-      _renderSavedPlansList();
+    if (added > 0 && dd.style.display !== 'none') {
+      _renderSavedPlansList(suffix);
     }
   });
   // Close when clicking outside
   setTimeout(function() {
     document.addEventListener('click', function closeDd(e) {
-      if (!document.getElementById('saved-plans-dropdown').contains(e.target) &&
-          e.target.id !== 'saved-plans-btn') {
-        document.getElementById('saved-plans-dropdown').style.display = 'none';
+      if (!dd.contains(e.target) && e.target.id !== btnId) {
+        dd.style.display = 'none';
         document.removeEventListener('click', closeDd);
       }
     });
   }, 0);
 }
 
-function _renderSavedPlansList() {
+function _renderSavedPlansList(suffix) {
+  suffix = suffix || '';
+  var ddId  = 'saved-plans-dropdown' + suffix;
   var plans = getAllCommittedPlans();
-  var list  = document.getElementById('saved-plans-list');
+  var list  = document.getElementById('saved-plans-list' + suffix);
   if (!plans.length) {
     list.innerHTML = '<div style="padding:12px 14px;font-size:12px;color:var(--muted)">No committed plans saved yet.</div>';
   } else {
@@ -4736,7 +4795,7 @@ function _renderSavedPlansList() {
       var midBadge = isMid
         ? '<span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-border);margin-left:5px">Midshift</span>'
         : '';
-      return '<button onclick="viewSavedPlan(\'' + key.replace(/'/g,"\\'") + '\');document.getElementById(\'saved-plans-dropdown\').style.display=\'none\'" '
+      return '<button onclick="viewSavedPlan(\'' + key.replace(/'/g,"\\'") + '\');document.getElementById(\'' + ddId + '\').style.display=\'none\'" '
         + 'style="display:block;width:100%;text-align:left;background:none;border:none;border-bottom:1px solid var(--border);'
         + 'padding:10px 14px;cursor:pointer;font-family:inherit" '
         + 'onmouseover="this.style.background=\'var(--green-light)\'" onmouseout="this.style.background=\'none\'">'
@@ -4747,7 +4806,7 @@ function _renderSavedPlansList() {
   }
   // Backup / restore footer
   list.innerHTML += '<div style="border-top:1px solid var(--border);padding:8px 10px;display:flex;gap:6px">'
-    + '<button onclick="exportPlansBackup();document.getElementById(\'saved-plans-dropdown\').style.display=\'none\'" '
+    + '<button onclick="exportPlansBackup();document.getElementById(\'' + ddId + '\').style.display=\'none\'" '
     + 'style="flex:1;font-size:11px;font-weight:600;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);cursor:pointer;font-family:inherit;color:var(--text)">&#8615; Export Backup</button>'
     + '<label style="flex:1;font-size:11px;font-weight:600;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);cursor:pointer;text-align:center;color:var(--text)">'
     + '&#8613; Import Backup<input type="file" accept=".json" style="display:none" onchange="importPlansBackup(this)"></label>'
@@ -4955,6 +5014,61 @@ function viewSavedPlan(storageKey) {
 
 function closeSavedPlanModal() {
   document.getElementById('saved-plan-modal').style.display = 'none';
+}
+
+// Brings a saved/committed plan's exact row-level numbers back into the live,
+// editable Planning tab — matching the datepicker/group/shift to the saved
+// plan, then locking every machine in that group so nothing recalculates
+// until the owner explicitly unlocks a machine (see togglePlanMachineLock).
+// This is the way back in after a browser refresh wipes the in-memory plan:
+// reopen the plan you originally committed for this shift, then reload
+// latest orders and unlock only the machines you actually want to re-plan.
+function loadSavedPlanForEditing() {
+  var raw = window._savedPlanForPrint;
+  if (!raw || !raw.rows) { alert('This saved plan has no row detail to load back in.'); return; }
+  if (!confirm('Load the ' + raw.planDate + ' ' + (raw.shift === 'night' ? 'Night' : 'Day') + ' Shift plan into the Planning tab?\n\nEvery machine will be locked to these saved numbers — unlock a machine to let it recalculate against fresh order data.')) return;
+
+  document.getElementById('plan-datepicker').value = raw.planDate;
+  PLAN_GROUP = raw.group || 'standard';
+  try { localStorage.setItem('planGroup', PLAN_GROUP); } catch(e) {}
+  document.getElementById('plan-group-standard').classList.toggle('active', PLAN_GROUP === 'standard');
+  document.getElementById('plan-group-drinkware').classList.toggle('active', PLAN_GROUP === 'drinkware');
+  document.getElementById('standard-machine-inputs').style.display  = PLAN_GROUP === 'standard'  ? '' : 'none';
+  document.getElementById('drinkware-machine-inputs').style.display = PLAN_GROUP === 'drinkware' ? '' : 'none';
+  ACTIVE_SHIFT = raw.shift === 'night' ? 'night' : 'day';
+  document.getElementById('shift-tab-day').classList.toggle('active', ACTIVE_SHIFT === 'day');
+  document.getElementById('shift-tab-night').classList.toggle('active', ACTIVE_SHIFT === 'night');
+  _loadShiftConfigToUI(ACTIVE_SHIFT);
+  recomputeGoals();
+
+  var gm = GROUP_MACHINES[PLAN_GROUP];
+  gm.forEach(function(m) { _lockedMachines[m] = true; });
+
+  var rows = raw.rows.map(function(r) { return Object.assign({}, r); });
+  function _z() { var o = {}; gm.forEach(function(m){ o[m] = 0; }); return o; }
+  var machineLoad = _z(), machineDSLoad = _z(), machineRegLoad = _z(), machineStdLoad = _z(),
+      machineShiftedLoad = _z(), machineManualLoad = _z(), machineFbaLoad = _z();
+  rows.forEach(function(r) {
+    if (!r.machine || machineLoad[r.machine] === undefined) return;
+    machineLoad[r.machine]    += r.qty;
+    machineDSLoad[r.machine]  += r.dsQty || 0;
+    machineRegLoad[r.machine] += (r.regQty || 0) + (r.asapQty || 0);
+    machineFbaLoad[r.machine] += r.fbaQty || 0;
+    if (r.loadShifted) machineShiftedLoad[r.machine] += r.qty; else machineStdLoad[r.machine] += r.qty;
+    if (r._manual) machineManualLoad[r.machine] += r.qty;
+  });
+  var warnings = computeWarnings(machineLoad, rows);
+  var machineHrsNeeded = computeMachineHrsNeeded(rows);
+  var machineActualCap = computeMachineActualCap(rows);
+  renderPlan(rows, machineLoad, machineDSLoad, machineRegLoad, machineStdLoad, machineShiftedLoad, warnings,
+    raw.planDate, rows.length, machineHrsNeeded, machineActualCap, null, machineManualLoad, machineFbaLoad,
+    raw.actualToday || 0, raw.machineActualToday || {}, {}, {});
+
+  closeSavedPlanModal();
+  ['', '-top'].forEach(function(suf) {
+    var dd = document.getElementById('saved-plans-dropdown' + suf);
+    if (dd) dd.style.display = 'none';
+  });
 }
 
 function printSavedPlan() {
@@ -6182,10 +6296,18 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
     var idlePct   = Math.max(0, 100 - dsPct - fbaPct - regPct - manualPct);
 
     var ops = _machineOperators[m] != null ? _machineOperators[m] : 1;
+    var _locked = !!_lockedMachines[m];
     summaryHtml += '<div class="plan-card ' + cardCls + '" ondragover="allowBunchDrop(event)" ondragleave="clearBunchDropHighlight(event)" ondrop="handleBunchDrop(event,\'' + m + '\')">';
-    summaryHtml += '<div style="display:flex;justify-content:space-between;align-items:baseline">';
+    summaryHtml += '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">';
     summaryHtml += '<div class="plan-card-machine">Machine ' + m + '</div>';
+    summaryHtml += '<div style="display:flex;align-items:center;gap:8px">';
+    summaryHtml += '<button onclick="togglePlanMachineLock(\'' + m.replace(/'/g,"\\'") + '\')" '
+      + 'title="' + (_locked ? 'Locked - this machine keeps its current plan through Reload/other machine changes. Click to unlock and let it recalculate again.' : 'Click to lock this machine\'s current plan so Reload/other machine changes won\'t touch it.') + '" '
+      + 'style="background:' + (_locked ? 'var(--amber-bg)' : 'none') + ';border:1px solid ' + (_locked ? 'var(--amber-border)' : 'var(--border)')
+      + ';border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;color:' + (_locked ? 'var(--amber)' : 'var(--muted)') + '">'
+      + (_locked ? '&#128274; Locked' : '&#128275; Lock') + '</button>';
     summaryHtml += '<div style="font-size:11px;color:var(--muted);font-weight:600">' + ops + '&thinsp;op' + (ops !== 1 ? 's' : '') + '</div>';
+    summaryHtml += '</div>';
     summaryHtml += '</div>';
     // Remaining shift time chip
     var _mMaint  = (SHIFT_CONFIG[ACTIVE_SHIFT].machineMaints || {})[m] || 0;
