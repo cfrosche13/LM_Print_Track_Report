@@ -166,6 +166,7 @@ input[type="date"]:focus { border-color: var(--green-dark); }
   .cal-day.selected { border-color: var(--green-dark); box-shadow: 0 0 0 2px var(--green-dark); }
   .cal-day-num { font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
   .cal-day.has-data .cal-day-num { color: var(--green-dark); }
+  .cal-day-dow { display: none; } /* shown only on the mobile list layout below */
   .cal-total { font-family: 'Lora', serif; font-size: 15px; font-weight: 600; color: var(--text); line-height: 1; white-space: nowrap; }
   .cal-total-sm { font-size: 13px; }
   .cal-total-label { font-size: 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 3px; white-space: nowrap; }
@@ -188,6 +189,38 @@ input[type="date"]:focus { border-color: var(--green-dark); }
   .ddm-stat span { font-weight: 600; color: var(--text); }
   .ddm-oee { font-family: 'Lora', serif; font-size: 22px; font-weight: 600; }
   .ddm-oee.win { color: var(--green-dark); } .ddm-oee.miss { color: var(--red); }
+
+  /* ── Mobile (phone) layout — Totals tab only had to horizontally scroll to be
+     viewed on a phone: the 7-column month calendar grid and the Shift Summary
+     report's dense tables. Desktop is completely untouched outside this block. ── */
+  @media (max-width: 700px) {
+    .topbar, .subnav { padding: 0 1rem; }
+    .main, #page-totals .main { padding: 1.25rem 1rem 3rem; }
+
+    /* Calendar: month grid → one full-width row per day, so nothing needs to
+       shrink past legibility or force the page wider than the screen. */
+    .cal-dow { display: none; }
+    .cal-day.empty { display: none; }
+    .cal-grid { display: flex; flex-direction: column; gap: 8px; }
+    .cal-day { min-height: 0; padding: 10px 12px; }
+    .cal-day-num { display: flex; align-items: baseline; gap: 6px; }
+    .cal-day-dow { display: inline; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+    .cal-shift-rlabel { width: 22px; font-size: 10px; }
+    .cal-mchip { font-size: 11px; padding: 3px 4px; }
+    .cal-pct-cell { font-size: 11px; padding: 2px; }
+    .cal-total { font-size: 16px; }
+
+    /* Shift Summary report: stack the Print Floor / Drinkware cards instead of
+       side by side, and tighten table cells so columns fit without scrolling —
+       .tc-table-wrap is a fallback scroll container for any table that still
+       can't fit (e.g. very narrow phones), so at worst just that table scrolls
+       instead of the whole page. */
+    .tc-cards-row { flex-direction: column; gap: 6px; }
+    .tc-card-label, .tc-card-stats { white-space: normal; }
+    .tc-table { font-size: 11px; }
+    .tc-table th, .tc-table td { padding: 5px 6px; }
+    .tc-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  }
 
   /* Settings tab */
   #page-settings { display: none; }
@@ -297,6 +330,11 @@ input[type="date"]:focus { border-color: var(--green-dark); }
   .tc-table td { padding: 7px 12px; border-bottom: 1px solid #eee; color: var(--text); }
   .tc-table tr:last-child td { border-bottom: none; }
   .tc-table .col-num { text-align: right; }
+  .tc-table-wrap { }
+  .tc-cards-row { display: flex; gap: 12px; margin-bottom: 0.4rem; }
+  .tc-card { flex: 1; min-width: 0; background: var(--white); border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px; }
+  .tc-card-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--green-dark); margin-bottom: 1px; white-space: nowrap; }
+  .tc-card-stats { font-size: 12px; color: var(--text); white-space: nowrap; }
   .tc-section-head { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--green-dark); margin: 1rem 0 6px; }
   .report-block { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 1.5rem; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
   .report-block-header { padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); border-left: 5px solid var(--green-dark); background: var(--green-light); }
@@ -1598,12 +1636,16 @@ function renderCalendar() {
     var dayData = DAILY[dateStr];
     var good = getGoodForDay(dateStr);
     var isSelected = selectedDay === dateStr;
+    // Only shown on the mobile list layout (.cal-day-dow is hidden on desktop's grid layout,
+    // which already has day-of-week column headers) — see the mobile media query below.
+    var dowShort = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][(firstDay + day - 1) % 7];
+    var dowSpan = '<span class="cal-day-dow">' + dowShort + '</span>';
 
     // A day counts as having data if the print floor, wallets, or Drinkware produced anything —
     // "total pieces" alone (print floor only) would hide Drinkware/Wallets-only days otherwise.
     if (!dayData || (good === 0 && !dayData.wallets && !dayData.drinkware)) {
       grid += '<div class="cal-day no-data' + (isSelected ? ' selected' : '') + '">';
-      grid += '<div class="cal-day-num">' + day + '</div>';
+      grid += '<div class="cal-day-num">' + day + dowSpan + '</div>';
       grid += '</div>';
       continue;
     }
@@ -1649,7 +1691,7 @@ function renderCalendar() {
     var calBorderColor = calTier==='goal'?'#1a5c3a':calTier==='average'?'#d09020':calTier==='below'?'#b83232':'';
     var calBorderStyle = calBorderColor ? 'border-top:3px solid ' + calBorderColor + ';' : '';
     grid += '<div class="cal-day has-data' + (isSelected ? ' selected' : '') + '" style="' + calBorderStyle + '" onclick="selectDay(\'' + dateStr + '\')">';
-    grid += '<div class="cal-day-num">' + day + '</div>';
+    grid += '<div class="cal-day-num">' + day + dowSpan + '</div>';
     var walletCount    = dayData.wallets || 0;
     var drinkwareCount = dayData.drinkware || 0;
     grid += '<div class="cal-ampm-row"><span>AM ' + amGood.toLocaleString() + '</span><span>PM ' + pmGood.toLocaleString() + '</span></div>';
@@ -5614,9 +5656,9 @@ function _comboTotalCard(label, machines, plan, byM) {
     }, 0);
   }
   var pct = (planVal != null && planVal > 0) ? Math.round(actual / planVal * 100) : null;
-  var h = '<div style="flex:1;min-width:0;background:var(--white);border:1px solid var(--border);border-radius:6px;padding:5px 12px">';
-  h += '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--green-dark);margin-bottom:1px;white-space:nowrap">' + label + '</div>';
-  h += '<div style="font-size:12px;color:var(--text);white-space:nowrap">';
+  var h = '<div class="tc-card">';
+  h += '<div class="tc-card-label">' + label + '</div>';
+  h += '<div class="tc-card-stats">';
   h += '<strong>Plan:</strong> ' + (planVal != null ? planVal.toLocaleString() : '—');
   h += ' &nbsp;&nbsp; <strong>Actual:</strong> ' + actual.toLocaleString();
   h += ' &nbsp;&nbsp; <strong>% to Plan:</strong> ' + (pct != null ? pct + '%' : '—');
@@ -5682,16 +5724,16 @@ function _comboShiftBlock(date, shift) {
   var h = '<div class="tc-section-head">' + _comboShiftLabel(date, shift) + '</div>';
 
   // Totals first: Print Floor left, Drinkware right, side by side.
-  h += '<div style="display:flex;gap:12px;margin-bottom:0.4rem">';
+  h += '<div class="tc-cards-row">';
   h += _comboTotalCard('Print Floor (30 + 30+ + H5)', GROUP_MACHINES.standard, stdPlan, byM);
   h += _comboTotalCard('Drinkware (M1 + M2)', GROUP_MACHINES.drinkware, dwPlan, byM);
   h += '</div>';
 
   // Then the per-machine breakdown.
-  h += '<table class="tc-table"><thead><tr><th>Machine</th><th class="col-num">Plan</th><th class="col-num">Actual</th><th class="col-num">% to Plan</th></tr></thead><tbody>';
+  h += '<div class="tc-table-wrap"><table class="tc-table"><thead><tr><th>Machine</th><th class="col-num">Plan</th><th class="col-num">Actual</th><th class="col-num">% to Plan</th></tr></thead><tbody>';
   GROUP_MACHINES.standard.forEach(function(m) { h += _comboMachineRow(m, stdPlan, byM); });
   GROUP_MACHINES.drinkware.forEach(function(m) { h += _comboMachineRow(m, dwPlan, byM); });
-  h += '</tbody></table>';
+  h += '</tbody></table></div>';
   return h;
 }
 
@@ -5736,16 +5778,16 @@ function _buildTotalsComboHtml() {
     var byM = _shiftScopedByMachine(todayStr, shift);
 
     // Totals first: Print Floor combined, Drinkware combined.
-    secB += '<table class="tc-table"><thead><tr><th>Total</th><th class="col-num">Hours</th><th class="col-num">Operators</th><th class="col-num">Plan</th><th class="col-num">Made</th><th class="col-num">% to Plan</th><th class="col-num">Open</th></tr></thead><tbody>';
+    secB += '<div class="tc-table-wrap"><table class="tc-table"><thead><tr><th>Total</th><th class="col-num">Hours</th><th class="col-num">Operators</th><th class="col-num">Plan</th><th class="col-num">Made</th><th class="col-num">% to Plan</th><th class="col-num">Open</th></tr></thead><tbody>';
     if (stdPlan) secB += _comboPlanTotalRow('Print Floor (30 + 30+ + H5)', GROUP_MACHINES.standard, stdPlan, byM);
     if (dwPlan)  secB += _comboPlanTotalRow('Drinkware (M1 + M2)', GROUP_MACHINES.drinkware, dwPlan, byM);
-    secB += '</tbody></table>';
+    secB += '</tbody></table></div>';
 
     // Then the per-machine breakdown.
-    secB += '<table class="tc-table"><thead><tr><th>Machine</th><th class="col-num">Hours</th><th class="col-num">Operators</th><th class="col-num">Plan</th><th class="col-num">Made</th><th class="col-num">% to Plan</th><th class="col-num">Open</th></tr></thead><tbody>';
+    secB += '<div class="tc-table-wrap"><table class="tc-table"><thead><tr><th>Machine</th><th class="col-num">Hours</th><th class="col-num">Operators</th><th class="col-num">Plan</th><th class="col-num">Made</th><th class="col-num">% to Plan</th><th class="col-num">Open</th></tr></thead><tbody>';
     if (stdPlan) GROUP_MACHINES.standard.forEach(function(m) { secB += _comboPlanMachineRow(m, stdPlan, byM); });
     if (dwPlan)  GROUP_MACHINES.drinkware.forEach(function(m) { secB += _comboPlanMachineRow(m, dwPlan, byM); });
-    secB += '</tbody></table>';
+    secB += '</tbody></table></div>';
   });
   if (!anyPlan) secB = '<div style="color:var(--muted);font-size:12px;padding:0.5rem 0">No plan committed for today yet.</div>';
 
