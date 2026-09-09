@@ -27,6 +27,10 @@
   --green-win: #1a5c3a; --green-win-bg: #e8f2ec; --green-win-border: #a8cdb8;
   --amber: #a06010; --amber-bg: #fdf5e8; --amber-border: #e8d0a0;
   --blue: #1a4870; --blue-bg: #e8f0f8;
+  /* % to Plan verdict scale (daily card strip) — red (<60%) through green (90%+) */
+  --tier-orange: #c1631f; --tier-orange-bg: #fdf1e6; --tier-orange-border: #f0cfa8;
+  --tier-yellow: #a68a0a; --tier-yellow-bg: #fbf6d9; --tier-yellow-border: #e6d78a;
+  --tier-yellowgreen: #6b8f1a; --tier-yellowgreen-bg: #f0f5df; --tier-yellowgreen-border: #c9dba0;
   --radius: 4px; --radius-sm: 3px;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -58,23 +62,36 @@ input[type="date"]:focus { border-color: var(--green-dark); }
 .date-quick { display: flex; gap: 6px; flex-wrap: wrap; }
 .qbtn { background: var(--white); border: 1px solid var(--border); color: var(--muted); border-radius: var(--radius-sm); padding: 4px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
 .qbtn:hover { border-color: var(--green-dark); color: var(--green-dark); background: var(--green-light); }
-.verdict { border-radius: var(--radius); padding: 1.25rem 1.5rem; margin-bottom: 1.5rem; display: flex; align-items: flex-start; gap: 1rem; border: 1px solid; border-left: 5px solid; }
-.verdict-win { background: var(--green-win-bg); border-color: var(--green-win-border); border-left-color: var(--green-win); }
-.verdict-loss { background: var(--red-bg); border-color: var(--red-border); border-left-color: var(--red); }
 .verdict-icon { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; flex-shrink: 0; margin-top: 1px; }
-.verdict-win .verdict-icon { background: var(--green-dark); color: white; }
-.verdict-loss .verdict-icon { background: var(--red); color: white; }
+.verdict-icon-pct { width: auto; min-width: 40px; height: 32px; border-radius: 16px; padding: 0 9px; font-size: 13px; }
 .verdict-label { font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 3px; }
-.verdict-win .verdict-label { color: var(--green-mid); }
-.verdict-loss .verdict-label { color: var(--red); }
 .verdict-title { font-family: 'Lora', serif; font-size: 20px; font-weight: 600; }
-.verdict-win .verdict-title { color: var(--green-dark); }
-.verdict-loss .verdict-title { color: var(--red); }
 .verdict-sub { font-size: 13px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
 .verdict-neutral { background: var(--bg); border-color: var(--border); border-left-color: var(--muted); }
 .verdict-neutral .verdict-icon { background: var(--muted); color: white; }
 .verdict-neutral .verdict-label { color: var(--muted); }
 .verdict-neutral .verdict-title { color: var(--text); }
+/* % to Plan verdict tiers — red (<60%) through green (90%+) */
+.verdict-tier-red         { background: var(--red-bg);              border-color: var(--red-border);              border-left-color: var(--red); }
+.verdict-tier-orange      { background: var(--tier-orange-bg);      border-color: var(--tier-orange-border);      border-left-color: var(--tier-orange); }
+.verdict-tier-yellow      { background: var(--tier-yellow-bg);      border-color: var(--tier-yellow-border);      border-left-color: var(--tier-yellow); }
+.verdict-tier-yellowgreen { background: var(--tier-yellowgreen-bg); border-color: var(--tier-yellowgreen-border); border-left-color: var(--tier-yellowgreen); }
+.verdict-tier-green       { background: var(--green-win-bg);        border-color: var(--green-win-border);        border-left-color: var(--green-win); }
+.verdict-tier-red .verdict-icon         { background: var(--red);              color: white; }
+.verdict-tier-orange .verdict-icon      { background: var(--tier-orange);      color: white; }
+.verdict-tier-yellow .verdict-icon      { background: var(--tier-yellow);      color: white; }
+.verdict-tier-yellowgreen .verdict-icon { background: var(--tier-yellowgreen); color: white; }
+.verdict-tier-green .verdict-icon       { background: var(--green-dark);      color: white; }
+.verdict-tier-red .verdict-label         { color: var(--red); }
+.verdict-tier-orange .verdict-label      { color: var(--tier-orange); }
+.verdict-tier-yellow .verdict-label      { color: var(--tier-yellow); }
+.verdict-tier-yellowgreen .verdict-label { color: var(--tier-yellowgreen); }
+.verdict-tier-green .verdict-label       { color: var(--green-mid); }
+.verdict-tier-red .verdict-title         { color: var(--red); }
+.verdict-tier-orange .verdict-title      { color: var(--tier-orange); }
+.verdict-tier-yellow .verdict-title      { color: var(--tier-yellow); }
+.verdict-tier-yellowgreen .verdict-title { color: var(--tier-yellowgreen); }
+.verdict-tier-green .verdict-title       { color: var(--green-dark); }
 .daily-card-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
 .daily-card { border-radius: var(--radius); padding: 1rem 1.25rem; display: flex; align-items: flex-start; gap: 0.75rem; border: 1px solid; border-left: 5px solid; cursor: pointer; transition: box-shadow 0.15s, transform 0.1s; }
 .daily-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
@@ -1129,12 +1146,6 @@ function render(forceDate) {
   var dwTypeResult = buildTypeRows(byTypeDW, date);
   var dwTypeRows = dwTypeResult.rows, dwWins = dwTypeResult.wins, dwMisses = dwTypeResult.misses;
 
-  var oeeWins = 0, oeeMisses = 0;
-  Object.keys(oeeResults).forEach(function(m) {
-    if (_dailyDownMachines[m]) return; // machine marked down — not counted
-    var r = oeeResults[m];
-    if (r.target) { if (r.oeeRaw >= r.target) oeeWins++; else oeeMisses++; }
-  });
   var defectRate     = stdGood + stdBad > 0 ? ((stdBad/(stdGood+stdBad))*100).toFixed(1) : 0;
   var dwDefectRate    = dwGood + dwBad > 0 ? ((dwBad/(dwGood+dwBad))*100).toFixed(1) : 0;
   var walletDefectRate = walletGood + walletBad > 0 ? ((walletBad/(walletGood+walletBad))*100).toFixed(1) : 0;
@@ -1157,58 +1168,48 @@ function render(forceDate) {
   var dwPlans  = committedPlans.filter(function(p){ return (p._group || p.group) === 'drinkware'; });
   var planVsActual   = buildPlanVsActual(stdPlans, byMachine, _dailyDownMachines);
   var dwPlanVsActual = buildPlanVsActual(dwPlans,  byMachine, {});
-  var planHit   = planVsActual.planHit;   // true / false / null
-  var dwPlanHit = dwPlanVsActual.planHit; // true / false / null
 
-  // Standard win logic (unchanged):
-  // - Plan committed & hit → WIN (OEE is informational only)
-  // - Plan committed & missed → LOSS
-  // - No plan → fall back to PPH + OEE
-  var isWin = planHit === true
-    ? true
-    : (misses === 0) && (hasOEE ? oeeMisses === 0 : true) && (planHit !== false);
-
-  // Drinkware has no OEE — plan hit wins outright, otherwise fall back to PPH only.
-  // If there's no Drinkware data or target for this date at all, the card shows a neutral state.
-  var hasDrinkwareData = dwGood > 0 || dwBad > 0 || dwPlans.length > 0 || dwTypeRows.length > 0;
-  var isWinDW = dwPlanHit === true
-    ? true
-    : (dwMisses === 0) && (dwPlanHit !== false);
+  // Verdict is % to plan, not OEE (owner request, 2026-09-09) — a 5-step
+  // color scale instead of a binary win/loss. PPH still shows as supporting
+  // detail on the card; OEE is reference-only now (see the OEE snapshot
+  // section further down) and no longer affects the card at all. A group
+  // with no committed plan that day has nothing to score against, so its
+  // card shows a neutral "No plan committed" state instead of a color.
+  function _planPctTier(pct) {
+    if (pct <= 60) return 'red';
+    if (pct <= 70) return 'orange';
+    if (pct <= 80) return 'yellow';
+    if (pct <= 90) return 'yellowgreen';
+    return 'green';
+  }
+  var stdPct  = planVsActual.totalTarget   ? Math.round(planVsActual.totalActual   / planVsActual.totalTarget   * 100) : null;
+  var dwPct   = dwPlanVsActual.totalTarget ? Math.round(dwPlanVsActual.totalActual / dwPlanVsActual.totalTarget * 100) : null;
+  var stdTier = stdPct != null ? _planPctTier(stdPct) : 'neutral';
+  var dwTier  = dwPct  != null ? _planPctTier(dwPct)  : 'neutral';
+  var TIER_LABEL = { red: 'Needs Attention', orange: 'Behind Plan', yellow: 'Below Plan', yellowgreen: 'Near Plan', green: 'On Plan' };
 
   var h = '';
 
   var dateLabel = new Date(date + 'T12:00:00').toLocaleDateString('en-US', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
 
   // ── Three-card summary strip: Print Floor / Drinkware / Wallets ──────────
-  function _cardDetails(win, parts) { return parts.join(' &nbsp;&middot;&nbsp; '); }
+  // PPH still called out here as supporting detail alongside the plan-based verdict.
+  function _cardDetails(parts) { return parts.length ? parts.join(' &nbsp;&middot;&nbsp; ') : 'No PPH targets tracked today'; }
   var stdDetails = [];
-  if (isWin) {
-    if (planHit === true) stdDetails.push('plan executed');
-    if (wins > 0) stdDetails.push(wins + ' PPH target' + (wins!==1?'s':'') + ' hit');
-    if (hasOEE && oeeMisses === 0 && oeeWins > 0) stdDetails.push(oeeWins + ' OEE target' + (oeeWins!==1?'s':'') + ' met');
-    if (hasOEE && oeeMisses > 0) stdDetails.push(oeeMisses + ' machine' + (oeeMisses!==1?'s':'') + ' below OEE — review');
-  } else {
-    if (misses > 0)        stdDetails.push(misses + ' PPH miss' + (misses!==1?'es':''));
-    if (oeeMisses > 0)     stdDetails.push(oeeMisses + ' machine' + (oeeMisses!==1?'s':'') + ' below OEE target');
-    if (planHit === false) stdDetails.push('plan not completed');
-  }
+  if (wins > 0)   stdDetails.push(wins + ' PPH target' + (wins!==1?'s':'') + ' hit');
+  if (misses > 0) stdDetails.push(misses + ' PPH miss' + (misses!==1?'es':''));
   var dwDetails = [];
-  if (!hasDrinkwareData) {
-    dwDetails.push('no Drinkware production logged');
-  } else if (isWinDW) {
-    if (dwPlanHit === true) dwDetails.push('plan executed');
-    if (dwWins > 0) dwDetails.push(dwWins + ' PPH target' + (dwWins!==1?'s':'') + ' hit');
-  } else {
-    if (dwMisses > 0)        dwDetails.push(dwMisses + ' PPH miss' + (dwMisses!==1?'es':''));
-    if (dwPlanHit === false) dwDetails.push('plan not completed');
-  }
+  if (dwWins > 0)   dwDetails.push(dwWins + ' PPH target' + (dwWins!==1?'s':'') + ' hit');
+  if (dwMisses > 0) dwDetails.push(dwMisses + ' PPH miss' + (dwMisses!==1?'es':''));
 
-  function _summaryCard(id, label, icon, state, title, detailsHtml, actual, target) {
-    // state: 'win' | 'loss' | 'neutral'
-    var cls = state === 'win' ? 'verdict-win' : state === 'loss' ? 'verdict-loss' : 'verdict-neutral';
-    var iconHtml = state === 'win' ? '&#10003;' : state === 'loss' ? '&#10007;' : icon;
+  function _summaryCard(id, label, icon, tier, title, detailsHtml, actual, target, pct) {
+    // tier: 'red' | 'orange' | 'yellow' | 'yellowgreen' | 'green' | 'neutral'
+    var isTiered = tier !== 'neutral';
+    var cls = isTiered ? 'verdict-tier-' + tier : 'verdict-neutral';
+    var iconHtml = isTiered ? pct + '%' : icon;
+    var iconCls = isTiered ? 'verdict-icon verdict-icon-pct' : 'verdict-icon';
     var c = '<div class="daily-card ' + cls + '" id="daily-card-' + id + '" onclick="setDailyView(\'' + id + '\')">';
-    c += '<div class="verdict-icon">' + iconHtml + '</div>';
+    c += '<div class="' + iconCls + '">' + iconHtml + '</div>';
     c += '<div style="flex:1"><div class="verdict-label">' + label + '</div>';
     c += '<div class="verdict-title">' + title + '</div>';
     c += '<div class="verdict-sub">' + detailsHtml + '</div>';
@@ -1220,11 +1221,12 @@ function render(forceDate) {
   }
 
   h += '<div class="daily-card-strip">';
-  h += _summaryCard('standard', dateLabel, '&#127981;', isWin ? 'win' : 'loss', isWin ? 'Print Floor — Win' : 'Print Floor — Loss',
-        _cardDetails(isWin, stdDetails), stdGood, planVsActual.totalTarget != null ? planVsActual.totalTarget : null);
-  h += _summaryCard('drinkware', dateLabel, '&#129380;', !hasDrinkwareData ? 'neutral' : (isWinDW ? 'win' : 'loss'),
-        !hasDrinkwareData ? 'Drinkware — No data' : (isWinDW ? 'Drinkware — Win' : 'Drinkware — Loss'),
-        _cardDetails(isWinDW, dwDetails), dwGood, dwPlanVsActual.totalTarget != null ? dwPlanVsActual.totalTarget : null);
+  h += _summaryCard('standard', dateLabel, '&#127981;', stdTier,
+        stdTier === 'neutral' ? 'Print Floor — No Plan Committed' : 'Print Floor — ' + TIER_LABEL[stdTier],
+        _cardDetails(stdDetails), stdGood, planVsActual.totalTarget || null, stdPct);
+  h += _summaryCard('drinkware', dateLabel, '&#129380;', dwTier,
+        dwTier === 'neutral' ? 'Drinkware — No Plan Committed' : 'Drinkware — ' + TIER_LABEL[dwTier],
+        _cardDetails(dwDetails), dwGood, dwPlanVsActual.totalTarget || null, dwPct);
   h += _summaryCard('wallets', dateLabel, '&#128092;', 'neutral', 'Wallets — Stamped',
         walletGood.toLocaleString() + ' wallets stamped' + (walletBad > 0 ? ' &nbsp;&middot;&nbsp; ' + walletBad + ' bad' : ''),
         walletGood, undefined);
