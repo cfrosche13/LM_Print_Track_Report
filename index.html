@@ -550,33 +550,6 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     <p>Monthly calendar view &mdash; daily piece counts, per-machine output, and OEE.</p>
   </div>
 
-  <div class="date-bar" style="gap:1.5rem">
-    <label>Month</label>
-    <div class="date-nav">
-      <button class="nav-btn" onclick="stepMonth(-1)">&#8592;</button>
-      <span id="month-label" style="font-size:15px;font-weight:600;color:var(--green-dark);min-width:120px;text-align:center"></span>
-      <button class="nav-btn" onclick="stepMonth(1)">&#8594;</button>
-    </div>
-    <div class="divider"></div>
-    <span class="quick-label">View</span>
-    <div class="date-quick">
-      <button class="qbtn" id="view-all-btn" onclick="setView('all')">All machines</button>
-      <button class="qbtn" id="view-30-btn" onclick="setView('30')">Machine 30</button>
-      <button class="qbtn" id="view-30p-btn" onclick="setView('30+')">Machine 30+</button>
-      <button class="qbtn" id="view-h5-btn" onclick="setView('H5')">H5</button>
-    </div>
-  </div>
-
-  <!-- Summary strip -->
-  <div id="month-summary" class="metrics animate" style="margin-bottom:1.5rem"></div>
-
-  <!-- Calendar -->
-  <div class="section animate">
-    <div class="section-head">Calendar</div>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Each day: AM/PM/total pieces up top, then per-machine <strong>planned/actual</strong> for AM and PM below &mdash; 0 planned means no plan was committed that shift.</div>
-    <div id="cal-grid-wrap"><div id="cal-grid" class="cal-grid"></div></div>
-  </div>
-
   <!-- Shift Summary Report -->
   <div class="section animate">
     <div class="section-head">Shift Summary Report</div>
@@ -605,6 +578,33 @@ input[type="date"]:focus { border-color: var(--green-dark); }
       <button class="qbtn" onclick="printTotalsComboReport()" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark);align-self:flex-end">&#128424; Print Report</button>
     </div>
     <div id="totals-combo-summary"></div>
+  </div>
+
+  <div class="date-bar" style="gap:1.5rem">
+    <label>Month</label>
+    <div class="date-nav">
+      <button class="nav-btn" onclick="stepMonth(-1)">&#8592;</button>
+      <span id="month-label" style="font-size:15px;font-weight:600;color:var(--green-dark);min-width:120px;text-align:center"></span>
+      <button class="nav-btn" onclick="stepMonth(1)">&#8594;</button>
+    </div>
+    <div class="divider"></div>
+    <span class="quick-label">View</span>
+    <div class="date-quick">
+      <button class="qbtn" id="view-all-btn" onclick="setView('all')">All machines</button>
+      <button class="qbtn" id="view-30-btn" onclick="setView('30')">Machine 30</button>
+      <button class="qbtn" id="view-30p-btn" onclick="setView('30+')">Machine 30+</button>
+      <button class="qbtn" id="view-h5-btn" onclick="setView('H5')">H5</button>
+    </div>
+  </div>
+
+  <!-- Summary strip -->
+  <div id="month-summary" class="metrics animate" style="margin-bottom:1.5rem"></div>
+
+  <!-- Calendar -->
+  <div class="section animate">
+    <div class="section-head">Calendar</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Each day: AM/PM/total pieces up top, then per-machine <strong>planned/actual</strong> for AM and PM below &mdash; 0 planned means no plan was committed that shift.</div>
+    <div id="cal-grid-wrap"><div id="cal-grid" class="cal-grid"></div></div>
   </div>
 
   <!-- Clicked day detail -->
