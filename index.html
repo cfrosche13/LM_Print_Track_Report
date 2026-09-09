@@ -203,9 +203,13 @@ input[type="date"]:focus { border-color: var(--green-dark); }
        below readable width (that squeeze, forced by nowrap chip text, is
        what caused the original page-wide overflow). #cal-grid-wrap is a
        fallback: on phones too narrow to fit 7×52px, only the calendar itself
-       scrolls horizontally, not the whole page. white-space:normal +
-       word-break on the chip/total text lets any value that still doesn't
-       fit wrap onto a second line inside its cell instead of spilling out. */
+       scrolls horizontally, not the whole page.
+       The planned/actual chip ("120/98") was still too wide for its column
+       even shrunk, so word-break was forcing it to wrap mid-digit — read as
+       vertical letters, not sideways text. Fixed by splitting the two
+       numbers into their own stacked lines instead (.cal-mchip-val), so each
+       line only ever needs to fit one short number, and hiding the "/"
+       separator (.cal-mchip-sep) since the stacking replaces it. */
     #cal-grid-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -1rem; padding: 0 1rem 4px; }
     .cal-grid { grid-template-columns: repeat(7, minmax(52px, 1fr)); gap: 2px; min-width: 376px; }
     .cal-dow { font-size: 8px; padding: 4px 0; }
@@ -218,7 +222,9 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     .cal-total-label { font-size: 6.5px; white-space: normal; }
     .cal-shift-grid2 { gap: 2px; }
     .cal-shift-rlabel { width: 9px; font-size: 6.5px; }
-    .cal-mchip { font-size: 7.5px; padding: 1px; white-space: normal; word-break: break-word; min-width: 0; }
+    .cal-mchip { display: flex; flex-direction: column; align-items: center; gap: 0; font-size: 8px; line-height: 1.15; padding: 1px; white-space: nowrap; min-width: 0; }
+    .cal-mchip-val { display: block; }
+    .cal-mchip-sep { display: none; }
     .cal-pct-row { gap: 1px; }
     .cal-pct-cell { font-size: 7.5px; padding: 1px; white-space: normal; word-break: break-word; min-width: 0; }
 
@@ -1680,7 +1686,7 @@ function renderCalendar() {
         var planned = _plannedQtyFromPlan(rowPlan, m);
         plannedTotal += planned;
         var c = CAL_MACHINE_COLORS[m] || { bg: 'var(--bg)', fg: 'var(--muted)' };
-        shiftGrid += '<span class="cal-mchip" style="background:' + c.bg + ';color:' + c.fg + '">' + planned + '/' + actual + '</span>';
+        shiftGrid += '<span class="cal-mchip" style="background:' + c.bg + ';color:' + c.fg + '"><span class="cal-mchip-val">' + planned + '</span><span class="cal-mchip-sep">/</span><span class="cal-mchip-val">' + actual + '</span></span>';
       });
       rowPlannedTotals[rowKey] = plannedTotal;
       shiftGrid += '</div>';
