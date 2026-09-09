@@ -98,23 +98,6 @@ input[type="date"]:focus { border-color: var(--green-dark); }
 .machine-stat span { color: var(--text); font-weight: 600; }
 .oee-note { font-size: 12px; color: var(--muted); margin-bottom: 0.75rem; font-style: italic; }
 .amber-note { color: var(--amber); background: var(--amber-bg); border: 1px solid var(--amber-border); border-radius: var(--radius); padding: 0.6rem 1rem; font-style: normal; }
-.oee-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 10px; }
-.oee-card { background: var(--white); border: 1px solid var(--border); border-left: 4px solid var(--green-win); border-radius: var(--radius); padding: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
-.oee-card.oee-miss { border-left-color: var(--red); }
-.oee-machine { font-size: 13px; font-weight: 600; color: var(--green-dark); margin-bottom: 6px; }
-.oee-big { font-family: 'Lora', serif; font-size: 30px; font-weight: 600; color: var(--green-dark); line-height: 1; }
-.oee-big.red { color: var(--red); }
-.oee-target-label { font-size: 11px; color: var(--muted); margin-top: 2px; margin-bottom: 6px; }
-.oee-bar-wrap { margin-bottom: 10px; }
-.oee-bar-track { height: 8px; background: var(--bg); border-radius: 4px; overflow: visible; position: relative; border: 1px solid var(--border); }
-.oee-bar-fill { height: 100%; border-radius: 4px; background: var(--green-win); }
-.oee-bar-fill.red { background: var(--red); }
-.oee-target-line { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--amber); border-radius: 1px; }
-.oee-components { display: flex; flex-direction: column; gap: 4px; }
-.oee-comp { display: flex; justify-content: space-between; font-size: 12px; }
-.oee-comp-label { color: var(--muted); }
-.oee-comp-val { font-weight: 600; color: var(--text); }
-.oee-comp-val.red { color: var(--red); } .oee-comp-val.amber { color: var(--amber); }
 .table-wrap { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
 .pph-table { width: 100%; border-collapse: collapse; }
 .pph-table th { font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 10px 14px; background: var(--green-light); border-bottom: 1px solid var(--border); }
@@ -1012,7 +995,7 @@ function calcOEE(machine, date) {
 }
 
 
-var pphChart = null, oeeChart = null;
+var pphChart = null;
 
 // Builds PPH win/loss rows for a set of piece types on a given date.
 // byTypeMap = { pieceType: {good,bad,sec} } scoped to whichever machine group is being scored.
@@ -1065,7 +1048,6 @@ function render(forceDate) {
   var content = document.getElementById('content');
   content.style.display = 'block';
   if (pphChart) { pphChart.destroy(); pphChart = null; }
-  if (oeeChart)  { oeeChart.destroy();  oeeChart = null; }
 
   if (!VALID_DATES.has(date)) {
     content.innerHTML = '<div class="empty">No production data recorded for ' + date + '</div>';
@@ -1276,6 +1258,18 @@ function render(forceDate) {
     h += '</div>';
   }
 
+  // PPH — promoted up next to Plan vs Actual (owner's two priority numbers for
+  // this report), well above OEE which now sits near the bottom as a smaller
+  // reference section instead of the second thing on the page.
+  h += '<div class="section animate"><div class="section-head">Actual vs target &mdash; pieces per hour</div>';
+  h += '<div class="oee-note">Tally-mode sessions show piece counts only &mdash; excluded from PPH comparison.</div>';
+  h += _pphTableHtml(typeRows);
+  h += '</div>';
+  var chartRows = typeRows.filter(function(r){ return r.tpph && r.actualPph!==null; }).slice(0,12);
+  if (chartRows.length) {
+    h += '<div class="section animate"><div class="section-head">PPH comparison chart</div><div class="chart-box"><div class="chart-wrap"><canvas id="pphChart" role="img" aria-label="Actual vs target PPH"></canvas></div></div></div>';
+  }
+
   // Production goals legend
   h += '<div class="section animate" style="margin-bottom:1rem">';
   h += '<div class="section-head">Daily production goals</div>';
@@ -1300,37 +1294,6 @@ function render(forceDate) {
   h += '<div class="metric"><div class="metric-label">Incidents</div><div class="metric-value' + (incidents.length>2?' red':incidents.length>0?' amber':'') + '">' + incidents.length + '</div></div>';
   h += '</div>';
 
-  // OEE
-  if (hasOEE) {
-    h += '<div class="section animate"><div class="section-head">OEE &mdash; Overall Equipment Effectiveness</div>';
-    h += '<div class="oee-note">Standard shift 6:30 AM &ndash; 4:30 PM minus 30 min break (570 min planned production time).</div>';
-    h += '<div class="oee-grid">';
-    OEE_MACHINES.forEach(function(m) {
-      var r = oeeResults[m]; if (!r) return;
-      var hitting = r.target ? r.oeeRaw >= r.target : true;
-      h += '<div class="oee-card' + (hitting?'':' oee-miss') + '">';
-      h += '<div class="oee-machine">' + m + '</div>';
-      h += '<div class="oee-big' + (hitting?'':' red') + '">' + fmtPct(r.oeeRaw) + '</div>';
-      if (r.target) h += '<div class="oee-target-label">Target: ' + fmtPct(r.target) + '</div>';
-      h += '<div class="oee-bar-wrap"><div class="oee-bar-track">';
-      h += '<div class="oee-bar-fill' + (hitting?'':' red') + '" style="width:' + Math.round(Math.min(r.oeeRaw,1)*100) + '%"></div>';
-      if (r.target) h += '<div class="oee-target-line" style="left:' + Math.round(r.target*100) + '%"></div>';
-      h += '</div></div>';
-      h += '<div class="oee-components">';
-      h += '<div class="oee-comp"><span class="oee-comp-label">Availability</span><span class="oee-comp-val' + (r.avail<0.80?' red':'') + '">' + fmtPct(r.avail) + '</span></div>';
-      h += '<div class="oee-comp"><span class="oee-comp-label">Performance</span><span class="oee-comp-val' + (r.perfRaw<0.45?' red':r.perfRaw<0.60?' amber':'') + '">' + fmtPct(r.perfRaw) + '</span></div>';
-      h += '<div class="oee-comp"><span class="oee-comp-label">Quality</span><span class="oee-comp-val' + (r.qual<0.95?' amber':'') + '">' + fmtPct(r.qual) + '</span></div>';
-      h += '<div class="oee-comp"><span class="oee-comp-label">Run time</span><span class="oee-comp-val">' + r.runMin + ' min</span></div>';
-      h += '<div class="oee-comp"><span class="oee-comp-label">Wait logged</span><span class="oee-comp-val' + (r.waitMin>30?' amber':'') + '">' + r.waitMin + ' min</span></div>';
-      h += '</div></div>';
-    });
-    h += '</div>';
-    h += '<div class="chart-box" style="margin-top:12px"><div class="chart-wrap" style="height:200px"><canvas id="oeeChart" role="img" aria-label="OEE components by machine"></canvas></div></div></div>';
-  } else {
-    h += '<div class="section animate"><div class="section-head">OEE &mdash; Overall Equipment Effectiveness</div>';
-    h += '<div class="oee-note amber-note">OEE cannot be calculated for this date &mdash; no sessions with sufficient data.</div></div>';
-  }
-
   // By-machine cards — reusable builder so Drinkware/Wallets views can show their own subset
   function _machineCardsHtml(keys) {
     if (!keys.length) return '';
@@ -1351,7 +1314,6 @@ function render(forceDate) {
       if (pph!==null) mh += '<div class="machine-stat">Avg pph: <span>' + pph + '</span></div>';
       mh += '<div class="machine-stat">Hours: <span>' + (v.sec/3600).toFixed(1) + '</span></div>';
       if (parseFloat(defR)>0) mh += '<div class="machine-stat">Defects: <span>' + defR + '%</span></div>';
-      if (oeeResults[m]) mh += '<div class="machine-stat">OEE: <span>' + fmtPct(oeeResults[m].oeeRaw) + '</span></div>';
       if (mGoals) mh += goalBar(v.good, mGoals);
       mh += '</div>';
     });
@@ -1360,6 +1322,31 @@ function render(forceDate) {
   }
   var stdMachineKeys = Object.keys(byMachine).filter(function(m){ return _dailyGroupFor(m) === 'standard' && m!=='Unassigned' && m!=='Unknown'; });
   h += _machineCardsHtml(stdMachineKeys);
+
+  // OEE — kept as a small reference strip rather than the second thing on the
+  // page: no per-component (Availability/Performance/Quality) breakdown and
+  // no chart, just each machine's OEE% against its target. It still feeds
+  // the win/loss fallback logic above when no plan is committed for the day,
+  // so it stays visible, just no longer the visual focus of the report.
+  h += '<div class="section animate"><div class="section-head">OEE snapshot</div>';
+  if (hasOEE) {
+    h += '<div style="display:flex;gap:10px;flex-wrap:wrap">';
+    OEE_MACHINES.forEach(function(m) {
+      var r = oeeResults[m]; if (!r) return;
+      var hitting = r.target ? r.oeeRaw >= r.target : true;
+      var color = hitting ? 'var(--green-dark)' : 'var(--red)';
+      var bg    = hitting ? 'var(--green-win-bg)' : 'var(--red-bg)';
+      var brd   = hitting ? 'var(--green-win-border)' : 'var(--red-border)';
+      h += '<div style="background:' + bg + ';border:1px solid ' + brd + ';border-radius:6px;padding:6px 14px;min-width:90px">';
+      h += '<div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted)">' + m + '</div>';
+      h += '<div style="font-size:17px;font-weight:700;color:' + color + '">' + fmtPct(r.oeeRaw) + (r.target ? ' <span style="font-size:10px;font-weight:600;color:var(--muted)">/ ' + fmtPct(r.target) + '</span>' : '') + '</div>';
+      h += '</div>';
+    });
+    h += '</div>';
+  } else {
+    h += '<div class="oee-note amber-note">OEE cannot be calculated for this date &mdash; no sessions with sufficient data.</div>';
+  }
+  h += '</div>';
 
   // PPH table — reusable so the Drinkware view can render its own version
   function _pphTableHtml(rows) {
@@ -1374,16 +1361,6 @@ function render(forceDate) {
     });
     th += '</tbody></table></div>';
     return th;
-  }
-  h += '<div class="section animate"><div class="section-head">Actual vs target &mdash; pieces per hour</div>';
-  h += '<div class="oee-note">Tally-mode sessions show piece counts only &mdash; excluded from PPH comparison.</div>';
-  h += _pphTableHtml(typeRows);
-  h += '</div>';
-
-  // PPH chart
-  var chartRows = typeRows.filter(function(r){ return r.tpph && r.actualPph!==null; }).slice(0,12);
-  if (chartRows.length) {
-    h += '<div class="section animate"><div class="section-head">PPH comparison chart</div><div class="chart-box"><div class="chart-wrap"><canvas id="pphChart" role="img" aria-label="Actual vs target PPH"></canvas></div></div></div>';
   }
 
   // Wait log — reusable so Drinkware/Wallets views can render their own filtered version
@@ -1459,23 +1436,6 @@ function render(forceDate) {
 
   content.innerHTML = h;
   setDailyView(_dailyView);
-
-  // OEE chart
-  if (hasOEE) {
-    var oc = document.getElementById('oeeChart');
-    if (oc) {
-      var okeys = Object.keys(oeeResults);
-      oeeChart = new Chart(oc, {
-        type: 'bar',
-        data: { labels: okeys, datasets: [
-          { label: 'Availability', data: okeys.map(function(m){ return Math.round(oeeResults[m].avail*100); }), backgroundColor: 'rgba(26,92,58,0.75)', borderRadius: 3, borderSkipped: false },
-          { label: 'Performance', data: okeys.map(function(m){ return Math.round(Math.min(oeeResults[m].perfRaw,1)*100); }), backgroundColor: 'rgba(160,96,16,0.75)', borderRadius: 3, borderSkipped: false },
-          { label: 'OEE',        data: okeys.map(function(m){ return Math.round(Math.min(oeeResults[m].oeeRaw,1)*100); }), backgroundColor: 'rgba(50,50,50,0.8)', borderRadius: 3, borderSkipped: false }
-        ]},
-        options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#6b8577',font:{size:11}}}}, scales:{x:{ticks:{color:'#6b8577'},grid:{display:false}},y:{min:0,max:100,ticks:{color:'#6b8577',callback:function(v){return v+'%';}},grid:{color:'rgba(0,0,0,0.04)'}}}}
-      });
-    }
-  }
 
   // PPH chart
   if (chartRows.length) {
