@@ -1089,11 +1089,13 @@ function buildTypeRows(byTypeMap) {
     // Human-readable breakdown of exactly what fed this row's actual pph —
     // shown as a small sub-line in the table so the source data is visible
     // at a glance instead of having to trust the single blended number.
+    // For tally-family modes, "min" is the reconstructed earliest-to-latest
+    // span across that mode's sessions, not a per-session sum (see above).
     var modeDetail = Object.keys(v.byMode || {}).map(function(mode) {
       var bm = v.byMode[mode];
-      var mins = (bm.pphSec / 60).toFixed(1);
-      var noTimeNote = bm.noTime > 0 ? ', ' + bm.noTime + ' w/o usable time' : '';
-      return mode + ': ' + bm.good.toLocaleString() + ' pcs / ' + mins + ' min (' + bm.count + ' session' + (bm.count!==1?'s':'') + noTimeNote + ')';
+      var mins = (bm.sec / 60).toFixed(1);
+      var note = bm.sec <= 0 ? ', no usable time' : '';
+      return mode + ': ' + bm.good.toLocaleString() + ' pcs / ' + mins + ' min (' + bm.count + ' session' + (bm.count!==1?'s':'') + note + ')';
     }).join('  &middot;  ');
     return { pt:pt, good:v.good, tpph:tpph, actualPph:actualPph, result:result, hasTarget: !!tpph, modeDetail: modeDetail };
   }).sort(function(a,b){ return b.good - a.good; });
@@ -1145,6 +1147,55 @@ function render(forceDate) {
     });
   }
 
+  // pphGood/pphSec (computed by _pphFinalize after the session loop below)
+  // feed actual-PPH math. Stop/go & continuous sessions contribute their own
+  // active-run seconds (s.s) per session, summed directly — real stopwatch
+  // data. Tally-family sessions (any mode starting with "tally": tally,
+  // tally2, ...) can't be summed the same way: both tally.js and tally2.js
+  // (the operator tracker's source, read directly 2026-09-10) write many
+  // small delta-session records per piece type per day, each hardcoded to
+  // totalSec:60 (a fixed autosave placeholder, never real elapsed time) and
+  // with no reliable start+end pair (tally.js sets a start time but never an
+  // end time; tally2.js sets neither). The only trustworthy timing signal is
+  // each delta's own save timestamp (ts) — so tally-family elapsed time is
+  // reconstructed per piece type as (latest ts - earliest ts) across ALL its
+  // tally-family sessions that day, not read from any single session.
+  // Stamped (Wallets) sessions never contribute — no PPH concept there.
+  function _newPphAgg() { return { good:0, bad:0, sec:0, timedGood:0, timedSec:0, tallyGood:0, tallyMinTs:null, tallyMaxTs:null, byMode:{} }; }
+  function _pphAccum(agg, s) {
+    var isTally = s.m && s.m.indexOf('tally') === 0;
+    if (!agg.byMode[s.m]) agg.byMode[s.m] = { count:0, good:0, isTally:isTally, sec:0, minTs:null, maxTs:null };
+    var bm = agg.byMode[s.m];
+    bm.count++; bm.good += s.g;
+    if (isTally) {
+      agg.tallyGood += s.g;
+      var ts = s.ts ? new Date(s.ts).getTime() : null;
+      if (ts != null && !isNaN(ts)) {
+        if (agg.tallyMinTs === null || ts < agg.tallyMinTs) agg.tallyMinTs = ts;
+        if (agg.tallyMaxTs === null || ts > agg.tallyMaxTs) agg.tallyMaxTs = ts;
+        if (bm.minTs === null || ts < bm.minTs) bm.minTs = ts;
+        if (bm.maxTs === null || ts > bm.maxTs) bm.maxTs = ts;
+      }
+    } else if (s.m !== 'stamped') {
+      agg.timedGood += s.g; agg.timedSec += s.s;
+      bm.sec += s.s;
+    }
+  }
+  // Span capped at 16h as a sanity guard against a garbage/out-of-range
+  // timestamp producing a wildly wrong duration.
+  function _pphFinalize(agg) {
+    var tallySpanSec = (agg.tallyMinTs !== null && agg.tallyMaxTs > agg.tallyMinTs) ? (agg.tallyMaxTs - agg.tallyMinTs) / 1000 : 0;
+    if (tallySpanSec > 16 * 3600) tallySpanSec = 0;
+    agg.pphGood = agg.timedGood + agg.tallyGood;
+    agg.pphSec  = agg.timedSec  + tallySpanSec;
+    Object.keys(agg.byMode).forEach(function(m) {
+      var bm = agg.byMode[m];
+      if (!bm.isTally) return;
+      bm.sec = (bm.minTs !== null && bm.maxTs > bm.minTs) ? (bm.maxTs - bm.minTs) / 1000 : 0;
+      if (bm.sec > 16 * 3600) bm.sec = 0;
+    });
+  }
+
   // byType/byMachine combine ALL machines — kept for the "By machine" cards section,
   // which still shows every machine regardless of group.
   var byType = {}, byMachine = {};
@@ -1158,67 +1209,34 @@ function render(forceDate) {
   Object.keys(RAW.sessions).forEach(function(machine) {
     var group = _dailyGroupFor(machine);
     RAW.sessions[machine].filter(function(s){ return s.t === date; }).forEach(function(s) {
-      // pphGood/pphSec feed actual-PPH math only — a second pair alongside the
-      // plain good/sec used for piece-count totals, "Hours," etc. Stop/go and
-      // continuous sessions use their own active-run seconds (s.s). Tally
-      // sessions (any mode starting with "tally" — the floor's live data has
-      // "tally2" as well as "tally," found 2026-09-10 via the per-mode
-      // breakdown below; matching the exact string "tally" silently missed
-      // tally2 entirely and let its own unreliable s.s field drive the rate,
-      // reproducing the same wrong-PPH bug this was supposed to fix) have no
-      // per-piece stopwatch, but their start/end span is a reasonable proxy
-      // for real elapsed production time (owner confirmed 2026-09-10 the
-      // floor now runs mostly tally, not stop/go, and that span is reasonably
-      // reliable) — capped at 12 hours so a forgotten-open tally session
-      // doesn't silently understate the rate.
-      // Stamped (Wallets) sessions never contribute — no PPH concept there.
-      var pphGood = 0, pphSec = 0;
-      if (s.m && s.m.indexOf('tally') === 0) {
-        if (s.st && s.et) {
-          var tallySpan = (new Date(s.et).getTime() - new Date(s.st).getTime()) / 1000;
-          if (tallySpan > 0 && tallySpan <= 12 * 3600) { pphGood = s.g; pphSec = tallySpan; }
-        }
-      } else if (s.m !== 'stamped') {
-        pphGood = s.g; pphSec = s.s;
-      }
       totalGood += s.g; totalBad += s.b; totalSec += s.s; sessionCount++;
-      if (!byMachine[machine]) byMachine[machine] = {good:0,bad:0,sec:0,pphGood:0,pphSec:0};
+      if (!byMachine[machine]) byMachine[machine] = _newPphAgg();
       byMachine[machine].good += s.g; byMachine[machine].bad += s.b; byMachine[machine].sec += s.s;
-      byMachine[machine].pphGood += pphGood; byMachine[machine].pphSec += pphSec;
-      if (!byType[s.p]) byType[s.p] = {good:0,bad:0,sec:0,pphGood:0,pphSec:0};
+      _pphAccum(byMachine[machine], s);
+      if (!byType[s.p]) byType[s.p] = _newPphAgg();
       byType[s.p].good += s.g; byType[s.p].bad += s.b; byType[s.p].sec += s.s;
-      byType[s.p].pphGood += pphGood; byType[s.p].pphSec += pphSec;
-
-      // byMode: a small per-session-mode breakdown (count/good/pphSec) shown
-      // under each PPH table row so exactly what's feeding "actual pph" is
-      // visible at a glance — added 2026-09-10 while diagnosing a wrong PPH
-      // value, kept as a permanent transparency aid for this metric.
-      var _addByMode = function(typeMap) {
-        if (!typeMap[s.p].byMode[s.m]) typeMap[s.p].byMode[s.m] = { count:0, good:0, pphSec:0, noTime:0 };
-        var bm = typeMap[s.p].byMode[s.m];
-        bm.count++; bm.good += s.g; bm.pphSec += pphSec;
-        if (pphSec <= 0) bm.noTime++;
-      };
+      _pphAccum(byType[s.p], s);
 
       if (group === 'wallets') {
         walletGood += s.g; walletBad += s.b; walletSessionCount++;
       } else if (group === 'drinkware') {
         dwGood += s.g; dwBad += s.b; dwSec += s.s; dwSessionCount++;
-        if (!byTypeDW[s.p]) byTypeDW[s.p] = {good:0,bad:0,sec:0,pphGood:0,pphSec:0,byMode:{}};
+        if (!byTypeDW[s.p]) byTypeDW[s.p] = _newPphAgg();
         byTypeDW[s.p].good += s.g; byTypeDW[s.p].bad += s.b; byTypeDW[s.p].sec += s.s;
-        byTypeDW[s.p].pphGood += pphGood; byTypeDW[s.p].pphSec += pphSec;
-        _addByMode(byTypeDW);
+        _pphAccum(byTypeDW[s.p], s);
       } else {
         stdGood += s.g; stdBad += s.b; stdSec += s.s; stdSessionCount++;
-        if (!byTypeStd[s.p]) byTypeStd[s.p] = {good:0,bad:0,sec:0,pphGood:0,pphSec:0,byMode:{}};
+        if (!byTypeStd[s.p]) byTypeStd[s.p] = _newPphAgg();
         byTypeStd[s.p].good += s.g; byTypeStd[s.p].bad += s.b; byTypeStd[s.p].sec += s.s;
-        byTypeStd[s.p].pphGood += pphGood; byTypeStd[s.p].pphSec += pphSec;
-        _addByMode(byTypeStd);
+        _pphAccum(byTypeStd[s.p], s);
         if (s.ts) allTimestamps.push(new Date(s.ts).getTime());
         if (s.st) allTimestamps.push(new Date(s.st).getTime());
         if (s.et) allTimestamps.push(new Date(s.et).getTime());
       }
     });
+  });
+  [byMachine, byType, byTypeStd, byTypeDW].forEach(function(map) {
+    Object.keys(map).forEach(function(k) { _pphFinalize(map[k]); });
   });
 
   // Shift span = earliest to latest timestamp seen across standard-machine sessions that day

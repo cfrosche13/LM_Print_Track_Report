@@ -30,9 +30,15 @@ browser to use it.
     etc.) — treat any mode starting with `"tally"` as tally-family, not just
     the exact string `"tally"` (found 2026-09-10: the floor's live data is
     entirely `tally2`, and an exact-match check silently missed it)
-  - `st` / `et` — tally-family session start/end timestamps (tally/tally2
-    mode only) — this span, not `s`, is the reliable elapsed-time source for
-    these modes; `s` is not trustworthy for tally-family sessions
+  - `st` / `et` — **not actually populated for tally-family sessions** (checked
+    directly against the operator tracker's `tally.js`/`tally2.js` source
+    2026-09-10: `tally.js` writes a `startTime` but never an `endTime`;
+    `tally2.js` writes neither). Every tally-family session also hardcodes
+    `s`/`totalSec` to a fixed `60` on each autosave — not real elapsed time
+    either. The only trustworthy timing signal for tally-family sessions is
+    each one's own `ts` (save timestamp): reconstruct elapsed time per piece
+    type as (latest `ts` − earliest `ts`) across all its tally-family
+    sessions that day, never from a single session's fields.
 - `RAW.targets` — keyed by piece type. Each has `pph` (pieces per hour target)
   and optionally `ppt` (pieces per table, for coir).
 - `RAW.maint` — maintenance and incident log. Each entry has `t`, `machine`,
@@ -80,13 +86,21 @@ Examples: `Coir · 28x16 FC`, `Signs · Yard Sign`, `Non-Coir Mats · PVC`
   entries from before the app enforced machine selection.
 - Tally mode was introduced around April 15, 2026, replacing stop-go timing
   for some machines; by September 2026 the floor runs almost entirely on a
-  newer `tally2` variant instead of plain `tally`. Tally-family sessions lack
-  a reliable `s` (active-run-seconds) field, but their `st`/`et` start/end
-  span is a reasonably reliable proxy for real elapsed production time and
-  is what actual-PPH is computed from for these sessions (`render()`'s main
-  session-aggregation loop in index.html). Match tally-family modes with
-  `m.indexOf('tally') === 0`, never an exact `=== 'tally'`, or a new tally
-  variant will silently break PPH again the way `tally2` did.
+  newer `tally2` variant instead of plain `tally`. Neither variant has a
+  reliable `s`/`st`/`et` on any single session (see RAW.sessions notes above)
+  — actual-PPH for tally-family sessions is reconstructed per piece type from
+  the spread of `ts` values across that type's sessions that day (`render()`'s
+  main session-aggregation loop in index.html: `_newPphAgg`/`_pphAccum`/
+  `_pphFinalize`). Match tally-family modes with `m.indexOf('tally') === 0`,
+  never an exact `=== 'tally'`, or a new tally variant will silently break
+  PPH again the way `tally2` did.
+- **OEE (`calcOEE()`) has this same underlying data problem, not yet fixed**
+  (found 2026-09-10 investigating the PPH bug, out of scope for that fix):
+  it also prefers `st`/`et` and falls back to summing `s`/`totalSec` — for
+  tally-family sessions that means it's silently falling back to `count ×
+  60`, not real time either. Revisit if OEE numbers for a tally-heavy day
+  ever get questioned; the PPH fix's timestamp-spread-reconstruction
+  technique would apply the same way.
 ## Rules for Claude Code
 - Do not change the data structure or variable names in the `RAW` object.
 - Do not add external dependencies beyond Chart.js (already loaded from CDN).
