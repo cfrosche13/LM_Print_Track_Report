@@ -1071,19 +1071,17 @@ var pphChart = null;
 
 // Builds PPH win/loss rows for a set of piece types on a given date.
 // byTypeMap = { pieceType: {good,bad,sec} } scoped to whichever machine group is being scored.
-function buildTypeRows(byTypeMap, date) {
+function buildTypeRows(byTypeMap) {
   var wins = 0, misses = 0, noTarget = 0;
   var rows = Object.keys(byTypeMap).map(function(pt) {
     var v = byTypeMap[pt];
     var tgt = RAW.targets[pt];
     var tpph = tgt ? tgt.pph : null;
-    var isTimer = false;
-    Object.keys(RAW.sessions).forEach(function(machine) {
-      RAW.sessions[machine].forEach(function(s) {
-        if (s.t===date && s.p===pt && s.m!=='tally' && s.m!=='stamped' && s.s>30) isTimer = true;
-      });
-    });
-    var actualPph = (isTimer && v.sec > 60) ? v.good / (v.sec / 3600) : null;
+    // PPH is computed from timed sessions only (see timedGood/timedSec —
+    // populated alongside good/sec in render()'s aggregation loop, excluding
+    // tally/stamped sessions, which log real pieces but not reliable time).
+    var isTimer = v.timedSec > 30;
+    var actualPph = v.timedSec > 60 ? v.timedGood / (v.timedSec / 3600) : null;
     var result = 'na';
     if (tpph && actualPph !== null) {
       result = actualPph >= tpph * 0.95 ? 'win' : 'miss';
@@ -1152,22 +1150,34 @@ function render(forceDate) {
   Object.keys(RAW.sessions).forEach(function(machine) {
     var group = _dailyGroupFor(machine);
     RAW.sessions[machine].filter(function(s){ return s.t === date; }).forEach(function(s) {
+      // Tally/stamped sessions log real piece counts but not reliable run time
+      // (no per-piece stopwatch), so they're excluded from the *timed* good/sec
+      // pair used for PPH math below — mixing them into a plain good/sec ratio
+      // let a handful of tallied pieces with near-zero logged time massively
+      // inflate actual PPH (found 2026-09-10: showed ~960 pph for a piece
+      // whose real measured rate is ~45-90 pph). They still count fully
+      // toward every other total (good/bad/sec) — piece counts, "Hours," etc.
+      var isTimed = s.m !== 'tally' && s.m !== 'stamped';
       totalGood += s.g; totalBad += s.b; totalSec += s.s; sessionCount++;
-      if (!byMachine[machine]) byMachine[machine] = {good:0,bad:0,sec:0};
+      if (!byMachine[machine]) byMachine[machine] = {good:0,bad:0,sec:0,timedGood:0,timedSec:0};
       byMachine[machine].good += s.g; byMachine[machine].bad += s.b; byMachine[machine].sec += s.s;
-      if (!byType[s.p]) byType[s.p] = {good:0,bad:0,sec:0};
+      if (isTimed) { byMachine[machine].timedGood += s.g; byMachine[machine].timedSec += s.s; }
+      if (!byType[s.p]) byType[s.p] = {good:0,bad:0,sec:0,timedGood:0,timedSec:0};
       byType[s.p].good += s.g; byType[s.p].bad += s.b; byType[s.p].sec += s.s;
+      if (isTimed) { byType[s.p].timedGood += s.g; byType[s.p].timedSec += s.s; }
 
       if (group === 'wallets') {
         walletGood += s.g; walletBad += s.b; walletSessionCount++;
       } else if (group === 'drinkware') {
         dwGood += s.g; dwBad += s.b; dwSec += s.s; dwSessionCount++;
-        if (!byTypeDW[s.p]) byTypeDW[s.p] = {good:0,bad:0,sec:0};
+        if (!byTypeDW[s.p]) byTypeDW[s.p] = {good:0,bad:0,sec:0,timedGood:0,timedSec:0};
         byTypeDW[s.p].good += s.g; byTypeDW[s.p].bad += s.b; byTypeDW[s.p].sec += s.s;
+        if (isTimed) { byTypeDW[s.p].timedGood += s.g; byTypeDW[s.p].timedSec += s.s; }
       } else {
         stdGood += s.g; stdBad += s.b; stdSec += s.s; stdSessionCount++;
-        if (!byTypeStd[s.p]) byTypeStd[s.p] = {good:0,bad:0,sec:0};
+        if (!byTypeStd[s.p]) byTypeStd[s.p] = {good:0,bad:0,sec:0,timedGood:0,timedSec:0};
         byTypeStd[s.p].good += s.g; byTypeStd[s.p].bad += s.b; byTypeStd[s.p].sec += s.s;
+        if (isTimed) { byTypeStd[s.p].timedGood += s.g; byTypeStd[s.p].timedSec += s.s; }
         if (s.ts) allTimestamps.push(new Date(s.ts).getTime());
         if (s.st) allTimestamps.push(new Date(s.st).getTime());
         if (s.et) allTimestamps.push(new Date(s.et).getTime());
@@ -1196,9 +1206,9 @@ function render(forceDate) {
   OEE_MACHINES.forEach(function(m) { var r = calcOEE(m, date); if (r) oeeResults[m] = r; });
   var hasOEE = Object.keys(oeeResults).length > 0;
 
-  var stdTypeResult = buildTypeRows(byTypeStd, date);
+  var stdTypeResult = buildTypeRows(byTypeStd);
   var typeRows = stdTypeResult.rows, wins = stdTypeResult.wins, misses = stdTypeResult.misses;
-  var dwTypeResult = buildTypeRows(byTypeDW, date);
+  var dwTypeResult = buildTypeRows(byTypeDW);
   var dwTypeRows = dwTypeResult.rows, dwWins = dwTypeResult.wins, dwMisses = dwTypeResult.misses;
 
   var defectRate     = stdGood + stdBad > 0 ? ((stdBad/(stdGood+stdBad))*100).toFixed(1) : 0;
@@ -1354,7 +1364,9 @@ function render(forceDate) {
     var mh = '<div class="section animate"><div class="section-head">By machine</div><div class="machine-grid">';
     keys.forEach(function(m) {
       var v = byMachine[m];
-      var pph = v.sec > 60 ? Math.round(v.good/(v.sec/3600)) : null;
+      // Timed-only, same fix as buildTypeRows — tally/stamped sessions log
+      // pieces without reliable run time and would otherwise inflate this.
+      var pph = v.timedSec > 60 ? Math.round(v.timedGood/(v.timedSec/3600)) : null;
       var defR = v.good+v.bad > 0 ? ((v.bad/(v.good+v.bad))*100).toFixed(1) : 0;
       var mGoals = PROD_GOALS.machines[m] || null;
       var mTier = mGoals ? prodTier(v.good, mGoals) : null;
