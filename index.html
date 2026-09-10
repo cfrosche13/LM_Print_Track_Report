@@ -1161,14 +1161,19 @@ function render(forceDate) {
       // pphGood/pphSec feed actual-PPH math only — a second pair alongside the
       // plain good/sec used for piece-count totals, "Hours," etc. Stop/go and
       // continuous sessions use their own active-run seconds (s.s). Tally
-      // sessions have no per-piece stopwatch, but their start/end span is a
-      // reasonable proxy for real elapsed production time (owner confirmed
-      // 2026-09-10 the floor now runs mostly tally, not stop/go, and that the
-      // tally start/end span is reasonably reliable) — capped at 12 hours so a
-      // forgotten-open tally session doesn't silently understate the rate.
+      // sessions (any mode starting with "tally" — the floor's live data has
+      // "tally2" as well as "tally," found 2026-09-10 via the per-mode
+      // breakdown below; matching the exact string "tally" silently missed
+      // tally2 entirely and let its own unreliable s.s field drive the rate,
+      // reproducing the same wrong-PPH bug this was supposed to fix) have no
+      // per-piece stopwatch, but their start/end span is a reasonable proxy
+      // for real elapsed production time (owner confirmed 2026-09-10 the
+      // floor now runs mostly tally, not stop/go, and that span is reasonably
+      // reliable) — capped at 12 hours so a forgotten-open tally session
+      // doesn't silently understate the rate.
       // Stamped (Wallets) sessions never contribute — no PPH concept there.
       var pphGood = 0, pphSec = 0;
-      if (s.m === 'tally') {
+      if (s.m && s.m.indexOf('tally') === 0) {
         if (s.st && s.et) {
           var tallySpan = (new Date(s.et).getTime() - new Date(s.st).getTime()) / 1000;
           if (tallySpan > 0 && tallySpan <= 12 * 3600) { pphGood = s.g; pphSec = tallySpan; }
