@@ -26,8 +26,13 @@ browser to use it.
   - `s` — total seconds of active run time
   - `p` — piece type (e.g. `"Coir · 28x16 FC"`)
   - `o` — operator name
-  - `m` — mode (`stopgo-fc`, `continuous-fc`, `tally`, `stamped`, etc.)
-  - `st` / `et` — tally session start/end timestamps (tally mode only)
+  - `m` — mode (`stopgo-fc`, `continuous-fc`, `tally`, `tally2`, `stamped`,
+    etc.) — treat any mode starting with `"tally"` as tally-family, not just
+    the exact string `"tally"` (found 2026-09-10: the floor's live data is
+    entirely `tally2`, and an exact-match check silently missed it)
+  - `st` / `et` — tally-family session start/end timestamps (tally/tally2
+    mode only) — this span, not `s`, is the reliable elapsed-time source for
+    these modes; `s` is not trustworthy for tally-family sessions
 - `RAW.targets` — keyed by piece type. Each has `pph` (pieces per hour target)
   and optionally `ppt` (pieces per table, for coir).
 - `RAW.maint` — maintenance and incident log. Each entry has `t`, `machine`,
@@ -74,8 +79,14 @@ Examples: `Coir · 28x16 FC`, `Signs · Yard Sign`, `Non-Coir Mats · PVC`
 - Early sessions (March 6–9, 2026) have many `Unassigned` / `Unknown` machine
   entries from before the app enforced machine selection.
 - Tally mode was introduced around April 15, 2026, replacing stop-go timing
-  for some machines. Tally sessions have `m: "tally"` and lack reliable
-  per-piece timing, so they appear in piece counts but not PPH.
+  for some machines; by September 2026 the floor runs almost entirely on a
+  newer `tally2` variant instead of plain `tally`. Tally-family sessions lack
+  a reliable `s` (active-run-seconds) field, but their `st`/`et` start/end
+  span is a reasonably reliable proxy for real elapsed production time and
+  is what actual-PPH is computed from for these sessions (`render()`'s main
+  session-aggregation loop in index.html). Match tally-family modes with
+  `m.indexOf('tally') === 0`, never an exact `=== 'tally'`, or a new tally
+  variant will silently break PPH again the way `tally2` did.
 ## Rules for Claude Code
 - Do not change the data structure or variable names in the `RAW` object.
 - Do not add external dependencies beyond Chart.js (already loaded from CDN).
