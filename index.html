@@ -1086,7 +1086,16 @@ function buildTypeRows(byTypeMap) {
       result = actualPph >= tpph * 0.95 ? 'win' : 'miss';
       if (result === 'win') wins++; else misses++;
     } else noTarget++;
-    return { pt:pt, good:v.good, tpph:tpph, actualPph:actualPph, result:result, hasTarget: !!tpph };
+    // Human-readable breakdown of exactly what fed this row's actual pph —
+    // shown as a small sub-line in the table so the source data is visible
+    // at a glance instead of having to trust the single blended number.
+    var modeDetail = Object.keys(v.byMode || {}).map(function(mode) {
+      var bm = v.byMode[mode];
+      var mins = (bm.pphSec / 60).toFixed(1);
+      var noTimeNote = bm.noTime > 0 ? ', ' + bm.noTime + ' w/o usable time' : '';
+      return mode + ': ' + bm.good.toLocaleString() + ' pcs / ' + mins + ' min (' + bm.count + ' session' + (bm.count!==1?'s':'') + noTimeNote + ')';
+    }).join('  &middot;  ');
+    return { pt:pt, good:v.good, tpph:tpph, actualPph:actualPph, result:result, hasTarget: !!tpph, modeDetail: modeDetail };
   }).sort(function(a,b){ return b.good - a.good; });
   return { rows: rows, wins: wins, misses: misses, noTarget: noTarget };
 }
@@ -1175,18 +1184,31 @@ function render(forceDate) {
       byType[s.p].good += s.g; byType[s.p].bad += s.b; byType[s.p].sec += s.s;
       byType[s.p].pphGood += pphGood; byType[s.p].pphSec += pphSec;
 
+      // byMode: a small per-session-mode breakdown (count/good/pphSec) shown
+      // under each PPH table row so exactly what's feeding "actual pph" is
+      // visible at a glance — added 2026-09-10 while diagnosing a wrong PPH
+      // value, kept as a permanent transparency aid for this metric.
+      var _addByMode = function(typeMap) {
+        if (!typeMap[s.p].byMode[s.m]) typeMap[s.p].byMode[s.m] = { count:0, good:0, pphSec:0, noTime:0 };
+        var bm = typeMap[s.p].byMode[s.m];
+        bm.count++; bm.good += s.g; bm.pphSec += pphSec;
+        if (pphSec <= 0) bm.noTime++;
+      };
+
       if (group === 'wallets') {
         walletGood += s.g; walletBad += s.b; walletSessionCount++;
       } else if (group === 'drinkware') {
         dwGood += s.g; dwBad += s.b; dwSec += s.s; dwSessionCount++;
-        if (!byTypeDW[s.p]) byTypeDW[s.p] = {good:0,bad:0,sec:0,pphGood:0,pphSec:0};
+        if (!byTypeDW[s.p]) byTypeDW[s.p] = {good:0,bad:0,sec:0,pphGood:0,pphSec:0,byMode:{}};
         byTypeDW[s.p].good += s.g; byTypeDW[s.p].bad += s.b; byTypeDW[s.p].sec += s.s;
         byTypeDW[s.p].pphGood += pphGood; byTypeDW[s.p].pphSec += pphSec;
+        _addByMode(byTypeDW);
       } else {
         stdGood += s.g; stdBad += s.b; stdSec += s.s; stdSessionCount++;
-        if (!byTypeStd[s.p]) byTypeStd[s.p] = {good:0,bad:0,sec:0,pphGood:0,pphSec:0};
+        if (!byTypeStd[s.p]) byTypeStd[s.p] = {good:0,bad:0,sec:0,pphGood:0,pphSec:0,byMode:{}};
         byTypeStd[s.p].good += s.g; byTypeStd[s.p].bad += s.b; byTypeStd[s.p].sec += s.s;
         byTypeStd[s.p].pphGood += pphGood; byTypeStd[s.p].pphSec += pphSec;
+        _addByMode(byTypeStd);
         if (s.ts) allTimestamps.push(new Date(s.ts).getTime());
         if (s.st) allTimestamps.push(new Date(s.st).getTime());
         if (s.et) allTimestamps.push(new Date(s.et).getTime());
@@ -1429,7 +1451,8 @@ function render(forceDate) {
       var p2 = r.tpph && r.actualPph!==null ? Math.min(140, Math.round((r.actualPph/r.tpph)*100)) : null;
       var pill = r.result==='win'?'<span class="result-pill pill-win">&#10003; Win</span>':r.result==='miss'?'<span class="result-pill pill-miss">&#10007; Miss</span>':'<span class="result-pill pill-na">'+(r.hasTarget?'No Rate Data':'No Target')+'</span>';
       var bar = p2!==null?'<div class="bar-wrap"><div class="bar-track"><div class="'+(r.result==='win'?'bar-fill-g':'bar-fill-r')+'" style="width:'+Math.min(100,p2)+'%"></div></div><span style="font-size:11px;font-weight:600;color:var(--muted)">'+p2+'%</span></div>':'&mdash;';
-      th += '<tr><td>'+r.pt+'</td><td class="pph-num">'+r.good.toLocaleString()+'</td><td class="pph-num">'+actual+'</td><td class="pph-num">'+(r.tpph||'&mdash;')+'</td><td>'+bar+'</td><td>'+pill+'</td></tr>';
+      var typeCell = '<div>'+r.pt+'</div>' + (r.modeDetail ? '<div style="font-size:10px;color:var(--muted);font-weight:400;margin-top:2px">'+r.modeDetail+'</div>' : '');
+      th += '<tr><td>'+typeCell+'</td><td class="pph-num">'+r.good.toLocaleString()+'</td><td class="pph-num">'+actual+'</td><td class="pph-num">'+(r.tpph||'&mdash;')+'</td><td>'+bar+'</td><td>'+pill+'</td></tr>';
     });
     th += '</tbody></table></div>';
     return th;
