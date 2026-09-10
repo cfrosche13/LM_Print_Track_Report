@@ -948,6 +948,61 @@ function goalBar(actual, goals) {
   html += '</div>';
   return html;
 }
+// ── % to Plan verdict scale — shared by the daily card strip and the Plan vs
+// Actual detail cards, so both use identical thresholds and colors. Owner-
+// specified boundaries, read as lower-tier-inclusive ("red is 60% or below").
+function _planPctTier(pct) {
+  if (pct <= 60) return 'red';
+  if (pct <= 70) return 'orange';
+  if (pct <= 80) return 'yellow';
+  if (pct <= 90) return 'yellowgreen';
+  return 'green';
+}
+var TIER_LABEL = { red: 'Needs Attention', orange: 'Behind Plan', yellow: 'Below Plan', yellowgreen: 'Near Plan', green: 'On Plan' };
+function _tierColorVars(tier) {
+  if (tier === 'red')         return { fg: 'var(--red)',              bg: 'var(--red-bg)',              border: 'var(--red-border)' };
+  if (tier === 'orange')      return { fg: 'var(--tier-orange)',      bg: 'var(--tier-orange-bg)',      border: 'var(--tier-orange-border)' };
+  if (tier === 'yellow')      return { fg: 'var(--tier-yellow)',      bg: 'var(--tier-yellow-bg)',      border: 'var(--tier-yellow-border)' };
+  if (tier === 'yellowgreen') return { fg: 'var(--tier-yellowgreen)', bg: 'var(--tier-yellowgreen-bg)', border: 'var(--tier-yellowgreen-border)' };
+  if (tier === 'green')       return { fg: 'var(--green-dark)',       bg: 'var(--green-win-bg)',        border: 'var(--green-win-border)' };
+  return { fg: 'var(--muted)', bg: 'var(--bg)', border: 'var(--border)' }; // neutral
+}
+
+// How far through a shift we are, anchored to that shift's own first real
+// tally (not its scheduled start) through its fixed clock end — 3pm for Day,
+// 11pm for Night, the same AM/PM split used everywhere else in this app.
+// Returns a 0-1 fraction, or null if no tally has been logged yet this shift
+// (pace can't be computed against a shift that hasn't started). For any date
+// other than today, "now" is clamped to the shift's end, so this always
+// resolves to 1 (i.e. the same ratio as the plain end-of-shift actual/target)
+// once the day is over — no separate code path needed for historical dates.
+function _shiftElapsedFraction(date, shiftKey, group) {
+  var hourMin = shiftKey === 'night' ? 15 : 4;
+  var hourMax = shiftKey === 'night' ? 23 : 15;
+  var earliestMs = null;
+  Object.keys(RAW.sessions).forEach(function(machine) {
+    if (_dailyGroupFor(machine) !== group) return;
+    RAW.sessions[machine].forEach(function(s) {
+      if (s.t !== date) return;
+      var raw = s.ts || s.st;
+      if (!raw) return;
+      var d = new Date(raw);
+      var h = d.getHours();
+      if (h < hourMin || h > hourMax) return; // belongs to the other shift
+      var ms = d.getTime();
+      if (earliestMs === null || ms < earliestMs) earliestMs = ms;
+    });
+  });
+  if (earliestMs === null) return null;
+  var endHourStr = (hourMax < 10 ? '0' : '') + hourMax;
+  var shiftEndMs = new Date(date + 'T' + endHourStr + ':00:00').getTime();
+  if (shiftEndMs <= earliestMs) return 1;
+  var todayStr = new Date().toISOString().slice(0, 10);
+  var nowMs = date === todayStr ? Date.now() : shiftEndMs;
+  nowMs = Math.max(earliestMs, Math.min(nowMs, shiftEndMs));
+  return (nowMs - earliestMs) / (shiftEndMs - earliestMs);
+}
+
 var VALID_DATES = new Set();
 Object.keys(RAW.sessions).forEach(function(m) {
   RAW.sessions[m].forEach(function(s) { if (s.t) VALID_DATES.add(s.t); });
@@ -1166,8 +1221,8 @@ function render(forceDate) {
   var committedPlans = loadCommittedPlansForDate(date, _dailyPlanSourceOverride);
   var stdPlans = committedPlans.filter(function(p){ return (p._group || p.group || 'standard') === 'standard'; });
   var dwPlans  = committedPlans.filter(function(p){ return (p._group || p.group) === 'drinkware'; });
-  var planVsActual   = buildPlanVsActual(stdPlans, byMachine, _dailyDownMachines);
-  var dwPlanVsActual = buildPlanVsActual(dwPlans,  byMachine, {});
+  var planVsActual   = buildPlanVsActual(stdPlans, byMachine, _dailyDownMachines, date);
+  var dwPlanVsActual = buildPlanVsActual(dwPlans,  byMachine, {}, date);
 
   // Verdict is % to plan, not OEE (owner request, 2026-09-09) — a 5-step
   // color scale instead of a binary win/loss. PPH still shows as supporting
@@ -1175,18 +1230,14 @@ function render(forceDate) {
   // section further down) and no longer affects the card at all. A group
   // with no committed plan that day has nothing to score against, so its
   // card shows a neutral "No plan committed" state instead of a color.
-  function _planPctTier(pct) {
-    if (pct <= 60) return 'red';
-    if (pct <= 70) return 'orange';
-    if (pct <= 80) return 'yellow';
-    if (pct <= 90) return 'yellowgreen';
-    return 'green';
-  }
-  var stdPct  = planVsActual.totalTarget   ? Math.round(planVsActual.totalActual   / planVsActual.totalTarget   * 100) : null;
-  var dwPct   = dwPlanVsActual.totalTarget ? Math.round(dwPlanVsActual.totalActual / dwPlanVsActual.totalTarget * 100) : null;
+  // The % itself is measured against what should be done *by now* (pace),
+  // not the full-shift target — see buildPlanVsActual/_shiftElapsedFraction —
+  // so an early-shift number doesn't read as a miss just because the shift
+  // isn't over yet (owner request, 2026-09-10).
+  var stdPct  = planVsActual.totalExpectedNow   ? Math.round(planVsActual.totalActual   / planVsActual.totalExpectedNow   * 100) : null;
+  var dwPct   = dwPlanVsActual.totalExpectedNow ? Math.round(dwPlanVsActual.totalActual / dwPlanVsActual.totalExpectedNow * 100) : null;
   var stdTier = stdPct != null ? _planPctTier(stdPct) : 'neutral';
   var dwTier  = dwPct  != null ? _planPctTier(dwPct)  : 'neutral';
-  var TIER_LABEL = { red: 'Needs Attention', orange: 'Behind Plan', yellow: 'Below Plan', yellowgreen: 'Near Plan', green: 'On Plan' };
 
   var h = '';
 
@@ -1214,7 +1265,7 @@ function render(forceDate) {
     c += '<div class="verdict-title">' + title + '</div>';
     c += '<div class="verdict-sub">' + detailsHtml + '</div>';
     if (target !== undefined) {
-      c += '<div style="font-size:12px;color:var(--muted);margin-top:4px">' + actual.toLocaleString() + (target !== null ? ' of ' + target.toLocaleString() + ' target' : ' pieces') + '</div>';
+      c += '<div style="font-size:12px;color:var(--muted);margin-top:4px">' + actual.toLocaleString() + (target !== null ? ' of ' + target.toLocaleString() + ' expected by now' : ' pieces') + '</div>';
     }
     c += '</div></div>';
     return c;
@@ -1223,10 +1274,10 @@ function render(forceDate) {
   h += '<div class="daily-card-strip">';
   h += _summaryCard('standard', dateLabel, '&#127981;', stdTier,
         stdTier === 'neutral' ? 'Print Floor — No Plan Committed' : 'Print Floor — ' + TIER_LABEL[stdTier],
-        _cardDetails(stdDetails), stdGood, planVsActual.totalTarget || null, stdPct);
+        _cardDetails(stdDetails), stdGood, planVsActual.totalExpectedNow || null, stdPct);
   h += _summaryCard('drinkware', dateLabel, '&#129380;', dwTier,
         dwTier === 'neutral' ? 'Drinkware — No Plan Committed' : 'Drinkware — ' + TIER_LABEL[dwTier],
-        _cardDetails(dwDetails), dwGood, dwPlanVsActual.totalTarget || null, dwPct);
+        _cardDetails(dwDetails), dwGood, dwPlanVsActual.totalExpectedNow || null, dwPct);
   h += _summaryCard('wallets', dateLabel, '&#128092;', 'neutral', 'Wallets — Stamped',
         walletGood.toLocaleString() + ' wallets stamped' + (walletBad > 0 ? ' &nbsp;&middot;&nbsp; ' + walletBad + ' bad' : ''),
         walletGood, undefined);
@@ -5394,19 +5445,31 @@ function setDailyPlanSource(group, shift, source) {
 // Renders the Plan vs Actual panel for the daily report.
 // plans = array from loadCommittedPlansForDate
 // byMachine = { machine: {good, bad, sec} } from session aggregation
-// Returns { html, planHit } where planHit is true/false/null (null = no plan).
-function buildPlanVsActual(plans, byMachine, downMachines) {
+// Returns { html, totalTarget, totalActual, totalExpectedNow } — target/actual
+// are full-shift numbers, expectedNow is target paced to elapsed shift time.
+// date is used to pace targets against time-of-day (see _shiftElapsedFraction) —
+// optional for backward compatibility, but every current caller passes it.
+function buildPlanVsActual(plans, byMachine, downMachines, date) {
   downMachines = downMachines || {};
-  if (!plans.length) return { html: '', planHit: null, totalTarget: null, totalActual: null };
+  if (!plans.length) return { html: '', totalTarget: null, totalActual: null, totalExpectedNow: null };
   var html = '';
-  var grandTotalTarget = 0, grandTotalActual = 0;
+  var grandTotalTarget = 0, grandTotalActual = 0, grandTotalExpected = 0;
 
   plans.forEach(function(plan) {
     var group = plan._group || plan.group || 'standard';
     var machines = GROUP_MACHINES[group];
-    var shiftLabel = (plan._shift || plan.shift) === 'night' ? '🌙 Night Shift' : '☀ Day Shift';
+    var shiftKey = plan._shift || plan.shift || 'day';
+    var shiftLabel = shiftKey === 'night' ? '🌙 Night Shift' : '☀ Day Shift';
     var groupLabel = group === 'drinkware' ? 'Drinkware' : 'Standard Machines';
     var savedAt = plan.committedAt ? plan.committedAt.replace('T',' ').slice(0,16) : '';
+
+    // How far through this shift we are, anchored to the first real tally
+    // through the fixed shift-end clock time — targets below are scaled to
+    // "what should be done by now," not the full-shift number, so an early
+    // -shift check-in doesn't read as a miss just because the shift isn't
+    // over yet. null (no tally logged yet this shift) falls back to the
+    // full-shift target with a neutral (un-scored) tier.
+    var elapsedFrac = date ? _shiftElapsedFraction(date, shiftKey, group) : 1;
 
     var midBadgeHtml = plan._planSource === 'mid'
       ? ' <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-border);vertical-align:middle">📸 Midshift Snapshot</span>'
@@ -5417,7 +5480,6 @@ function buildPlanVsActual(plans, byMachine, downMachines) {
     html += '<div style="font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--green-dark)">📋 ' + groupLabel + ' — ' + shiftLabel + ' Plan vs Actual' + midBadgeHtml + '</div>';
     html += '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">';
     if (plan._hasAlt) {
-      var shiftKey = plan._shift || plan.shift;
       html += '<div style="display:flex;gap:4px">';
       ['regular','mid'].forEach(function(src) {
         var active = plan._planSource === src;
@@ -5434,20 +5496,22 @@ function buildPlanVsActual(plans, byMachine, downMachines) {
 
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:10px">';
 
-    var planTotalTarget = 0, planTotalActual = 0, planTotalCap = 0;
+    var planTotalTarget = 0, planTotalActual = 0, planTotalCap = 0, planTotalExpected = 0;
 
     machines.forEach(function(m) {
       var machineDown = downMachines[m] === true;
       var mUp = !plan.machineUp || plan.machineUp[m] !== false;
       var plannedLoad = plan.machineLoad ? (plan.machineLoad[m] || 0) : 0;
       var potentialCap = plan.machineActualCap ? (plan.machineActualCap[m] || plan.machineCap[m] || 0) : (plan.machineCap ? plan.machineCap[m] || 0 : 0);
-      // Target = what we expected to complete = min(load, capacity)
+      // Target = what we expected to complete over the full shift = min(load, capacity)
       var target = (!machineDown && mUp) ? Math.min(plannedLoad, potentialCap) : 0;
       var actual = byMachine[m] ? byMachine[m].good : 0;
-      var hit = machineDown ? null : (target > 0 ? actual >= target * 0.95 : null);
+      // Expected-by-now = target scaled down by how much of the shift has elapsed.
+      var expectedNow = elapsedFrac != null ? Math.round(target * elapsedFrac) : target;
 
       planTotalTarget += target;
       planTotalActual += actual;
+      planTotalExpected += expectedNow;
       if (!machineDown) planTotalCap += potentialCap;
 
       // Machine was down — show a neutral "down" card, not a miss
@@ -5470,60 +5534,43 @@ function buildPlanVsActual(plans, byMachine, downMachines) {
         return;
       }
 
-      var hitColor  = hit === true ? 'var(--green-dark)' : hit === false ? 'var(--red)' : 'var(--muted)';
-      var hitBg     = hit === true ? 'var(--green-win-bg)' : hit === false ? 'var(--red-bg)' : 'var(--bg)';
-      var hitBorder = hit === true ? 'var(--green-win-border)' : hit === false ? 'var(--red-border)' : 'var(--border)';
-      var hitLabel  = hit === true ? '✓ Hit' : hit === false ? '✗ Missed' : '—';
-      var pct = target > 0 ? Math.round(actual / target * 100) : 0;
-      var barPct = Math.min(100, pct);
-      var barColor = hit === true ? 'var(--green-dark)' : hit === false ? 'var(--red)' : 'var(--muted)';
+      var pct  = expectedNow > 0 ? Math.round(actual / expectedNow * 100) : (elapsedFrac === null ? null : 0);
+      var tier = pct != null ? _planPctTier(pct) : 'neutral';
+      var tc   = _tierColorVars(tier);
+      var barPct = pct != null ? Math.min(100, pct) : 0;
 
-      html += '<div style="background:' + hitBg + ';border:1px solid ' + hitBorder + ';border-radius:6px;padding:10px 12px">';
+      html += '<div style="background:' + tc.bg + ';border:1px solid ' + tc.border + ';border-radius:6px;padding:10px 12px">';
       html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">';
-      html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;color:' + hitColor + '">Machine ' + m + '</div>';
-      html += '<div style="font-size:11px;font-weight:700;color:' + hitColor + '">' + hitLabel + '</div>';
+      html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;color:' + tc.fg + '">Machine ' + m + '</div>';
+      html += '<div style="font-size:11px;font-weight:700;color:' + tc.fg + '">' + (pct != null ? pct + '%' : '—') + '</div>';
       html += '</div>';
       html += '<div style="font-size:22px;font-weight:700;color:var(--text);line-height:1">' + actual.toLocaleString() + '</div>';
-      html += '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">of ' + target.toLocaleString() + ' target &nbsp;(' + pct + '%)</div>';
+      html += '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">of ' + expectedNow.toLocaleString() + ' expected by now &nbsp;(' + (pct != null ? pct + '%' : '—') + ')</div>';
       html += '<div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:4px">';
-      html += '<div style="height:100%;width:' + barPct + '%;background:' + barColor + ';border-radius:3px"></div></div>';
-      html += '<div style="font-size:10px;color:var(--muted)">Potential capacity: ' + potentialCap.toLocaleString() + '</div>';
+      html += '<div style="height:100%;width:' + barPct + '%;background:' + tc.fg + ';border-radius:3px"></div></div>';
+      html += '<div style="font-size:10px;color:var(--muted)">Full-shift target: ' + target.toLocaleString() + ' &nbsp;&middot;&nbsp; Potential capacity: ' + potentialCap.toLocaleString() + '</div>';
       html += '</div>';
     });
 
     html += '</div>'; // grid
 
     // Totals row
-    var totalHit = planTotalTarget > 0 ? planTotalActual >= planTotalTarget * 0.95 : null;
-    var totalPct = planTotalTarget > 0 ? Math.round(planTotalActual / planTotalTarget * 100) : 0;
-    var totalHitColor = totalHit === true ? 'var(--green-dark)' : totalHit === false ? 'var(--red)' : 'var(--muted)';
+    var totalPct  = planTotalExpected > 0 ? Math.round(planTotalActual / planTotalExpected * 100) : (elapsedFrac === null ? null : 0);
+    var totalTier = totalPct != null ? _planPctTier(totalPct) : 'neutral';
+    var totalTc   = _tierColorVars(totalTier);
     html += '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-top:0.875rem;padding-top:0.75rem;border-top:1px solid var(--border)">';
-    html += '<div style="font-size:12px;color:var(--muted)">Total: <strong style="color:var(--text)">' + planTotalActual.toLocaleString() + '</strong> of <strong style="color:var(--text)">' + planTotalTarget.toLocaleString() + '</strong> target &nbsp;(' + totalPct + '%) &nbsp;&nbsp; potential cap: ' + planTotalCap.toLocaleString() + '</div>';
-    html += '<div style="font-size:12px;font-weight:700;color:' + totalHitColor + '">' + (totalHit === true ? '✓ Plan hit' : totalHit === false ? '✗ Plan missed' : '') + '</div>';
+    html += '<div style="font-size:12px;color:var(--muted)">Total: <strong style="color:var(--text)">' + planTotalActual.toLocaleString() + '</strong> of <strong style="color:var(--text)">' + planTotalExpected.toLocaleString() + '</strong> expected by now &nbsp;(' + (totalPct != null ? totalPct + '%' : '—') + ') &nbsp;&nbsp; full-shift target: ' + planTotalTarget.toLocaleString() + ' &nbsp;&nbsp; potential cap: ' + planTotalCap.toLocaleString() + '</div>';
+    html += '<div style="font-size:12px;font-weight:700;color:' + totalTc.fg + '">' + (totalTier !== 'neutral' ? TIER_LABEL[totalTier] : '') + '</div>';
     html += '</div>';
 
     html += '</div>'; // card
 
     grandTotalTarget += planTotalTarget;
     grandTotalActual += planTotalActual;
+    grandTotalExpected += planTotalExpected;
   });
 
-  // Overall plan hit = all shifts hit (down machines are excluded)
-  var overallHit = plans.every(function(plan) {
-    var machines = GROUP_MACHINES[plan._group || plan.group || 'standard'];
-    return machines.every(function(m) {
-      if (downMachines[m]) return true; // machine was down — not a failure
-      var mUp = !plan.machineUp || plan.machineUp[m] !== false;
-      var plannedLoad  = plan.machineLoad ? (plan.machineLoad[m] || 0) : 0;
-      var potentialCap = plan.machineActualCap ? (plan.machineActualCap[m] || plan.machineCap[m] || 0) : (plan.machineCap ? plan.machineCap[m] || 0 : 0);
-      var target = mUp ? Math.min(plannedLoad, potentialCap) : 0;
-      if (target === 0) return true; // machine not scheduled — not a failure
-      var actual = byMachine[m] ? byMachine[m].good : 0;
-      return actual >= target * 0.95;
-    });
-  });
-
-  return { html: html, planHit: overallHit, totalTarget: grandTotalTarget, totalActual: grandTotalActual };
+  return { html: html, totalTarget: grandTotalTarget, totalActual: grandTotalActual, totalExpectedNow: grandTotalExpected };
 }
 
 // ── TOTALS TAB: Shift Summary print report ────────────────────────────────
