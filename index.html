@@ -125,7 +125,6 @@ input[type="date"]:focus { border-color: var(--green-dark); }
 .pill-win { background: var(--green-win-bg); color: var(--green-dark); border: 1px solid var(--green-win-border); }
 .pill-miss { background: var(--red-bg); color: var(--red); border: 1px solid var(--red-border); }
 .pill-na { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
-.tally-badge { font-size: 10px; background: var(--bg); color: var(--muted); border: 1px solid var(--border); border-radius: 3px; padding: 1px 6px; font-weight: 600; }
 .bar-wrap { display: flex; align-items: center; gap: 8px; }
 .bar-track { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; width: 70px; flex-shrink: 0; border: 1px solid var(--border); }
 .bar-fill-g { height: 100%; border-radius: 3px; background: var(--green-dark); }
@@ -1077,17 +1076,17 @@ function buildTypeRows(byTypeMap) {
     var v = byTypeMap[pt];
     var tgt = RAW.targets[pt];
     var tpph = tgt ? tgt.pph : null;
-    // PPH is computed from timed sessions only (see timedGood/timedSec —
-    // populated alongside good/sec in render()'s aggregation loop, excluding
-    // tally/stamped sessions, which log real pieces but not reliable time).
-    var isTimer = v.timedSec > 30;
-    var actualPph = v.timedSec > 60 ? v.timedGood / (v.timedSec / 3600) : null;
+    // PPH is computed from pphGood/pphSec — populated alongside good/sec in
+    // render()'s aggregation loop, using active-run seconds for stop/go &
+    // continuous sessions and the real start/end span for tally sessions
+    // (stamped/Wallets sessions never contribute; see that loop for why).
+    var actualPph = v.pphSec > 60 ? v.pphGood / (v.pphSec / 3600) : null;
     var result = 'na';
     if (tpph && actualPph !== null) {
       result = actualPph >= tpph * 0.95 ? 'win' : 'miss';
       if (result === 'win') wins++; else misses++;
     } else noTarget++;
-    return { pt:pt, good:v.good, tpph:tpph, actualPph:actualPph, result:result, isTimer:isTimer };
+    return { pt:pt, good:v.good, tpph:tpph, actualPph:actualPph, result:result, hasTarget: !!tpph };
   }).sort(function(a,b){ return b.good - a.good; });
   return { rows: rows, wins: wins, misses: misses, noTarget: noTarget };
 }
@@ -1150,34 +1149,44 @@ function render(forceDate) {
   Object.keys(RAW.sessions).forEach(function(machine) {
     var group = _dailyGroupFor(machine);
     RAW.sessions[machine].filter(function(s){ return s.t === date; }).forEach(function(s) {
-      // Tally/stamped sessions log real piece counts but not reliable run time
-      // (no per-piece stopwatch), so they're excluded from the *timed* good/sec
-      // pair used for PPH math below — mixing them into a plain good/sec ratio
-      // let a handful of tallied pieces with near-zero logged time massively
-      // inflate actual PPH (found 2026-09-10: showed ~960 pph for a piece
-      // whose real measured rate is ~45-90 pph). They still count fully
-      // toward every other total (good/bad/sec) — piece counts, "Hours," etc.
-      var isTimed = s.m !== 'tally' && s.m !== 'stamped';
+      // pphGood/pphSec feed actual-PPH math only — a second pair alongside the
+      // plain good/sec used for piece-count totals, "Hours," etc. Stop/go and
+      // continuous sessions use their own active-run seconds (s.s). Tally
+      // sessions have no per-piece stopwatch, but their start/end span is a
+      // reasonable proxy for real elapsed production time (owner confirmed
+      // 2026-09-10 the floor now runs mostly tally, not stop/go, and that the
+      // tally start/end span is reasonably reliable) — capped at 12 hours so a
+      // forgotten-open tally session doesn't silently understate the rate.
+      // Stamped (Wallets) sessions never contribute — no PPH concept there.
+      var pphGood = 0, pphSec = 0;
+      if (s.m === 'tally') {
+        if (s.st && s.et) {
+          var tallySpan = (new Date(s.et).getTime() - new Date(s.st).getTime()) / 1000;
+          if (tallySpan > 0 && tallySpan <= 12 * 3600) { pphGood = s.g; pphSec = tallySpan; }
+        }
+      } else if (s.m !== 'stamped') {
+        pphGood = s.g; pphSec = s.s;
+      }
       totalGood += s.g; totalBad += s.b; totalSec += s.s; sessionCount++;
-      if (!byMachine[machine]) byMachine[machine] = {good:0,bad:0,sec:0,timedGood:0,timedSec:0};
+      if (!byMachine[machine]) byMachine[machine] = {good:0,bad:0,sec:0,pphGood:0,pphSec:0};
       byMachine[machine].good += s.g; byMachine[machine].bad += s.b; byMachine[machine].sec += s.s;
-      if (isTimed) { byMachine[machine].timedGood += s.g; byMachine[machine].timedSec += s.s; }
-      if (!byType[s.p]) byType[s.p] = {good:0,bad:0,sec:0,timedGood:0,timedSec:0};
+      byMachine[machine].pphGood += pphGood; byMachine[machine].pphSec += pphSec;
+      if (!byType[s.p]) byType[s.p] = {good:0,bad:0,sec:0,pphGood:0,pphSec:0};
       byType[s.p].good += s.g; byType[s.p].bad += s.b; byType[s.p].sec += s.s;
-      if (isTimed) { byType[s.p].timedGood += s.g; byType[s.p].timedSec += s.s; }
+      byType[s.p].pphGood += pphGood; byType[s.p].pphSec += pphSec;
 
       if (group === 'wallets') {
         walletGood += s.g; walletBad += s.b; walletSessionCount++;
       } else if (group === 'drinkware') {
         dwGood += s.g; dwBad += s.b; dwSec += s.s; dwSessionCount++;
-        if (!byTypeDW[s.p]) byTypeDW[s.p] = {good:0,bad:0,sec:0,timedGood:0,timedSec:0};
+        if (!byTypeDW[s.p]) byTypeDW[s.p] = {good:0,bad:0,sec:0,pphGood:0,pphSec:0};
         byTypeDW[s.p].good += s.g; byTypeDW[s.p].bad += s.b; byTypeDW[s.p].sec += s.s;
-        if (isTimed) { byTypeDW[s.p].timedGood += s.g; byTypeDW[s.p].timedSec += s.s; }
+        byTypeDW[s.p].pphGood += pphGood; byTypeDW[s.p].pphSec += pphSec;
       } else {
         stdGood += s.g; stdBad += s.b; stdSec += s.s; stdSessionCount++;
-        if (!byTypeStd[s.p]) byTypeStd[s.p] = {good:0,bad:0,sec:0,timedGood:0,timedSec:0};
+        if (!byTypeStd[s.p]) byTypeStd[s.p] = {good:0,bad:0,sec:0,pphGood:0,pphSec:0};
         byTypeStd[s.p].good += s.g; byTypeStd[s.p].bad += s.b; byTypeStd[s.p].sec += s.s;
-        if (isTimed) { byTypeStd[s.p].timedGood += s.g; byTypeStd[s.p].timedSec += s.s; }
+        byTypeStd[s.p].pphGood += pphGood; byTypeStd[s.p].pphSec += pphSec;
         if (s.ts) allTimestamps.push(new Date(s.ts).getTime());
         if (s.st) allTimestamps.push(new Date(s.st).getTime());
         if (s.et) allTimestamps.push(new Date(s.et).getTime());
@@ -1325,7 +1334,7 @@ function render(forceDate) {
   // this report), well above OEE which now sits near the bottom as a smaller
   // reference section instead of the second thing on the page.
   h += '<div class="section animate"><div class="section-head">Actual vs target &mdash; pieces per hour</div>';
-  h += '<div class="oee-note">Tally-mode sessions show piece counts only &mdash; excluded from PPH comparison.</div>';
+  h += '<div class="oee-note">Actual PPH uses stop/go or continuous run time where logged, or the tally start-to-end span otherwise &mdash; rows with no usable timing show No Rate Data.</div>';
   h += _pphTableHtml(typeRows);
   h += '</div>';
   var chartRows = typeRows.filter(function(r){ return r.tpph && r.actualPph!==null; }).slice(0,12);
@@ -1364,9 +1373,8 @@ function render(forceDate) {
     var mh = '<div class="section animate"><div class="section-head">By machine</div><div class="machine-grid">';
     keys.forEach(function(m) {
       var v = byMachine[m];
-      // Timed-only, same fix as buildTypeRows — tally/stamped sessions log
-      // pieces without reliable run time and would otherwise inflate this.
-      var pph = v.timedSec > 60 ? Math.round(v.timedGood/(v.timedSec/3600)) : null;
+      // pphGood/pphSec — same blended stop/go + tally-span rate as buildTypeRows.
+      var pph = v.pphSec > 60 ? Math.round(v.pphGood/(v.pphSec/3600)) : null;
       var defR = v.good+v.bad > 0 ? ((v.bad/(v.good+v.bad))*100).toFixed(1) : 0;
       var mGoals = PROD_GOALS.machines[m] || null;
       var mTier = mGoals ? prodTier(v.good, mGoals) : null;
@@ -1415,14 +1423,13 @@ function render(forceDate) {
 
   // PPH table — reusable so the Drinkware view can render its own version
   function _pphTableHtml(rows) {
-    var th = '<div class="table-wrap"><table class="pph-table"><thead><tr><th>Piece type</th><th>Good pcs</th><th>Mode</th><th>Actual pph</th><th>Target pph</th><th>Vs target</th><th>Result</th></tr></thead><tbody>';
+    var th = '<div class="table-wrap"><table class="pph-table"><thead><tr><th>Piece type</th><th>Good pcs</th><th>Actual pph</th><th>Target pph</th><th>Vs target</th><th>Result</th></tr></thead><tbody>';
     rows.forEach(function(r) {
       var actual = r.actualPph !== null ? Math.round(r.actualPph) : '&mdash;';
       var p2 = r.tpph && r.actualPph!==null ? Math.min(140, Math.round((r.actualPph/r.tpph)*100)) : null;
-      var pill = r.result==='win'?'<span class="result-pill pill-win">&#10003; Win</span>':r.result==='miss'?'<span class="result-pill pill-miss">&#10007; Miss</span>':'<span class="result-pill pill-na">'+(r.isTimer?'No target':'Tally')+'</span>';
+      var pill = r.result==='win'?'<span class="result-pill pill-win">&#10003; Win</span>':r.result==='miss'?'<span class="result-pill pill-miss">&#10007; Miss</span>':'<span class="result-pill pill-na">'+(r.hasTarget?'No Rate Data':'No Target')+'</span>';
       var bar = p2!==null?'<div class="bar-wrap"><div class="bar-track"><div class="'+(r.result==='win'?'bar-fill-g':'bar-fill-r')+'" style="width:'+Math.min(100,p2)+'%"></div></div><span style="font-size:11px;font-weight:600;color:var(--muted)">'+p2+'%</span></div>':'&mdash;';
-      var mode = r.isTimer?'':'<span class="tally-badge">tally</span>';
-      th += '<tr><td>'+r.pt+'</td><td class="pph-num">'+r.good.toLocaleString()+'</td><td>'+mode+'</td><td class="pph-num">'+actual+'</td><td class="pph-num">'+(r.tpph||'&mdash;')+'</td><td>'+bar+'</td><td>'+pill+'</td></tr>';
+      th += '<tr><td>'+r.pt+'</td><td class="pph-num">'+r.good.toLocaleString()+'</td><td class="pph-num">'+actual+'</td><td class="pph-num">'+(r.tpph||'&mdash;')+'</td><td>'+bar+'</td><td>'+pill+'</td></tr>';
     });
     th += '</tbody></table></div>';
     return th;
@@ -1477,7 +1484,7 @@ function render(forceDate) {
   h += _machineCardsHtml(dwMachineKeys);
   if (dwTypeRows.length) {
     h += '<div class="section animate"><div class="section-head">Actual vs target &mdash; pieces per hour</div>';
-    h += '<div class="oee-note">Tally-mode sessions show piece counts only &mdash; excluded from PPH comparison.</div>';
+    h += '<div class="oee-note">Actual PPH uses stop/go or continuous run time where logged, or the tally start-to-end span otherwise &mdash; rows with no usable timing show No Rate Data.</div>';
     h += _pphTableHtml(dwTypeRows);
     h += '</div>';
   } else {
