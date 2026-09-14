@@ -122,16 +122,8 @@ input[type="date"]:focus { border-color: var(--green-dark); }
 .pph-table tr:last-child td { border-bottom: none; }
 .pph-table tr:hover td { background: #f9fbfa; }
 .result-pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px; }
-.pill-win { background: var(--green-win-bg); color: var(--green-dark); border: 1px solid var(--green-win-border); }
-.pill-miss { background: var(--red-bg); color: var(--red); border: 1px solid var(--red-border); }
 .pill-na { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
-.bar-wrap { display: flex; align-items: center; gap: 8px; }
-.bar-track { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; width: 70px; flex-shrink: 0; border: 1px solid var(--border); }
-.bar-fill-g { height: 100%; border-radius: 3px; background: var(--green-dark); }
-.bar-fill-r { height: 100%; border-radius: 3px; background: var(--red); }
 .pph-num { font-weight: 600; font-size: 13px; }
-.chart-box { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
-.chart-wrap { position: relative; height: 240px; }
 .incident-list { display: flex; flex-direction: column; gap: 8px; }
 .incident { background: var(--white); border: 1px solid var(--border); border-left: 4px solid; border-radius: var(--radius); padding: 0.875rem 1rem; display: flex; gap: 12px; align-items: flex-start; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
 .incident.down { border-left-color: var(--red); background: var(--red-bg); }
@@ -1066,53 +1058,51 @@ function calcOEE(machine, date) {
 }
 
 
-var pphChart = null;
-
-// A reconstructed tally-family PPH span needs at least this many distinct
-// save timestamps to be trusted. tally2 autosaves ~800ms after each count
-// change, so a piece an operator tallies in one quick burst (rather than
-// spread naturally through the shift) produces very few delta-sessions —
-// e.g. 2 sessions 8.4 minutes apart for 37 real pieces (found 2026-09-14),
-// where the gap between saves badly understates true elapsed time. This is
-// a genuine data limitation (the underlying app never records true
-// per-piece production time for tally-family sessions, only save bursts),
-// not something more code can fully correct — below this threshold, "No
-// Rate Data" is the honest answer, not a falsely-precise wrong number.
-// Shared by render()'s _pphFinalize and buildTypeRows' breakdown text.
-var MIN_TALLY_SAMPLES = 3;
-
-// Builds PPH win/loss rows for a set of piece types on a given date.
+// Lists piece types produced on a given date with good/bad counts — no rate
+// (PPH) math. Removed 2026-09-14: tally-tracked pieces (the large majority of
+// production, see the project memory on tally2's data model) can never
+// support a reliable per-piece-hour rate, only a real piece count — owner
+// asked to stop leaning on that fragile metric entirely and look at Plan vs
+// Actual (already reliable, paced to wall-clock shift time, not session
+// timestamps) and Trend vs Recent (below) instead.
 // byTypeMap = { pieceType: {good,bad,sec} } scoped to whichever machine group is being scored.
 function buildTypeRows(byTypeMap) {
-  var wins = 0, misses = 0, noTarget = 0;
   var rows = Object.keys(byTypeMap).map(function(pt) {
     var v = byTypeMap[pt];
-    var tgt = RAW.targets[pt];
-    var tpph = tgt ? tgt.pph : null;
-    // PPH is computed from pphGood/pphSec — populated alongside good/sec in
-    // render()'s aggregation loop, using active-run seconds for stop/go &
-    // continuous sessions and the real start/end span for tally sessions
-    // (stamped/Wallets sessions never contribute; see that loop for why).
-    var actualPph = v.pphSec > 60 ? v.pphGood / (v.pphSec / 3600) : null;
-    var result = 'na';
-    if (tpph && actualPph !== null) {
-      result = actualPph >= tpph * 0.95 ? 'win' : 'miss';
-      if (result === 'win') wins++; else misses++;
-    } else noTarget++;
-    // Human-readable breakdown of exactly what fed this row's actual pph —
-    // shown as a small sub-line in the table so the source data is visible
-    // at a glance instead of having to trust the single blended number.
-    // For tally-family modes, "min" is the reconstructed earliest-to-latest
-    // span across that mode's sessions, not a per-session sum (see above).
-    var modeDetail = Object.keys(v.byMode || {}).map(function(mode) {
-      var bm = v.byMode[mode];
-      var mins = (bm.sec / 60).toFixed(1);
-      var note = bm.sec > 0 ? '' : (bm.isTally && bm.count > 0 && bm.count < MIN_TALLY_SAMPLES ? ', too few sessions to estimate' : ', no usable time');
-      return mode + ': ' + bm.good.toLocaleString() + ' pcs / ' + mins + ' min (' + bm.count + ' session' + (bm.count!==1?'s':'') + note + ')';
-    }).join('  &middot;  ');
-    return { pt:pt, good:v.good, tpph:tpph, actualPph:actualPph, result:result, hasTarget: !!tpph, modeDetail: modeDetail };
+    return { pt: pt, good: v.good, bad: v.bad };
   }).sort(function(a,b){ return b.good - a.good; });
-  return { rows: rows, wins: wins, misses: misses, noTarget: noTarget };
+  return { rows: rows };
+}
+
+// Trend vs Recent — how today's piece count for a type compares to its own
+// recent history, sidestepping rate math entirely (piece counts are always
+// reliable, unlike per-session timing for tally-tracked production).
+var TREND_RECENT_DAYS = 5;
+// Builds { pieceType: { 'YYYY-MM-DD': good } } for every date strictly
+// before `beforeDate`, scoped to one machine group — used to look back at
+// a piece type's recent daily totals regardless of which machine ran it.
+function _buildDailyTotalsByType(group, beforeDate) {
+  var map = {};
+  Object.keys(RAW.sessions).forEach(function(machine) {
+    if (_dailyGroupFor(machine) !== group) return;
+    RAW.sessions[machine].forEach(function(s) {
+      if (s.t >= beforeDate) return;
+      if (!map[s.p]) map[s.p] = {};
+      map[s.p][s.t] = (map[s.p][s.t] || 0) + s.g;
+    });
+  });
+  return map;
+}
+// Average of the most recent TREND_RECENT_DAYS calendar days that actually
+// had production of this piece type — null if there's fewer than 2 such
+// days (not enough history yet for a meaningful comparison).
+function _recentTrendFor(dailyMap, pt) {
+  var byDate = dailyMap[pt];
+  if (!byDate) return null;
+  var dates = Object.keys(byDate).sort().reverse().slice(0, TREND_RECENT_DAYS);
+  if (dates.length < 2) return null;
+  var sum = dates.reduce(function(a,d){ return a + byDate[d]; }, 0);
+  return { avg: sum / dates.length, days: dates.length };
 }
 
 // Which machine "group" a session machine belongs to, for the three Today's Results cards.
@@ -1140,7 +1130,6 @@ function render(forceDate) {
   document.getElementById('placeholder').style.display = 'none';
   var content = document.getElementById('content');
   content.style.display = 'block';
-  if (pphChart) { pphChart.destroy(); pphChart = null; }
 
   if (!VALID_DATES.has(date)) {
     content.innerHTML = '<div class="empty">No production data recorded for ' + date + '</div>';
@@ -1160,56 +1149,6 @@ function render(forceDate) {
     });
   }
 
-  // pphGood/pphSec (computed by _pphFinalize after the session loop below)
-  // feed actual-PPH math. Stop/go & continuous sessions contribute their own
-  // active-run seconds (s.s) per session, summed directly — real stopwatch
-  // data. Tally-family sessions (any mode starting with "tally": tally,
-  // tally2, ...) can't be summed the same way: both tally.js and tally2.js
-  // (the operator tracker's source, read directly 2026-09-10) write many
-  // small delta-session records per piece type per day, each hardcoded to
-  // totalSec:60 (a fixed autosave placeholder, never real elapsed time) and
-  // with no reliable start+end pair (tally.js sets a start time but never an
-  // end time; tally2.js sets neither). The only trustworthy timing signal is
-  // each delta's own save timestamp (ts) — so tally-family elapsed time is
-  // reconstructed per piece type as (latest ts - earliest ts) across ALL its
-  // tally-family sessions that day, not read from any single session.
-  // Stamped (Wallets) sessions never contribute — no PPH concept there.
-  function _newPphAgg() { return { good:0, bad:0, sec:0, timedGood:0, timedSec:0, tallyGood:0, tallyCount:0, tallyMinTs:null, tallyMaxTs:null, byMode:{} }; }
-  function _pphAccum(agg, s) {
-    var isTally = s.m && s.m.indexOf('tally') === 0;
-    if (!agg.byMode[s.m]) agg.byMode[s.m] = { count:0, good:0, isTally:isTally, sec:0, minTs:null, maxTs:null };
-    var bm = agg.byMode[s.m];
-    bm.count++; bm.good += s.g;
-    if (isTally) {
-      agg.tallyGood += s.g;
-      var ts = s.ts ? new Date(s.ts).getTime() : null;
-      if (ts != null && !isNaN(ts)) {
-        agg.tallyCount++;
-        if (agg.tallyMinTs === null || ts < agg.tallyMinTs) agg.tallyMinTs = ts;
-        if (agg.tallyMaxTs === null || ts > agg.tallyMaxTs) agg.tallyMaxTs = ts;
-        if (bm.minTs === null || ts < bm.minTs) bm.minTs = ts;
-        if (bm.maxTs === null || ts > bm.maxTs) bm.maxTs = ts;
-      }
-    } else if (s.m !== 'stamped') {
-      agg.timedGood += s.g; agg.timedSec += s.s;
-      bm.sec += s.s;
-    }
-  }
-  // Span capped at 16h as a sanity guard against a garbage/out-of-range
-  // timestamp producing a wildly wrong duration.
-  function _pphFinalize(agg) {
-    var tallySpanSec = (agg.tallyCount >= MIN_TALLY_SAMPLES && agg.tallyMinTs !== null && agg.tallyMaxTs > agg.tallyMinTs) ? (agg.tallyMaxTs - agg.tallyMinTs) / 1000 : 0;
-    if (tallySpanSec > 16 * 3600) tallySpanSec = 0;
-    agg.pphGood = agg.timedGood + agg.tallyGood;
-    agg.pphSec  = agg.timedSec  + tallySpanSec;
-    Object.keys(agg.byMode).forEach(function(m) {
-      var bm = agg.byMode[m];
-      if (!bm.isTally) return;
-      bm.sec = (bm.count >= MIN_TALLY_SAMPLES && bm.minTs !== null && bm.maxTs > bm.minTs) ? (bm.maxTs - bm.minTs) / 1000 : 0;
-      if (bm.sec > 16 * 3600) bm.sec = 0;
-    });
-  }
-
   // byType/byMachine combine ALL machines — kept for the "By machine" cards section,
   // which still shows every machine regardless of group.
   var byType = {}, byMachine = {};
@@ -1224,34 +1163,32 @@ function render(forceDate) {
     var group = _dailyGroupFor(machine);
     RAW.sessions[machine].filter(function(s){ return s.t === date; }).forEach(function(s) {
       totalGood += s.g; totalBad += s.b; totalSec += s.s; sessionCount++;
-      if (!byMachine[machine]) byMachine[machine] = _newPphAgg();
+      if (!byMachine[machine]) byMachine[machine] = {good:0,bad:0,sec:0};
       byMachine[machine].good += s.g; byMachine[machine].bad += s.b; byMachine[machine].sec += s.s;
-      _pphAccum(byMachine[machine], s);
-      if (!byType[s.p]) byType[s.p] = _newPphAgg();
+      if (!byType[s.p]) byType[s.p] = {good:0,bad:0,sec:0};
       byType[s.p].good += s.g; byType[s.p].bad += s.b; byType[s.p].sec += s.s;
-      _pphAccum(byType[s.p], s);
 
       if (group === 'wallets') {
         walletGood += s.g; walletBad += s.b; walletSessionCount++;
       } else if (group === 'drinkware') {
         dwGood += s.g; dwBad += s.b; dwSec += s.s; dwSessionCount++;
-        if (!byTypeDW[s.p]) byTypeDW[s.p] = _newPphAgg();
+        if (!byTypeDW[s.p]) byTypeDW[s.p] = {good:0,bad:0,sec:0};
         byTypeDW[s.p].good += s.g; byTypeDW[s.p].bad += s.b; byTypeDW[s.p].sec += s.s;
-        _pphAccum(byTypeDW[s.p], s);
       } else {
         stdGood += s.g; stdBad += s.b; stdSec += s.s; stdSessionCount++;
-        if (!byTypeStd[s.p]) byTypeStd[s.p] = _newPphAgg();
+        if (!byTypeStd[s.p]) byTypeStd[s.p] = {good:0,bad:0,sec:0};
         byTypeStd[s.p].good += s.g; byTypeStd[s.p].bad += s.b; byTypeStd[s.p].sec += s.s;
-        _pphAccum(byTypeStd[s.p], s);
         if (s.ts) allTimestamps.push(new Date(s.ts).getTime());
         if (s.st) allTimestamps.push(new Date(s.st).getTime());
         if (s.et) allTimestamps.push(new Date(s.et).getTime());
       }
     });
   });
-  [byMachine, byType, byTypeStd, byTypeDW].forEach(function(map) {
-    Object.keys(map).forEach(function(k) { _pphFinalize(map[k]); });
-  });
+
+  // Trend vs Recent — computed once per group, scoped to before today, used
+  // by the Trend section further down (see _recentTrendFor).
+  var stdDailyTotalsByType = _buildDailyTotalsByType('standard', date);
+  var dwDailyTotalsByType  = _buildDailyTotalsByType('drinkware', date);
 
   // Shift span = earliest to latest timestamp seen across standard-machine sessions that day
   var shiftSpanSec = null, shiftStartStr = '', shiftEndStr = '';
@@ -1274,10 +1211,8 @@ function render(forceDate) {
   OEE_MACHINES.forEach(function(m) { var r = calcOEE(m, date); if (r) oeeResults[m] = r; });
   var hasOEE = Object.keys(oeeResults).length > 0;
 
-  var stdTypeResult = buildTypeRows(byTypeStd);
-  var typeRows = stdTypeResult.rows, wins = stdTypeResult.wins, misses = stdTypeResult.misses;
-  var dwTypeResult = buildTypeRows(byTypeDW);
-  var dwTypeRows = dwTypeResult.rows, dwWins = dwTypeResult.wins, dwMisses = dwTypeResult.misses;
+  var typeRows = buildTypeRows(byTypeStd).rows;
+  var dwTypeRows = buildTypeRows(byTypeDW).rows;
 
   var defectRate     = stdGood + stdBad > 0 ? ((stdBad/(stdGood+stdBad))*100).toFixed(1) : 0;
   var dwDefectRate    = dwGood + dwBad > 0 ? ((dwBad/(dwGood+dwBad))*100).toFixed(1) : 0;
@@ -1322,14 +1257,13 @@ function render(forceDate) {
   var dateLabel = new Date(date + 'T12:00:00').toLocaleDateString('en-US', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
 
   // ── Three-card summary strip: Print Floor / Drinkware / Wallets ──────────
-  // PPH still called out here as supporting detail alongside the plan-based verdict.
-  function _cardDetails(parts) { return parts.length ? parts.join(' &nbsp;&middot;&nbsp; ') : 'No PPH targets tracked today'; }
+  function _cardDetails(parts) { return parts.length ? parts.join(' &nbsp;&middot;&nbsp; ') : 'No production logged today'; }
   var stdDetails = [];
-  if (wins > 0)   stdDetails.push(wins + ' PPH target' + (wins!==1?'s':'') + ' hit');
-  if (misses > 0) stdDetails.push(misses + ' PPH miss' + (misses!==1?'es':''));
+  if (typeRows.length) stdDetails.push(typeRows.length + ' piece type' + (typeRows.length!==1?'s':'') + ' produced');
+  if (stdBad > 0)       stdDetails.push(stdBad + ' bad' + (parseFloat(defectRate)>0 ? ' (' + defectRate + '%)' : ''));
   var dwDetails = [];
-  if (dwWins > 0)   dwDetails.push(dwWins + ' PPH target' + (dwWins!==1?'s':'') + ' hit');
-  if (dwMisses > 0) dwDetails.push(dwMisses + ' PPH miss' + (dwMisses!==1?'es':''));
+  if (dwTypeRows.length) dwDetails.push(dwTypeRows.length + ' piece type' + (dwTypeRows.length!==1?'s':'') + ' produced');
+  if (dwBad > 0)          dwDetails.push(dwBad + ' bad' + (parseFloat(dwDefectRate)>0 ? ' (' + dwDefectRate + '%)' : ''));
 
   function _summaryCard(id, label, icon, tier, title, detailsHtml, actual, target, pct) {
     // tier: 'red' | 'orange' | 'yellow' | 'yellowgreen' | 'green' | 'neutral'
@@ -1389,17 +1323,15 @@ function render(forceDate) {
     h += '</div>';
   }
 
-  // PPH — promoted up next to Plan vs Actual (owner's two priority numbers for
-  // this report), well above OEE which now sits near the bottom as a smaller
-  // reference section instead of the second thing on the page.
-  h += '<div class="section animate"><div class="section-head">Actual vs target &mdash; pieces per hour</div>';
-  h += '<div class="oee-note">Actual PPH uses stop/go or continuous run time where logged, or the tally start-to-end span otherwise &mdash; rows with no usable timing show No Rate Data.</div>';
-  h += _pphTableHtml(typeRows);
+  // Trend vs Recent — replaces the old PPH table (owner request, 2026-09-14):
+  // piece-type rate targets can't be trusted for tally-tracked production
+  // (see the tally2 investigation), but piece counts always can be, so this
+  // compares today's count per type against that type's own recent history
+  // instead of an hourly rate.
+  h += '<div class="section animate"><div class="section-head">Trend vs Recent</div>';
+  h += '<div class="oee-note">Compares today\'s good pieces per type to its own average over the last ' + TREND_RECENT_DAYS + ' days it ran &mdash; new or rarely-run types show Not Enough History.</div>';
+  h += _trendTableHtml(typeRows, stdDailyTotalsByType);
   h += '</div>';
-  var chartRows = typeRows.filter(function(r){ return r.tpph && r.actualPph!==null; }).slice(0,12);
-  if (chartRows.length) {
-    h += '<div class="section animate"><div class="section-head">PPH comparison chart</div><div class="chart-box"><div class="chart-wrap"><canvas id="pphChart" role="img" aria-label="Actual vs target PPH"></canvas></div></div></div>';
-  }
 
   // Production goals legend
   h += '<div class="section animate" style="margin-bottom:1rem">';
@@ -1432,8 +1364,6 @@ function render(forceDate) {
     var mh = '<div class="section animate"><div class="section-head">By machine</div><div class="machine-grid">';
     keys.forEach(function(m) {
       var v = byMachine[m];
-      // pphGood/pphSec — same blended stop/go + tally-span rate as buildTypeRows.
-      var pph = v.pphSec > 60 ? Math.round(v.pphGood/(v.pphSec/3600)) : null;
       var defR = v.good+v.bad > 0 ? ((v.bad/(v.good+v.bad))*100).toFixed(1) : 0;
       var mGoals = PROD_GOALS.machines[m] || null;
       var mTier = mGoals ? prodTier(v.good, mGoals) : null;
@@ -1443,7 +1373,6 @@ function render(forceDate) {
       mh += '<div class="machine-name"><span class="dot ' + dot + '"></span>' + m + '</div>';
       if (mTier) mh += '<div style="margin-bottom:6px"><span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px;' + prodTierStyle(mTier) + '">' + prodTierLabel(mTier) + '</span></div>';
       mh += '<div class="machine-stat">Good: <span>' + v.good.toLocaleString() + '</span></div>';
-      if (pph!==null) mh += '<div class="machine-stat">Avg pph: <span>' + pph + '</span></div>';
       mh += '<div class="machine-stat">Hours: <span>' + (v.sec/3600).toFixed(1) + '</span></div>';
       if (parseFloat(defR)>0) mh += '<div class="machine-stat">Defects: <span>' + defR + '%</span></div>';
       if (mGoals) mh += goalBar(v.good, mGoals);
@@ -1480,16 +1409,21 @@ function render(forceDate) {
   }
   h += '</div>';
 
-  // PPH table — reusable so the Drinkware view can render its own version
-  function _pphTableHtml(rows) {
-    var th = '<div class="table-wrap"><table class="pph-table"><thead><tr><th>Piece type</th><th>Good pcs</th><th>Actual pph</th><th>Target pph</th><th>Vs target</th><th>Result</th></tr></thead><tbody>';
+  // Trend vs Recent table — reusable so the Drinkware view can render its own version.
+  function _trendTableHtml(rows, dailyMap) {
+    var th = '<div class="table-wrap"><table class="pph-table"><thead><tr><th>Piece type</th><th>Good pcs today</th><th>Recent avg</th><th>Vs recent</th></tr></thead><tbody>';
     rows.forEach(function(r) {
-      var actual = r.actualPph !== null ? Math.round(r.actualPph) : '&mdash;';
-      var p2 = r.tpph && r.actualPph!==null ? Math.min(140, Math.round((r.actualPph/r.tpph)*100)) : null;
-      var pill = r.result==='win'?'<span class="result-pill pill-win">&#10003; Win</span>':r.result==='miss'?'<span class="result-pill pill-miss">&#10007; Miss</span>':'<span class="result-pill pill-na">'+(r.hasTarget?'No Rate Data':'No Target')+'</span>';
-      var bar = p2!==null?'<div class="bar-wrap"><div class="bar-track"><div class="'+(r.result==='win'?'bar-fill-g':'bar-fill-r')+'" style="width:'+Math.min(100,p2)+'%"></div></div><span style="font-size:11px;font-weight:600;color:var(--muted)">'+p2+'%</span></div>':'&mdash;';
-      var typeCell = '<div>'+r.pt+'</div>' + (r.modeDetail ? '<div style="font-size:10px;color:var(--muted);font-weight:400;margin-top:2px">'+r.modeDetail+'</div>' : '');
-      th += '<tr><td>'+typeCell+'</td><td class="pph-num">'+r.good.toLocaleString()+'</td><td class="pph-num">'+actual+'</td><td class="pph-num">'+(r.tpph||'&mdash;')+'</td><td>'+bar+'</td><td>'+pill+'</td></tr>';
+      var trend = _recentTrendFor(dailyMap, r.pt);
+      if (!trend) {
+        th += '<tr><td>'+r.pt+'</td><td class="pph-num">'+r.good.toLocaleString()+'</td><td class="pph-num">&mdash;</td><td><span class="result-pill pill-na">Not Enough History</span></td></tr>';
+        return;
+      }
+      var pct = Math.round(r.good / trend.avg * 100);
+      var up = pct >= 110, down = pct <= 90;
+      var arrow = up ? '&#9650;' : down ? '&#9660;' : '&#9679;';
+      var color = up ? 'var(--green-dark)' : down ? 'var(--red)' : 'var(--muted)';
+      var vsCell = '<span style="font-weight:700;color:'+color+'">'+arrow+' '+pct+'%</span> <span style="font-size:10px;color:var(--muted)">('+trend.days+'d avg)</span>';
+      th += '<tr><td>'+r.pt+'</td><td class="pph-num">'+r.good.toLocaleString()+'</td><td class="pph-num">'+Math.round(trend.avg).toLocaleString()+'</td><td>'+vsCell+'</td></tr>';
     });
     th += '</tbody></table></div>';
     return th;
@@ -1543,12 +1477,12 @@ function render(forceDate) {
   var dwMachineKeys = Object.keys(byMachine).filter(function(m){ return _dailyGroupFor(m) === 'drinkware'; });
   h += _machineCardsHtml(dwMachineKeys);
   if (dwTypeRows.length) {
-    h += '<div class="section animate"><div class="section-head">Actual vs target &mdash; pieces per hour</div>';
-    h += '<div class="oee-note">Actual PPH uses stop/go or continuous run time where logged, or the tally start-to-end span otherwise &mdash; rows with no usable timing show No Rate Data.</div>';
-    h += _pphTableHtml(dwTypeRows);
+    h += '<div class="section animate"><div class="section-head">Trend vs Recent</div>';
+    h += '<div class="oee-note">Compares today\'s good pieces per type to its own average over the last ' + TREND_RECENT_DAYS + ' days it ran &mdash; new or rarely-run types show Not Enough History.</div>';
+    h += _trendTableHtml(dwTypeRows, dwDailyTotalsByType);
     h += '</div>';
   } else {
-    h += '<div class="section animate"><div class="section-head">Actual vs target &mdash; pieces per hour</div><div class="empty">No Drinkware production logged for this date</div></div>';
+    h += '<div class="section animate"><div class="section-head">Trend vs Recent</div><div class="empty">No Drinkware production logged for this date</div></div>';
   }
   h += _waitLogHtml(dwWaits);
   h += _incidentsHtml(dwIncidents);
@@ -1568,21 +1502,6 @@ function render(forceDate) {
 
   content.innerHTML = h;
   setDailyView(_dailyView);
-
-  // PPH chart
-  if (chartRows.length) {
-    var pc = document.getElementById('pphChart');
-    if (pc) {
-      pphChart = new Chart(pc, {
-        type: 'bar',
-        data: { labels: chartRows.map(function(r){ return r.pt.length>22?r.pt.slice(0,22)+'...':r.pt; }), datasets: [
-          { label: 'Actual pph', data: chartRows.map(function(r){ return Math.round(r.actualPph||0); }), backgroundColor: chartRows.map(function(r){ return r.result==='win'?'rgba(26,92,58,0.8)':'rgba(184,50,50,0.75)'; }), borderRadius: 3, borderSkipped: false },
-          { label: 'Target pph', data: chartRows.map(function(r){ return r.tpph; }), backgroundColor: 'rgba(26,92,58,0.12)', borderRadius: 3, borderSkipped: false, borderColor: 'rgba(26,92,58,0.35)', borderWidth: 1 }
-        ]},
-        options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#6b8577',font:{size:11}}}}, scales:{x:{ticks:{color:'#6b8577',font:{size:10},maxRotation:40},grid:{display:false}},y:{ticks:{color:'#6b8577'},grid:{color:'rgba(0,0,0,0.04)'}}}}
-      });
-    }
-  }
 }
 
 
