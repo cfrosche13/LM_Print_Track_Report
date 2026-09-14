@@ -487,7 +487,7 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     #daily-recap-print .dr-title { font-family: 'Lora', serif; font-size: 27px; font-weight: 700; color: var(--green-dark); }
     #daily-recap-print .dr-cards { display: flex; gap: 12px; margin-bottom: 0.25cm; }
     #daily-recap-print .dr-card { flex: 1; border: 1px solid #c8d8cc; border-top: 3px solid var(--green-dark); border-radius: 6px; padding: 6px 12px; }
-    #daily-recap-print .dr-card-label { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+    #daily-recap-print .dr-card-label { font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 3px; }
     #daily-recap-print .dr-card-num { font-family: 'Lora', serif; font-size: 25px; font-weight: 700; color: var(--green-dark); line-height: 1; }
     #daily-recap-print .dr-section-head { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--green-dark); margin: 0.25cm 0 0.15cm; padding-top: 0.12cm; border-top: 2px solid var(--green-dark); }
     /* Day/Night stacked (not side by side) — owner request 2026-09-16 — so each
@@ -5726,10 +5726,16 @@ function _buildDailyRecapHtml(date) {
   h += '<div class="dr-section-head">% to Plan</div>';
   h += '<div class="dr-shift-row">';
   ['day', 'night'].forEach(function(shift) {
+    // cache.byMachine is the WHOLE DAY's totals — using it here would show
+    // the exact same "actual" for both Day and Night shift blocks (found
+    // 2026-09-16: owner noticed the two shifts' numbers looked identical).
+    // _shiftScopedByMachine (already used by the Totals tab's Shift Summary
+    // report) filters to just this shift's AM/PM hour window instead.
+    var shiftByMachine = _shiftScopedByMachine(date, shift);
     var stdPlan = _resolvePlanForShiftGroup(date, shift, 'standard', null);
     var dwPlan  = _resolvePlanForShiftGroup(date, shift, 'drinkware', null);
-    var stdResult = buildPlanVsActual(stdPlan ? [stdPlan] : [], cache.byMachine, cache.downMachines, date);
-    var dwResult  = buildPlanVsActual(dwPlan ? [dwPlan] : [], cache.byMachine, {}, date);
+    var stdResult = buildPlanVsActual(stdPlan ? [stdPlan] : [], shiftByMachine, cache.downMachines, date);
+    var dwResult  = buildPlanVsActual(dwPlan ? [dwPlan] : [], shiftByMachine, {}, date);
     var shiftLabel = shift === 'night' ? '🌙 Night Shift' : '☀ Day Shift';
     h += '<div class="dr-shift-block">';
     h += '<div class="dr-shift-label">' + shiftLabel + '</div>';
@@ -5737,8 +5743,8 @@ function _buildDailyRecapHtml(date) {
     if (stdPlan || dwPlan) {
       var stdElapsed = _shiftElapsedFraction(date, shift, 'standard');
       var dwElapsed  = _shiftElapsedFraction(date, shift, 'drinkware');
-      var machineRows = _drMachineRows(stdPlan, GROUP_MACHINES.standard, cache.byMachine, cache.downMachines, stdElapsed)
-        .concat(_drMachineRows(dwPlan, GROUP_MACHINES.drinkware, cache.byMachine, {}, dwElapsed));
+      var machineRows = _drMachineRows(stdPlan, GROUP_MACHINES.standard, shiftByMachine, cache.downMachines, stdElapsed)
+        .concat(_drMachineRows(dwPlan, GROUP_MACHINES.drinkware, shiftByMachine, {}, dwElapsed));
       h += _drMachineTableHtml(machineRows);
     }
     h += '</div>';
