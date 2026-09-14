@@ -365,7 +365,7 @@ input[type="date"]:focus { border-color: var(--green-dark); }
   .report-print-bar-fill { height: 100%; }
 
   @media print {
-    @page { margin: 1cm; }
+    @page { margin: 0.75cm; }
 
     /* ── Default: print the Plan vs. Actual report tab ─────────────────────── */
     .topbar, .subnav, .report-controls, .footer, .page-head { display: none !important; }
@@ -476,41 +476,50 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     body.print-daily-recap #page-totals   { display: none !important; }
     body.print-daily-recap #page-settings { display: none !important; }
     body.print-daily-recap #daily-recap-print { display: block !important; }
-    #daily-recap-print .dr-header { margin-bottom: 0.5cm; padding-bottom: 0.25cm; border-bottom: 4px solid var(--green-dark); }
-    #daily-recap-print .dr-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--green-dark); margin-bottom: 3px; }
-    #daily-recap-print .dr-title { font-family: 'Lora', serif; font-size: 32px; font-weight: 700; color: var(--green-dark); }
-    #daily-recap-print .dr-cards { display: flex; gap: 14px; margin-bottom: 0.4cm; }
-    #daily-recap-print .dr-card { flex: 1; border: 1px solid #c8d8cc; border-top: 4px solid var(--green-dark); border-radius: 8px; padding: 8px 14px; }
-    #daily-recap-print .dr-card-label { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 3px; }
-    #daily-recap-print .dr-card-num { font-family: 'Lora', serif; font-size: 27px; font-weight: 700; color: var(--green-dark); line-height: 1; }
-    #daily-recap-print .dr-section-head { font-size: 14px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--green-dark); margin: 0.4cm 0 0.25cm; padding-top: 0.2cm; border-top: 3px solid var(--green-dark); }
+    /* Sizing tightened 2026-09-16 — a day with BOTH shifts' plans committed
+       (2 plan-cards + a 5-row machine table, twice, once per shift) was
+       overflowing to a 2nd page. Table font stays large (owner explicitly
+       asked for bigger per-machine numbers) — the cut is in padding/margins
+       throughout instead, which is what was actually driving the overflow
+       across many small elements added up, not any single font size. */
+    #daily-recap-print .dr-header { margin-bottom: 0.3cm; padding-bottom: 0.15cm; border-bottom: 3px solid var(--green-dark); }
+    #daily-recap-print .dr-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--green-dark); margin-bottom: 2px; }
+    #daily-recap-print .dr-title { font-family: 'Lora', serif; font-size: 27px; font-weight: 700; color: var(--green-dark); }
+    #daily-recap-print .dr-cards { display: flex; gap: 12px; margin-bottom: 0.25cm; }
+    #daily-recap-print .dr-card { flex: 1; border: 1px solid #c8d8cc; border-top: 3px solid var(--green-dark); border-radius: 6px; padding: 6px 12px; }
+    #daily-recap-print .dr-card-label { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+    #daily-recap-print .dr-card-num { font-family: 'Lora', serif; font-size: 25px; font-weight: 700; color: var(--green-dark); line-height: 1; }
+    #daily-recap-print .dr-section-head { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--green-dark); margin: 0.25cm 0 0.15cm; padding-top: 0.12cm; border-top: 2px solid var(--green-dark); }
     /* Day/Night stacked (not side by side) — owner request 2026-09-16 — so each
        shift gets the full page width to work with. */
-    #daily-recap-print .dr-shift-row { display: flex; flex-direction: column; gap: 0.35cm; }
-    #daily-recap-print .dr-shift-block { border: 1px solid var(--border); border-radius: 8px; padding: 12px 18px; }
-    #daily-recap-print .dr-shift-label { font-size: 19px; font-weight: 700; color: var(--text); margin-bottom: 8px; padding-bottom: 5px; border-bottom: 2px solid var(--green-light); }
-    #daily-recap-print .dr-plan-cards-row { display: flex; gap: 14px; margin-bottom: 8px; }
-    #daily-recap-print .dr-plan-card { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; text-align: center; }
-    #daily-recap-print .dr-plan-card-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 4px; }
+    #daily-recap-print .dr-shift-row { display: flex; flex-direction: column; gap: 0.2cm; }
+    #daily-recap-print .dr-shift-block { border: 1px solid var(--border); border-radius: 6px; padding: 8px 14px; }
+    #daily-recap-print .dr-shift-label { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 5px; padding-bottom: 3px; border-bottom: 2px solid var(--green-light); }
+    #daily-recap-print .dr-plan-cards-row { display: flex; gap: 10px; margin-bottom: 5px; }
+    #daily-recap-print .dr-plan-card { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; text-align: center; }
+    #daily-recap-print .dr-plan-card-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 2px; }
     /* Actual / expected shown as a scoreboard-style fraction (owner request
        2026-09-16) — big actual number, a rule, then the smaller expected
        number underneath, instead of "X of Y expected" prose. */
-    #daily-recap-print .dr-fraction-num { font-family: 'Lora', serif; font-size: 30px; font-weight: 700; color: var(--text); line-height: 1.1; }
-    #daily-recap-print .dr-fraction-line { width: 60px; height: 2px; background: var(--border); margin: 3px auto; }
-    #daily-recap-print .dr-fraction-den { font-size: 13px; color: var(--muted); }
+    #daily-recap-print .dr-fraction-num { font-family: 'Lora', serif; font-size: 24px; font-weight: 700; color: var(--text); line-height: 1.1; }
+    #daily-recap-print .dr-fraction-line { width: 50px; height: 2px; background: var(--border); margin: 2px auto; }
+    #daily-recap-print .dr-fraction-den { font-size: 12px; color: var(--muted); }
     #daily-recap-print .dr-muted { color: var(--muted); font-style: italic; }
-    #daily-recap-print .dr-plan-pct { display: inline-block; margin-top: 6px; font-size: 15px; font-weight: 700; padding: 3px 12px; border-radius: 14px; border: 1px solid; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-    #daily-recap-print .dr-machine-table { width: 100%; border-collapse: collapse; margin-top: 4px; font-size: 18px; }
-    #daily-recap-print .dr-machine-table th { text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 4px 8px; border-bottom: 1px solid var(--border); }
-    #daily-recap-print .dr-machine-table td { padding: 6px 8px; border-bottom: 1px solid #eee; font-weight: 600; }
+    #daily-recap-print .dr-plan-pct { display: inline-block; margin-top: 4px; font-size: 13px; font-weight: 700; padding: 2px 10px; border-radius: 12px; border: 1px solid; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    /* Per-machine table: keep the large 18px font (owner explicitly asked for
+       this to be bigger) — only padding/margin are trimmed here. */
+    #daily-recap-print .dr-machine-table { width: 100%; border-collapse: collapse; margin-top: 2px; font-size: 18px; }
+    #daily-recap-print .dr-machine-table th { text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 2px 8px; border-bottom: 1px solid var(--border); }
+    #daily-recap-print .dr-machine-table td { padding: 2px 8px; border-bottom: 1px solid #eee; font-weight: 600; }
     #daily-recap-print .dr-machine-table tr:last-child td { border-bottom: none; }
     #daily-recap-print .dr-num { text-align: right; }
-    #daily-recap-print .dr-ship-row { display: flex; gap: 16px; }
-    #daily-recap-print .dr-ship-tile { flex: 1; text-align: center; border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
-    #daily-recap-print .dr-ship-num { font-family: 'Lora', serif; font-size: 32px; font-weight: 700; color: var(--green-dark); }
-    #daily-recap-print .dr-ship-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-top: 5px; }
-    #daily-recap-print .dr-ship-exceptions { margin-top: 10px; font-size: 13px; font-weight: 600; color: var(--red); }
-    #daily-recap-print .dr-footer { margin-top: 0.7cm; font-size: 11px; color: var(--muted); text-align: right; }
+    #daily-recap-print .dr-ship-caption { font-size: 9px; color: var(--muted); font-style: italic; margin-bottom: 4px; }
+    #daily-recap-print .dr-ship-row { display: flex; gap: 12px; }
+    #daily-recap-print .dr-ship-tile { flex: 1; text-align: center; border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
+    #daily-recap-print .dr-ship-num { font-family: 'Lora', serif; font-size: 24px; font-weight: 700; color: var(--green-dark); }
+    #daily-recap-print .dr-ship-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-top: 3px; }
+    #daily-recap-print .dr-ship-exceptions { margin-top: 6px; font-size: 12px; font-weight: 600; color: var(--red); }
+    #daily-recap-print .dr-footer { margin-top: 0.35cm; font-size: 10px; color: var(--muted); text-align: right; }
   }
 </style>
 </head>
@@ -5737,29 +5746,34 @@ function _buildDailyRecapHtml(date) {
   h += '</div>';
 
   // Assembled/Sorted/Ready-to-Ship are a live "right now" snapshot with no
-  // per-date history (see the SHIPPING_STATUS declaration) — only honest to
-  // show when printing today. # Ship Confirmed (SHIP_CONFIRM) is different —
-  // it's written once per date by ship_confirm_sync.py, so it has real
-  // history and is shown for any date that has a record, live or not.
-  var todayStr = new Date().toISOString().slice(0, 10);
-  var isToday = date === todayStr;
+  // per-date history (see the SHIPPING_STATUS declaration) — there is no way
+  // to show *that date's* numbers for these three on a past date. Owner
+  // confirmed 2026-09-16 she wants them shown anyway on past-date recaps,
+  // understanding they'll be today's live snapshot rather than the printed
+  // date's actual numbers — so they're always shown when live data exists,
+  // clearly labeled "(Live)" and captioned, to avoid implying they're
+  // historical. # Ship Confirmed (SHIP_CONFIRM) is different — it's written
+  // once per date by ship_confirm_sync.py, so it has real history and always
+  // reflects the printed date specifically, live or not.
   var shipConfirmTotal = SHIP_CONFIRM[date] ? (SHIP_CONFIRM[date].total || 0) : null;
-  var hasLiveShipping = isToday && SHIPPING_STATUS && SHIPPING_STATUS.shiftBreakdown && SHIPPING_STATUS.shiftBreakdown.current;
-  if (hasLiveShipping || shipConfirmTotal != null) {
-    var sb = hasLiveShipping ? SHIPPING_STATUS.shiftBreakdown : null;
-    h += '<div class="dr-section-head">Shipping Recap' + (sb ? ' &mdash; ' + (sb.shift === 'night' ? 'Night Shift' : 'Day Shift') + ' (live)' : '') + '</div>';
+  var sb = (SHIPPING_STATUS && SHIPPING_STATUS.shiftBreakdown && SHIPPING_STATUS.shiftBreakdown.current) ? SHIPPING_STATUS.shiftBreakdown : null;
+  if (sb || shipConfirmTotal != null) {
+    h += '<div class="dr-section-head">Shipping Recap</div>';
+    if (sb) {
+      h += '<div class="dr-ship-caption">Assembled / Sorted / Ready to Ship are live as of printing (' + (sb.shift === 'night' ? 'Night' : 'Day') + ' Shift) &mdash; not specific to ' + dateLabel + '. # Ship Confirmed is ' + dateLabel + '\'s actual total.</div>';
+    }
     h += '<div class="dr-ship-row">';
     if (sb) {
       [['assembly','Assembled'], ['sorting','Sorted'], ['readyToShip','Ready to Ship']].forEach(function(pair) {
         var val = sb.current[pair[0]] || 0;
-        h += '<div class="dr-ship-tile"><div class="dr-ship-num">' + val.toLocaleString() + '</div><div class="dr-ship-label">' + pair[1] + '</div></div>';
+        h += '<div class="dr-ship-tile"><div class="dr-ship-num">' + val.toLocaleString() + '</div><div class="dr-ship-label">' + pair[1] + ' (Live)</div></div>';
       });
     }
     if (shipConfirmTotal != null) {
       h += '<div class="dr-ship-tile"><div class="dr-ship-num">' + shipConfirmTotal.toLocaleString() + '</div><div class="dr-ship-label"># Ship Confirmed</div></div>';
     }
     h += '</div>';
-    if (hasLiveShipping && SHIPPING_STATUS.exceptions && SHIPPING_STATUS.exceptions.count > 0) {
+    if (sb && SHIPPING_STATUS.exceptions && SHIPPING_STATUS.exceptions.count > 0) {
       h += '<div class="dr-ship-exceptions">&#9888; ' + SHIPPING_STATUS.exceptions.count + ' exception' + (SHIPPING_STATUS.exceptions.count!==1?'s':'') + ' flagged today (' + (SHIPPING_STATUS.exceptions.qty||0).toLocaleString() + ' pcs)</div>';
     }
   }
