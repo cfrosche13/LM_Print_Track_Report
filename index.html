@@ -512,6 +512,7 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     #daily-recap-print .dr-machine-table th { text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 2px 8px; border-bottom: 1px solid var(--border); }
     #daily-recap-print .dr-machine-table td { padding: 2px 8px; border-bottom: 1px solid #eee; font-weight: 600; }
     #daily-recap-print .dr-machine-table tr:last-child td { border-bottom: none; }
+    #daily-recap-print .dr-total-row td { font-weight: 800; background: var(--green-light); border-bottom: 2px solid var(--green-dark) !important; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
     #daily-recap-print .dr-num { text-align: right; }
     #daily-recap-print .dr-ship-caption { font-size: 9px; color: var(--muted); font-style: italic; margin-bottom: 4px; }
     #daily-recap-print .dr-ship-row { display: flex; gap: 12px; }
@@ -5673,14 +5674,15 @@ function _drMachineRows(plan, machines, byMachine, downMachines, elapsedFrac) {
 function _drMachineTableHtml(rows) {
   var th = '<table class="dr-machine-table"><thead><tr><th>Machine</th><th class="dr-num">Actual / Expected</th><th class="dr-num">%</th></tr></thead><tbody>';
   rows.forEach(function(r) {
+    var rowCls = r.isTotal ? ' class="dr-total-row"' : '';
     if (r.down) {
-      th += '<tr><td>' + r.machine + '</td><td colspan="2" class="dr-num dr-muted">Down</td></tr>';
+      th += '<tr' + rowCls + '><td>' + r.machine + '</td><td colspan="2" class="dr-num dr-muted">Down</td></tr>';
       return;
     }
     var pct = r.expectedNow > 0 ? Math.round(r.actual / r.expectedNow * 100) : null;
     var tier = pct != null ? _planPctTier(pct) : 'neutral';
     var tc = _tierColorVars(tier);
-    th += '<tr><td>' + r.machine + '</td><td class="dr-num">' + r.actual.toLocaleString() + ' / ' + r.expectedNow.toLocaleString() + '</td>'
+    th += '<tr' + rowCls + '><td>' + r.machine + '</td><td class="dr-num">' + r.actual.toLocaleString() + ' / ' + r.expectedNow.toLocaleString() + '</td>'
       + '<td class="dr-num" style="color:' + tc.fg + ';font-weight:700">' + (pct != null ? pct + '%' : '&mdash;') + '</td></tr>';
   });
   th += '</tbody></table>';
@@ -5743,8 +5745,19 @@ function _buildDailyRecapHtml(date) {
     if (stdPlan || dwPlan) {
       var stdElapsed = _shiftElapsedFraction(date, shift, 'standard');
       var dwElapsed  = _shiftElapsedFraction(date, shift, 'drinkware');
-      var machineRows = _drMachineRows(stdPlan, GROUP_MACHINES.standard, shiftByMachine, cache.downMachines, stdElapsed)
-        .concat(_drMachineRows(dwPlan, GROUP_MACHINES.drinkware, shiftByMachine, {}, dwElapsed));
+      // Bold "Total" row per group, right above its machines — same combined
+      // actual/expected/% already shown on the card above, but inline with
+      // the per-machine breakdown so it reads as one table (owner request
+      // 2026-09-16: totals and % on the same line as the machine rows).
+      var machineRows = [];
+      if (stdPlan) {
+        machineRows.push({ machine: 'Print Floor Total', actual: stdResult.totalActual||0, expectedNow: stdResult.totalExpectedNow||0, isTotal: true });
+        machineRows = machineRows.concat(_drMachineRows(stdPlan, GROUP_MACHINES.standard, shiftByMachine, cache.downMachines, stdElapsed));
+      }
+      if (dwPlan) {
+        machineRows.push({ machine: 'Drinkware Total', actual: dwResult.totalActual||0, expectedNow: dwResult.totalExpectedNow||0, isTotal: true });
+        machineRows = machineRows.concat(_drMachineRows(dwPlan, GROUP_MACHINES.drinkware, shiftByMachine, {}, dwElapsed));
+      }
       h += _drMachineTableHtml(machineRows);
     }
     h += '</div>';
