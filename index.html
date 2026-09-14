@@ -5687,32 +5687,41 @@ function buildPlanVsActual(plans, byMachine, downMachines, date) {
         return;
       }
 
-      var pct  = expectedNow > 0 ? Math.round(actual / expectedNow * 100) : (elapsedFrac === null ? null : 0);
-      var tier = pct != null ? _planPctTier(pct) : 'neutral';
+      // % to Plan (against the FULL-SHIFT target) is now the primary,
+      // color-driving number — Pace (against what's expected by now) is
+      // secondary, shown small at the bottom. These used to be blended into
+      // one "expected by now" number with the real plan target buried as
+      // tiny muted text; owner caught this 2026-09-14 (same fix already
+      // applied to the Daily Recap print report).
+      var planPct = target > 0 ? Math.round(actual / target * 100) : null;
+      var pacePct = expectedNow > 0 ? Math.round(actual / expectedNow * 100) : (elapsedFrac === null ? null : 0);
+      var tier = planPct != null ? _planPctTier(planPct) : 'neutral';
       var tc   = _tierColorVars(tier);
-      var barPct = pct != null ? Math.min(100, pct) : 0;
+      var barPct = planPct != null ? Math.min(100, planPct) : 0;
 
       html += '<div style="background:' + tc.bg + ';border:1px solid ' + tc.border + ';border-radius:6px;padding:10px 12px">';
       html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">';
       html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;color:' + tc.fg + '">Machine ' + m + '</div>';
-      html += '<div style="font-size:11px;font-weight:700;color:' + tc.fg + '">' + (pct != null ? pct + '%' : '—') + '</div>';
+      html += '<div style="font-size:11px;font-weight:700;color:' + tc.fg + '">' + (planPct != null ? planPct + '%' : '—') + '</div>';
       html += '</div>';
       html += '<div style="font-size:22px;font-weight:700;color:var(--text);line-height:1">' + actual.toLocaleString() + '</div>';
-      html += '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">of ' + expectedNow.toLocaleString() + ' expected by now &nbsp;(' + (pct != null ? pct + '%' : '—') + ')</div>';
+      html += '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">of ' + target.toLocaleString() + ' planned &nbsp;(' + (planPct != null ? planPct + '%' : '—') + ')</div>';
       html += '<div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:4px">';
       html += '<div style="height:100%;width:' + barPct + '%;background:' + tc.fg + ';border-radius:3px"></div></div>';
-      html += '<div style="font-size:10px;color:var(--muted)">Full-shift target: ' + target.toLocaleString() + ' &nbsp;&middot;&nbsp; Potential capacity: ' + potentialCap.toLocaleString() + '</div>';
+      html += '<div style="font-size:10px;color:var(--muted)">Pace: ' + (pacePct != null ? pacePct + '%' : '—') + ' (' + expectedNow.toLocaleString() + ' expected by now) &nbsp;&middot;&nbsp; Potential capacity: ' + potentialCap.toLocaleString() + '</div>';
       html += '</div>';
     });
 
     html += '</div>'; // grid
 
-    // Totals row
-    var totalPct  = planTotalExpected > 0 ? Math.round(planTotalActual / planTotalExpected * 100) : (elapsedFrac === null ? null : 0);
-    var totalTier = totalPct != null ? _planPctTier(totalPct) : 'neutral';
+    // Totals row — % to Plan (against the full-shift target) drives the
+    // tier/label now; Pace is secondary, same split as the per-machine cards.
+    var totalPlanPct = planTotalTarget > 0 ? Math.round(planTotalActual / planTotalTarget * 100) : null;
+    var totalPacePct = planTotalExpected > 0 ? Math.round(planTotalActual / planTotalExpected * 100) : (elapsedFrac === null ? null : 0);
+    var totalTier = totalPlanPct != null ? _planPctTier(totalPlanPct) : 'neutral';
     var totalTc   = _tierColorVars(totalTier);
     html += '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-top:0.875rem;padding-top:0.75rem;border-top:1px solid var(--border)">';
-    html += '<div style="font-size:12px;color:var(--muted)">Total: <strong style="color:var(--text)">' + planTotalActual.toLocaleString() + '</strong> of <strong style="color:var(--text)">' + planTotalExpected.toLocaleString() + '</strong> expected by now &nbsp;(' + (totalPct != null ? totalPct + '%' : '—') + ') &nbsp;&nbsp; full-shift target: ' + planTotalTarget.toLocaleString() + ' &nbsp;&nbsp; potential cap: ' + planTotalCap.toLocaleString() + '</div>';
+    html += '<div style="font-size:12px;color:var(--muted)">Total: <strong style="color:var(--text)">' + planTotalActual.toLocaleString() + '</strong> of <strong style="color:var(--text)">' + planTotalTarget.toLocaleString() + '</strong> planned &nbsp;(' + (totalPlanPct != null ? totalPlanPct + '%' : '—') + ') &nbsp;&nbsp; pace: ' + (totalPacePct != null ? totalPacePct + '%' : '—') + ' &nbsp;&nbsp; potential cap: ' + planTotalCap.toLocaleString() + '</div>';
     html += '<div style="font-size:12px;font-weight:700;color:' + totalTc.fg + '">' + (totalTier !== 'neutral' ? TIER_LABEL[totalTier] : '') + '</div>';
     html += '</div>';
 
