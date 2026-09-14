@@ -493,6 +493,11 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     #daily-recap-print .dr-plan-num { font-size: 11px; color: var(--muted); flex: 1; text-align: right; padding-right: 8px; }
     #daily-recap-print .dr-muted { color: var(--muted); font-style: italic; }
     #daily-recap-print .dr-plan-pct { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 10px; border: 1px solid; print-color-adjust: exact; -webkit-print-color-adjust: exact; min-width: 44px; text-align: center; }
+    #daily-recap-print .dr-machine-table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 10px; }
+    #daily-recap-print .dr-machine-table th { text-align: left; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 2px 4px; border-bottom: 1px solid var(--border); }
+    #daily-recap-print .dr-machine-table td { padding: 2px 4px; border-bottom: 1px solid #eee; }
+    #daily-recap-print .dr-machine-table tr:last-child td { border-bottom: none; }
+    #daily-recap-print .dr-num { text-align: right; }
     #daily-recap-print .dr-ship-row { display: flex; gap: 10px; }
     #daily-recap-print .dr-ship-tile { flex: 1; text-align: center; border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
     #daily-recap-print .dr-ship-num { font-family: 'Lora', serif; font-size: 20px; font-weight: 700; color: var(--green-dark); }
@@ -5626,6 +5631,37 @@ function buildPlanVsActual(plans, byMachine, downMachines, date) {
 // on-screen Plan vs Actual is), and (today only — see below) a live shipping
 // recap. Reuses _dailyRenderCache (set at the end of render()) instead of
 // re-running the session-aggregation loop for the viewed date.
+// Per-machine actual/expected-by-now for one plan (or no plan — machineLoad/
+// machineCap simply come back empty, so target/expectedNow are 0 for every
+// machine). Reuses _plannedQtyFromPlan for the same min(load,cap) target
+// formula buildPlanVsActual uses, rather than re-deriving it. Down machines
+// are flagged rather than scored, matching the on-screen Plan vs Actual.
+function _drMachineRows(plan, machines, byMachine, downMachines, elapsedFrac) {
+  return machines.map(function(m) {
+    var down = downMachines[m] === true;
+    var mUp = !plan || !plan.machineUp || plan.machineUp[m] !== false;
+    var target = (plan && !down && mUp) ? _plannedQtyFromPlan(plan, m) : 0;
+    var actual = (byMachine[m] && byMachine[m].good) || 0;
+    var expectedNow = elapsedFrac != null ? Math.round(target * elapsedFrac) : target;
+    return { machine: m, down: down, actual: actual, expectedNow: expectedNow };
+  });
+}
+function _drMachineTableHtml(rows) {
+  var th = '<table class="dr-machine-table"><thead><tr><th>Machine</th><th class="dr-num">Actual</th><th class="dr-num">Expected</th><th class="dr-num">%</th></tr></thead><tbody>';
+  rows.forEach(function(r) {
+    if (r.down) {
+      th += '<tr><td>' + r.machine + '</td><td colspan="3" class="dr-num dr-muted">Down</td></tr>';
+      return;
+    }
+    var pct = r.expectedNow > 0 ? Math.round(r.actual / r.expectedNow * 100) : null;
+    var tier = pct != null ? _planPctTier(pct) : 'neutral';
+    var tc = _tierColorVars(tier);
+    th += '<tr><td>' + r.machine + '</td><td class="dr-num">' + r.actual.toLocaleString() + '</td><td class="dr-num">' + r.expectedNow.toLocaleString() + '</td>'
+      + '<td class="dr-num" style="color:' + tc.fg + ';font-weight:700">' + (pct != null ? pct + '%' : '&mdash;') + '</td></tr>';
+  });
+  th += '</tbody></table>';
+  return th;
+}
 function _drPlanLine(label, result) {
   if (result.totalTarget == null) {
     return '<div class="dr-plan-line"><span class="dr-plan-label">' + label + '</span><span class="dr-plan-num dr-muted">No plan committed</span></div>';
@@ -5670,6 +5706,13 @@ function _buildDailyRecapHtml(date) {
     h += '<div class="dr-shift-label">' + shiftLabel + '</div>';
     h += _drPlanLine('Print Floor', stdResult);
     h += _drPlanLine('Drinkware', dwResult);
+    if (stdPlan || dwPlan) {
+      var stdElapsed = _shiftElapsedFraction(date, shift, 'standard');
+      var dwElapsed  = _shiftElapsedFraction(date, shift, 'drinkware');
+      var machineRows = _drMachineRows(stdPlan, GROUP_MACHINES.standard, cache.byMachine, cache.downMachines, stdElapsed)
+        .concat(_drMachineRows(dwPlan, GROUP_MACHINES.drinkware, cache.byMachine, {}, dwElapsed));
+      h += _drMachineTableHtml(machineRows);
+    }
     h += '</div>';
   });
   h += '</div>';
