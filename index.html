@@ -468,6 +468,37 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     #totals-combo-print .tc-table td { padding: 6px 10px; border-bottom: 1px solid #eee; }
     #totals-combo-print .tc-table .col-num { text-align: right; }
     #totals-combo-print .tc-section-head { font-size: 13px; font-weight: 700; color: var(--green-dark); margin: 1rem 0 6px; padding-top: 0.5rem; border-top: 2px solid var(--green-dark); }
+
+    /* ── body.print-daily-recap: single-page Daily Recap ───────────────────── */
+    body.print-daily-recap > * { display: none !important; }
+    body.print-daily-recap #page-report   { display: none !important; }
+    body.print-daily-recap #page-planner  { display: none !important; }
+    body.print-daily-recap #page-totals   { display: none !important; }
+    body.print-daily-recap #page-settings { display: none !important; }
+    body.print-daily-recap #daily-recap-print { display: block !important; }
+    #daily-recap-print .dr-header { margin-bottom: 0.5cm; padding-bottom: 0.3cm; border-bottom: 3px solid var(--green-dark); }
+    #daily-recap-print .dr-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--green-dark); margin-bottom: 2px; }
+    #daily-recap-print .dr-title { font-family: 'Lora', serif; font-size: 26px; font-weight: 700; color: var(--green-dark); }
+    #daily-recap-print .dr-cards { display: flex; gap: 10px; margin-bottom: 0.5cm; }
+    #daily-recap-print .dr-card { flex: 1; border: 1px solid #c8d8cc; border-top: 3px solid var(--green-dark); border-radius: 6px; padding: 10px 14px; }
+    #daily-recap-print .dr-card-label { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+    #daily-recap-print .dr-card-num { font-family: 'Lora', serif; font-size: 26px; font-weight: 700; color: var(--green-dark); line-height: 1; }
+    #daily-recap-print .dr-section-head { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--green-dark); margin: 0.4cm 0 0.2cm; padding-top: 0.2cm; border-top: 2px solid var(--green-dark); }
+    #daily-recap-print .dr-shift-row { display: flex; gap: 10px; }
+    #daily-recap-print .dr-shift-block { flex: 1; border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; }
+    #daily-recap-print .dr-shift-label { font-size: 12px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+    #daily-recap-print .dr-plan-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; border-top: 1px solid #eee; }
+    #daily-recap-print .dr-plan-line:first-of-type { border-top: none; }
+    #daily-recap-print .dr-plan-label { font-size: 11px; font-weight: 600; color: var(--text); min-width: 70px; }
+    #daily-recap-print .dr-plan-num { font-size: 11px; color: var(--muted); flex: 1; text-align: right; padding-right: 8px; }
+    #daily-recap-print .dr-muted { color: var(--muted); font-style: italic; }
+    #daily-recap-print .dr-plan-pct { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 10px; border: 1px solid; print-color-adjust: exact; -webkit-print-color-adjust: exact; min-width: 44px; text-align: center; }
+    #daily-recap-print .dr-ship-row { display: flex; gap: 10px; }
+    #daily-recap-print .dr-ship-tile { flex: 1; text-align: center; border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
+    #daily-recap-print .dr-ship-num { font-family: 'Lora', serif; font-size: 20px; font-weight: 700; color: var(--green-dark); }
+    #daily-recap-print .dr-ship-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-top: 2px; }
+    #daily-recap-print .dr-ship-exceptions { margin-top: 6px; font-size: 11px; font-weight: 600; color: var(--red); }
+    #daily-recap-print .dr-footer { margin-top: 0.6cm; font-size: 9px; color: var(--muted); text-align: right; }
   }
 </style>
 </head>
@@ -522,6 +553,8 @@ input[type="date"]:focus { border-color: var(--green-dark); }
       <button class="qbtn" onclick="jumpToToday()">Today</button>
       <button class="qbtn" onclick="jumpToYesterday()">Yesterday</button>
     </div>
+    <div class="divider"></div>
+    <button class="qbtn" onclick="printDailyRecap()" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark)">&#128424; Print Daily Recap</button>
 
   </div>
 
@@ -886,6 +919,13 @@ input[type="date"]:focus { border-color: var(--green-dark); }
 
 <script>
 var RAW = { sessions: {}, targets: {}, maint: [], wait: [], oeeParams: {}, shiftMin: 570 };
+// Live "right now" shipping snapshot (Collated/Assembled/Sorted/Ready to Ship),
+// synced by shipping_status_sync.py into Firebase path "shippingStatus" — the
+// same source the TV production dashboard reads. NOT part of RAW: it has no
+// per-date history (the sync script overwrites this one node every 5 min), so
+// it's only ever meaningful for TODAY, never a past date — see how the Daily
+// Recap print report gates on that below.
+var SHIPPING_STATUS = null;
 
 var SHIFT_SEC = RAW.shiftMin * 60;
 var OEE_MACHINES = ['30','30+','H5'];
@@ -1502,6 +1542,9 @@ function render(forceDate) {
 
   content.innerHTML = h;
   setDailyView(_dailyView);
+
+  _dailyRenderCache = { date: date, byMachine: byMachine, downMachines: _dailyDownMachines,
+    stdGood: stdGood, dwGood: dwGood, walletGood: walletGood };
 }
 
 
@@ -4748,6 +4791,11 @@ var _dailyDownMachines = {}; // { 'machine': true } — machines marked down for
 var _dailyDownDate = null;   // date _dailyDownMachines was last initialized for
 var _dailyPlanSourceOverride = {}; // { 'group:shift': 'regular'|'mid' } — explicit pick when both a morning plan and a midshift snapshot exist
 
+// Snapshot of the numbers render() just computed for the currently-viewed
+// date — lets the Daily Recap print button reuse them (byMachine, machine-
+// down state, group totals) without redoing the session-aggregation loop.
+var _dailyRenderCache = null;
+
 function commitPlan(slot) {
   if (!_currentPlanSnapshot) return;
   var shift = _currentPlanSnapshot.shift || 'day';
@@ -5569,6 +5617,91 @@ function buildPlanVsActual(plans, byMachine, downMachines, date) {
   });
 
   return { html: html, totalTarget: grandTotalTarget, totalActual: grandTotalActual, totalExpectedNow: grandTotalExpected };
+}
+
+// ── DAILY RECAP: one-page printable summary of a single day ────────────────
+// Owner request (2026-09-16): a single-sided sheet for reviewing a *past*
+// day's results — header, production totals, % to plan for both shifts
+// (reusing buildPlanVsActual, so it's automatically paced the same way the
+// on-screen Plan vs Actual is), and (today only — see below) a live shipping
+// recap. Reuses _dailyRenderCache (set at the end of render()) instead of
+// re-running the session-aggregation loop for the viewed date.
+function _drPlanLine(label, result) {
+  if (result.totalTarget == null) {
+    return '<div class="dr-plan-line"><span class="dr-plan-label">' + label + '</span><span class="dr-plan-num dr-muted">No plan committed</span></div>';
+  }
+  var pct = result.totalExpectedNow ? Math.round(result.totalActual / result.totalExpectedNow * 100) : null;
+  var tier = pct != null ? _planPctTier(pct) : 'neutral';
+  var tc = _tierColorVars(tier);
+  var pctText = pct != null ? pct + '%' : '&mdash;';
+  return '<div class="dr-plan-line">'
+    + '<span class="dr-plan-label">' + label + '</span>'
+    + '<span class="dr-plan-num">' + (result.totalActual||0).toLocaleString() + ' of ' + (result.totalExpectedNow||0).toLocaleString() + ' expected</span>'
+    + '<span class="dr-plan-pct" style="color:' + tc.fg + ';background:' + tc.bg + ';border-color:' + tc.border + '">' + pctText + '</span>'
+    + '</div>';
+}
+function _buildDailyRecapHtml(date) {
+  var cache = _dailyRenderCache;
+  if (!cache || cache.date !== date) return '<div class="empty">Select this date on Today\'s Results first, then print.</div>';
+
+  var dateLabel = new Date(date + 'T12:00:00').toLocaleDateString('en-US', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+  var h = '';
+
+  h += '<div class="dr-header">';
+  h += '<div class="dr-eyebrow">Evergreen Studio &middot; Daily Recap</div>';
+  h += '<div class="dr-title">' + dateLabel + '</div>';
+  h += '</div>';
+
+  h += '<div class="dr-cards">';
+  h += '<div class="dr-card"><div class="dr-card-label">Print Floor (30 + 30+ + H5)</div><div class="dr-card-num">' + cache.stdGood.toLocaleString() + '</div></div>';
+  h += '<div class="dr-card"><div class="dr-card-label">Drinkware (M1 + M2)</div><div class="dr-card-num">' + cache.dwGood.toLocaleString() + '</div></div>';
+  h += '<div class="dr-card"><div class="dr-card-label">Wallets</div><div class="dr-card-num">' + cache.walletGood.toLocaleString() + '</div></div>';
+  h += '</div>';
+
+  h += '<div class="dr-section-head">% to Plan</div>';
+  h += '<div class="dr-shift-row">';
+  ['day', 'night'].forEach(function(shift) {
+    var stdPlan = _resolvePlanForShiftGroup(date, shift, 'standard', null);
+    var dwPlan  = _resolvePlanForShiftGroup(date, shift, 'drinkware', null);
+    var stdResult = buildPlanVsActual(stdPlan ? [stdPlan] : [], cache.byMachine, cache.downMachines, date);
+    var dwResult  = buildPlanVsActual(dwPlan ? [dwPlan] : [], cache.byMachine, {}, date);
+    var shiftLabel = shift === 'night' ? '🌙 Night Shift' : '☀ Day Shift';
+    h += '<div class="dr-shift-block">';
+    h += '<div class="dr-shift-label">' + shiftLabel + '</div>';
+    h += _drPlanLine('Print Floor', stdResult);
+    h += _drPlanLine('Drinkware', dwResult);
+    h += '</div>';
+  });
+  h += '</div>';
+
+  // Shipping is a live "right now" snapshot with no per-date history (see the
+  // SHIPPING_STATUS declaration) — only honest to show when printing today.
+  var todayStr = new Date().toISOString().slice(0, 10);
+  if (date === todayStr && SHIPPING_STATUS && SHIPPING_STATUS.shiftBreakdown && SHIPPING_STATUS.shiftBreakdown.current) {
+    var sb = SHIPPING_STATUS.shiftBreakdown;
+    var shipShiftLabel = sb.shift === 'night' ? 'Night Shift' : 'Day Shift';
+    h += '<div class="dr-section-head">Shipping Recap &mdash; ' + shipShiftLabel + ' (live)</div>';
+    h += '<div class="dr-ship-row">';
+    [['collation','Collated'], ['assembly','Assembled'], ['sorting','Sorted'], ['readyToShip','Ready to Ship']].forEach(function(pair) {
+      var val = sb.current[pair[0]] || 0;
+      h += '<div class="dr-ship-tile"><div class="dr-ship-num">' + val.toLocaleString() + '</div><div class="dr-ship-label">' + pair[1] + '</div></div>';
+    });
+    h += '</div>';
+    if (SHIPPING_STATUS.exceptions && SHIPPING_STATUS.exceptions.count > 0) {
+      h += '<div class="dr-ship-exceptions">&#9888; ' + SHIPPING_STATUS.exceptions.count + ' exception' + (SHIPPING_STATUS.exceptions.count!==1?'s':'') + ' flagged today (' + (SHIPPING_STATUS.exceptions.qty||0).toLocaleString() + ' pcs)</div>';
+    }
+  }
+
+  h += '<div class="dr-footer">Printed ' + new Date().toLocaleString('en-US', {dateStyle:'medium', timeStyle:'short'}) + '</div>';
+  return h;
+}
+function printDailyRecap() {
+  var date = document.getElementById('datepicker').value;
+  if (!date) return;
+  document.getElementById('daily-recap-print').innerHTML = _buildDailyRecapHtml(date);
+  document.body.classList.add('print-daily-recap');
+  _printAs('EGStudio_DailyRecap_' + _mmddyy(date));
+  setTimeout(function() { document.body.classList.remove('print-daily-recap'); }, 500);
 }
 
 // ── TOTALS TAB: Shift Summary print report ────────────────────────────────
@@ -7427,6 +7560,9 @@ function fetchFirebaseData() {
   var machineBaselinePromise = firebase.database().ref('plannerSettings/machineBaselinePph').once('value')
     .then(function(s){ return s.val() || {}; })
     .catch(function(){ return {}; });
+  var shippingStatusPromise = firebase.database().ref('shippingStatus').once('value')
+    .then(function(s){ return s.val() || null; })
+    .catch(function(){ return null; });
   Promise.all([
     firebase.database().ref('sessions').once('value'),
     firebase.database().ref('targets').once('value'),
@@ -7434,7 +7570,8 @@ function fetchFirebaseData() {
     firebase.database().ref('waitLog').once('value'),
     oeeParamsPromise,
     plannerSettingsPromise,
-    machineBaselinePromise
+    machineBaselinePromise,
+    shippingStatusPromise
   ]).then(function(snaps) {
     var fbSessions  = snaps[0].val() || {};
     var fbTargets   = snaps[1].val() || {};
@@ -7443,6 +7580,7 @@ function fetchFirebaseData() {
     var fbOeeParams = snaps[4] || {};
     var fbPphOverrides = snaps[5] || {};
     var fbMachineBaseline = snaps[6] || {};
+    SHIPPING_STATUS = snaps[7] || null;
     // Apply Firebase PPH overrides on top of code defaults (Firebase wins over localStorage)
     if (Object.keys(fbPphOverrides).length) {
       Object.keys(fbPphOverrides).forEach(function(k) {
@@ -8106,6 +8244,7 @@ function renderSettings() {
 <!-- Print target for saved plan: direct child of body so parent display:none cannot hide it -->
 <div id="saved-plan-print" style="display:none"></div>
 <div id="totals-combo-print" style="display:none"></div>
+<div id="daily-recap-print" style="display:none"></div>
 <script>
 (function() {
   var img = document.querySelector('.topbar-brand img');

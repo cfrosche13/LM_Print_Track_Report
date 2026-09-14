@@ -51,6 +51,21 @@ browser to use it.
 - `RAW.shiftMin` — planned shift length in minutes (570 = 6:30 AM to 4:30 PM
   minus 30-min break).
 
+## SHIPPING_STATUS (not part of RAW — added 2026-09-16)
+A separate top-level global, fetched from Firebase path `shippingStatus` —
+the same live snapshot the TV production dashboard's Shipping view reads
+(synced by `LM_Production_Tracker`'s `shipping_status_sync.py` from a
+coworker's Postgres database). **Not part of `RAW`** and not date-scoped:
+`shipping_status_sync.py` overwrites this one Firebase node every 5 minutes
+with the current live state — there is no per-date history anywhere. It is
+only ever meaningful for *today*; using it for a past date would silently
+show today's numbers mislabeled as that date's. Shape: `{ collation, assembly,
+sorting, readyToShip }` (today's piece-type breakdown per station),
+`shiftBreakdown: { shift, current: {collation,assembly,sorting,readyToShip},
+previous: {...} }`, `exceptions: { count, qty }`, `updatedAt`. The Daily
+Recap print report (see below) gates its Shipping Recap section on
+`date === today` for exactly this reason — don't remove that gate.
+
 ## Machines
 - **30** — coir printer (larger pieces, slower cycle)
 - **30+** — coir and signs printer (faster, higher volume)
@@ -87,20 +102,42 @@ Examples: `Coir · 28x16 FC`, `Signs · Yard Sign`, `Non-Coir Mats · PVC`
 - Tally mode was introduced around April 15, 2026, replacing stop-go timing
   for some machines; by September 2026 the floor runs almost entirely on a
   newer `tally2` variant instead of plain `tally`. Neither variant has a
-  reliable `s`/`st`/`et` on any single session (see RAW.sessions notes above)
-  — actual-PPH for tally-family sessions is reconstructed per piece type from
-  the spread of `ts` values across that type's sessions that day (`render()`'s
-  main session-aggregation loop in index.html: `_newPphAgg`/`_pphAccum`/
-  `_pphFinalize`). Match tally-family modes with `m.indexOf('tally') === 0`,
-  never an exact `=== 'tally'`, or a new tally variant will silently break
-  PPH again the way `tally2` did.
-- **OEE (`calcOEE()`) has this same underlying data problem, not yet fixed**
-  (found 2026-09-10 investigating the PPH bug, out of scope for that fix):
-  it also prefers `st`/`et` and falls back to summing `s`/`totalSec` — for
-  tally-family sessions that means it's silently falling back to `count ×
-  60`, not real time either. Revisit if OEE numbers for a tally-heavy day
-  ever get questioned; the PPH fix's timestamp-spread-reconstruction
-  technique would apply the same way.
+  reliable `s`/`st`/`et` on any single session (see RAW.sessions notes above).
+  If matching tally-family modes anywhere, use `m.indexOf('tally') === 0`,
+  never an exact `=== 'tally'` — an exact match silently missed `tally2` once
+  already (2026-09-10) and broke a feature that depended on it.
+- **The daily report (index.html `render()`) does NOT compute a per-piece-type
+  PPH anymore** (removed 2026-09-14, after several rounds trying to make it
+  reliable — see git history around commits `2ed6efb`..`aa70ed9` for the full
+  saga). Piece-count-based rate targets can't be trusted for tally-tracked
+  production for the reason above, so "Actual vs target — pieces per hour"
+  was replaced with a "Trend vs Recent" section (today's count per piece type
+  vs. that type's own trailing-5-day average) — pure piece counts, no timing
+  math at all. Don't reintroduce a PPH table without discussing with the
+  owner first; this was a deliberate strategic pivot, not an oversight.
+- **OEE (`calcOEE()`) still has the tally-timing problem, not fixed** (found
+  2026-09-10, deliberately left alone when PPH was abandoned rather than
+  patched further): it prefers `st`/`et` and falls back to summing `s`/
+  `totalSec` — for tally-family sessions that's silently `count × 60`, not
+  real time. If OEE numbers for a tally-heavy day are ever questioned, the
+  likely first response now is the same one PPH got: consider whether OEE is
+  worth abandoning/de-emphasizing too, rather than another round of patching.
+
+## Daily Recap print report (added 2026-09-16)
+A single-page printable summary for one day, triggered by the "Print Daily
+Recap" button next to the datepicker on Today's Results (`printDailyRecap()`
+→ `_buildDailyRecapHtml(date)`, print target `#daily-recap-print`, CSS under
+`body.print-daily-recap`). Meant primarily for *past* days (unlike the live
+on-screen report, which is most useful for today). Contents: date/weekday
+header, Print Floor/Drinkware/Wallets piece totals, % to Plan for Day and
+Night shift (reuses `buildPlanVsActual` directly, so it inherits the same
+pacing behavior as the on-screen Plan vs Actual — a past day naturally shows
+its final ratio since elapsed time is 100%), and — today only — a live
+Shipping Recap from `SHIPPING_STATUS` (see above; gated to today because that
+data has no history). Reads `_dailyRenderCache` (set at the end of `render()`)
+rather than recomputing the session aggregation — the date must already be
+loaded on Today's Results before printing.
+
 ## Rules for Claude Code
 - Do not change the data structure or variable names in the `RAW` object.
 - Do not add external dependencies beyond Chart.js (already loaded from CDN).
