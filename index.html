@@ -1068,6 +1068,19 @@ function calcOEE(machine, date) {
 
 var pphChart = null;
 
+// A reconstructed tally-family PPH span needs at least this many distinct
+// save timestamps to be trusted. tally2 autosaves ~800ms after each count
+// change, so a piece an operator tallies in one quick burst (rather than
+// spread naturally through the shift) produces very few delta-sessions —
+// e.g. 2 sessions 8.4 minutes apart for 37 real pieces (found 2026-09-14),
+// where the gap between saves badly understates true elapsed time. This is
+// a genuine data limitation (the underlying app never records true
+// per-piece production time for tally-family sessions, only save bursts),
+// not something more code can fully correct — below this threshold, "No
+// Rate Data" is the honest answer, not a falsely-precise wrong number.
+// Shared by render()'s _pphFinalize and buildTypeRows' breakdown text.
+var MIN_TALLY_SAMPLES = 3;
+
 // Builds PPH win/loss rows for a set of piece types on a given date.
 // byTypeMap = { pieceType: {good,bad,sec} } scoped to whichever machine group is being scored.
 function buildTypeRows(byTypeMap) {
@@ -1094,7 +1107,7 @@ function buildTypeRows(byTypeMap) {
     var modeDetail = Object.keys(v.byMode || {}).map(function(mode) {
       var bm = v.byMode[mode];
       var mins = (bm.sec / 60).toFixed(1);
-      var note = bm.sec <= 0 ? ', no usable time' : '';
+      var note = bm.sec > 0 ? '' : (bm.isTally && bm.count > 0 && bm.count < MIN_TALLY_SAMPLES ? ', too few sessions to estimate' : ', no usable time');
       return mode + ': ' + bm.good.toLocaleString() + ' pcs / ' + mins + ' min (' + bm.count + ' session' + (bm.count!==1?'s':'') + note + ')';
     }).join('  &middot;  ');
     return { pt:pt, good:v.good, tpph:tpph, actualPph:actualPph, result:result, hasTarget: !!tpph, modeDetail: modeDetail };
@@ -1161,7 +1174,7 @@ function render(forceDate) {
   // reconstructed per piece type as (latest ts - earliest ts) across ALL its
   // tally-family sessions that day, not read from any single session.
   // Stamped (Wallets) sessions never contribute — no PPH concept there.
-  function _newPphAgg() { return { good:0, bad:0, sec:0, timedGood:0, timedSec:0, tallyGood:0, tallyMinTs:null, tallyMaxTs:null, byMode:{} }; }
+  function _newPphAgg() { return { good:0, bad:0, sec:0, timedGood:0, timedSec:0, tallyGood:0, tallyCount:0, tallyMinTs:null, tallyMaxTs:null, byMode:{} }; }
   function _pphAccum(agg, s) {
     var isTally = s.m && s.m.indexOf('tally') === 0;
     if (!agg.byMode[s.m]) agg.byMode[s.m] = { count:0, good:0, isTally:isTally, sec:0, minTs:null, maxTs:null };
@@ -1171,6 +1184,7 @@ function render(forceDate) {
       agg.tallyGood += s.g;
       var ts = s.ts ? new Date(s.ts).getTime() : null;
       if (ts != null && !isNaN(ts)) {
+        agg.tallyCount++;
         if (agg.tallyMinTs === null || ts < agg.tallyMinTs) agg.tallyMinTs = ts;
         if (agg.tallyMaxTs === null || ts > agg.tallyMaxTs) agg.tallyMaxTs = ts;
         if (bm.minTs === null || ts < bm.minTs) bm.minTs = ts;
@@ -1184,14 +1198,14 @@ function render(forceDate) {
   // Span capped at 16h as a sanity guard against a garbage/out-of-range
   // timestamp producing a wildly wrong duration.
   function _pphFinalize(agg) {
-    var tallySpanSec = (agg.tallyMinTs !== null && agg.tallyMaxTs > agg.tallyMinTs) ? (agg.tallyMaxTs - agg.tallyMinTs) / 1000 : 0;
+    var tallySpanSec = (agg.tallyCount >= MIN_TALLY_SAMPLES && agg.tallyMinTs !== null && agg.tallyMaxTs > agg.tallyMinTs) ? (agg.tallyMaxTs - agg.tallyMinTs) / 1000 : 0;
     if (tallySpanSec > 16 * 3600) tallySpanSec = 0;
     agg.pphGood = agg.timedGood + agg.tallyGood;
     agg.pphSec  = agg.timedSec  + tallySpanSec;
     Object.keys(agg.byMode).forEach(function(m) {
       var bm = agg.byMode[m];
       if (!bm.isTally) return;
-      bm.sec = (bm.minTs !== null && bm.maxTs > bm.minTs) ? (bm.maxTs - bm.minTs) / 1000 : 0;
+      bm.sec = (bm.count >= MIN_TALLY_SAMPLES && bm.minTs !== null && bm.maxTs > bm.minTs) ? (bm.maxTs - bm.minTs) / 1000 : 0;
       if (bm.sec > 16 * 3600) bm.sec = 0;
     });
   }
