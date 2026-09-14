@@ -498,21 +498,23 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     #daily-recap-print .dr-plan-cards-row { display: flex; gap: 10px; margin-bottom: 5px; }
     #daily-recap-print .dr-plan-card { flex: 1; background: var(--bg); border: 1px solid var(--border); border-top: 4px solid var(--border); border-radius: 6px; padding: 5px 10px; text-align: center; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
     #daily-recap-print .dr-plan-card-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 2px; }
-    /* Actual / expected shown as a scoreboard-style fraction (owner request
-       2026-09-16) — big actual number, a rule, then the smaller expected
-       number underneath, instead of "X of Y expected" prose. */
-    #daily-recap-print .dr-fraction-num { font-family: 'Lora', serif; font-size: 24px; font-weight: 700; color: var(--text); line-height: 1.1; }
-    #daily-recap-print .dr-fraction-line { width: 50px; height: 2px; background: var(--border); margin: 2px auto; }
-    #daily-recap-print .dr-fraction-den { font-size: 12px; color: var(--muted); }
+    /* Actual / expected shown as a scoreboard-style fraction — big actual
+       number and the % badge on one row, same size (owner request), then a
+       rule, then the expected number underneath, enlarged too (owner
+       request) instead of "X of Y expected" prose. */
+    #daily-recap-print .dr-fraction-top { display: flex; align-items: center; justify-content: center; gap: 12px; }
+    #daily-recap-print .dr-fraction-num { font-family: 'Lora', serif; font-size: 30px; font-weight: 700; color: var(--text); line-height: 1.1; }
+    #daily-recap-print .dr-fraction-line { width: 50px; height: 2px; background: var(--border); margin: 3px auto; }
+    #daily-recap-print .dr-fraction-den { font-size: 13px; color: var(--muted); }
+    #daily-recap-print .dr-fraction-den-num { font-family: 'Lora', serif; font-size: 20px; font-weight: 700; color: var(--text); }
     #daily-recap-print .dr-muted { color: var(--muted); font-style: italic; }
-    #daily-recap-print .dr-plan-pct { display: inline-block; margin-top: 4px; font-size: 13px; font-weight: 700; padding: 2px 10px; border-radius: 12px; border: 1px solid; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    #daily-recap-print .dr-plan-pct { display: inline-block; font-family: 'Lora', serif; font-size: 30px; font-weight: 700; line-height: 1.1; padding: 0 10px; border-radius: 10px; border: 1px solid; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
     /* Per-machine table: keep the large 18px font (owner explicitly asked for
        this to be bigger) — only padding/margin are trimmed here. */
     #daily-recap-print .dr-machine-table { width: 100%; border-collapse: collapse; margin-top: 2px; font-size: 18px; }
     #daily-recap-print .dr-machine-table th { text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 2px 8px; border-bottom: 1px solid var(--border); }
     #daily-recap-print .dr-machine-table td { padding: 2px 8px; border-bottom: 1px solid #eee; font-weight: 600; }
     #daily-recap-print .dr-machine-table tr:last-child td { border-bottom: none; }
-    #daily-recap-print .dr-total-row td { font-weight: 800; background: var(--green-light); border-bottom: 2px solid var(--green-dark) !important; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
     #daily-recap-print .dr-num { text-align: right; }
     #daily-recap-print .dr-ship-caption { font-size: 9px; color: var(--muted); font-style: italic; margin-bottom: 4px; }
     #daily-recap-print .dr-ship-row { display: flex; gap: 12px; }
@@ -5545,6 +5547,14 @@ function buildPlanVsActual(plans, byMachine, downMachines, date) {
     // full-shift target with a neutral (un-scored) tier.
     var elapsedFrac = date ? _shiftElapsedFraction(date, shiftKey, group) : 1;
 
+    // Self-derive this plan's own shift's actuals rather than trusting the
+    // passed-in byMachine, which is the WHOLE DAY's totals — with both a Day
+    // and Night plan in `plans`, using the same whole-day byMachine for both
+    // made their "actual" identical (found 2026-09-16 in the Daily Recap,
+    // same bug existed here on the on-screen Plan vs Actual — fixed here too
+    // so every caller gets it for free).
+    var scopedByMachine = date ? _shiftScopedByMachine(date, shiftKey) : byMachine;
+
     var midBadgeHtml = plan._planSource === 'mid'
       ? ' <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-border);vertical-align:middle">📸 Midshift Snapshot</span>'
       : '';
@@ -5579,7 +5589,7 @@ function buildPlanVsActual(plans, byMachine, downMachines, date) {
       var potentialCap = plan.machineActualCap ? (plan.machineActualCap[m] || plan.machineCap[m] || 0) : (plan.machineCap ? plan.machineCap[m] || 0 : 0);
       // Target = what we expected to complete over the full shift = min(load, capacity)
       var target = (!machineDown && mUp) ? Math.min(plannedLoad, potentialCap) : 0;
-      var actual = byMachine[m] ? byMachine[m].good : 0;
+      var actual = scopedByMachine[m] ? scopedByMachine[m].good : 0;
       // Expected-by-now = target scaled down by how much of the shift has elapsed.
       var expectedNow = elapsedFrac != null ? Math.round(target * elapsedFrac) : target;
 
@@ -5674,15 +5684,14 @@ function _drMachineRows(plan, machines, byMachine, downMachines, elapsedFrac) {
 function _drMachineTableHtml(rows) {
   var th = '<table class="dr-machine-table"><thead><tr><th>Machine</th><th class="dr-num">Actual / Expected</th><th class="dr-num">%</th></tr></thead><tbody>';
   rows.forEach(function(r) {
-    var rowCls = r.isTotal ? ' class="dr-total-row"' : '';
     if (r.down) {
-      th += '<tr' + rowCls + '><td>' + r.machine + '</td><td colspan="2" class="dr-num dr-muted">Down</td></tr>';
+      th += '<tr><td>' + r.machine + '</td><td colspan="2" class="dr-num dr-muted">Down</td></tr>';
       return;
     }
     var pct = r.expectedNow > 0 ? Math.round(r.actual / r.expectedNow * 100) : null;
     var tier = pct != null ? _planPctTier(pct) : 'neutral';
     var tc = _tierColorVars(tier);
-    th += '<tr' + rowCls + '><td>' + r.machine + '</td><td class="dr-num">' + r.actual.toLocaleString() + ' / ' + r.expectedNow.toLocaleString() + '</td>'
+    th += '<tr><td>' + r.machine + '</td><td class="dr-num">' + r.actual.toLocaleString() + ' / ' + r.expectedNow.toLocaleString() + '</td>'
       + '<td class="dr-num" style="color:' + tc.fg + ';font-weight:700">' + (pct != null ? pct + '%' : '&mdash;') + '</td></tr>';
   });
   th += '</tbody></table>';
@@ -5699,16 +5708,19 @@ function _drPlanCard(label, result) {
   var pct = expected ? Math.round(actual / expected * 100) : null;
   var tier = pct != null ? _planPctTier(pct) : 'neutral';
   var tc = _tierColorVars(tier);
-  // Card itself now carries the tier color (background tint + a colored top
-  // accent stripe, matching the .dr-total-row treatment in the table below)
-  // so it stands out at a glance, not just the small % pill — owner request
-  // 2026-09-16.
+  // Card itself carries the tier color (background tint + a colored top
+  // accent stripe) so it stands out at a glance, not just the % badge.
+  // Actual number and % badge sit side by side on one row, same size (owner
+  // request) — the group Total row that used to live in the machine table
+  // below was removed, so this card is now the sole place these totals show.
   return '<div class="dr-plan-card" style="background:' + tc.bg + ';border-color:' + tc.border + ';border-top-color:' + tc.fg + '">'
     + '<div class="dr-plan-card-label">' + label + '</div>'
-    + '<div class="dr-fraction-num">' + actual.toLocaleString() + '</div>'
+    + '<div class="dr-fraction-top">'
+      + '<div class="dr-fraction-num">' + actual.toLocaleString() + '</div>'
+      + '<div class="dr-plan-pct" style="color:#fff;background:' + tc.fg + ';border-color:' + tc.fg + '">' + (pct!=null?pct+'%':'&mdash;') + '</div>'
+    + '</div>'
     + '<div class="dr-fraction-line"></div>'
-    + '<div class="dr-fraction-den">' + expected.toLocaleString() + ' expected</div>'
-    + '<div class="dr-plan-pct" style="color:#fff;background:' + tc.fg + ';border-color:' + tc.fg + '">' + (pct!=null?pct+'%':'&mdash;') + '</div>'
+    + '<div class="dr-fraction-den"><span class="dr-fraction-den-num">' + expected.toLocaleString() + '</span> expected</div>'
     + '</div>';
 }
 function _buildDailyRecapHtml(date) {
@@ -5749,17 +5761,14 @@ function _buildDailyRecapHtml(date) {
     if (stdPlan || dwPlan) {
       var stdElapsed = _shiftElapsedFraction(date, shift, 'standard');
       var dwElapsed  = _shiftElapsedFraction(date, shift, 'drinkware');
-      // Bold "Total" row per group, right above its machines — same combined
-      // actual/expected/% already shown on the card above, but inline with
-      // the per-machine breakdown so it reads as one table (owner request
-      // 2026-09-16: totals and % on the same line as the machine rows).
+      // No group Total row here anymore (removed per owner request — the
+      // plan cards above already show the same combined actual/expected/%,
+      // so the table stays pure per-machine detail).
       var machineRows = [];
       if (stdPlan) {
-        machineRows.push({ machine: 'Print Floor Total', actual: stdResult.totalActual||0, expectedNow: stdResult.totalExpectedNow||0, isTotal: true });
         machineRows = machineRows.concat(_drMachineRows(stdPlan, GROUP_MACHINES.standard, shiftByMachine, cache.downMachines, stdElapsed));
       }
       if (dwPlan) {
-        machineRows.push({ machine: 'Drinkware Total', actual: dwResult.totalActual||0, expectedNow: dwResult.totalExpectedNow||0, isTotal: true });
         machineRows = machineRows.concat(_drMachineRows(dwPlan, GROUP_MACHINES.drinkware, shiftByMachine, {}, dwElapsed));
       }
       h += _drMachineTableHtml(machineRows);
