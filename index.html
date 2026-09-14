@@ -476,34 +476,41 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     body.print-daily-recap #page-totals   { display: none !important; }
     body.print-daily-recap #page-settings { display: none !important; }
     body.print-daily-recap #daily-recap-print { display: block !important; }
-    #daily-recap-print .dr-header { margin-bottom: 0.5cm; padding-bottom: 0.3cm; border-bottom: 3px solid var(--green-dark); }
-    #daily-recap-print .dr-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--green-dark); margin-bottom: 2px; }
-    #daily-recap-print .dr-title { font-family: 'Lora', serif; font-size: 26px; font-weight: 700; color: var(--green-dark); }
-    #daily-recap-print .dr-cards { display: flex; gap: 10px; margin-bottom: 0.5cm; }
-    #daily-recap-print .dr-card { flex: 1; border: 1px solid #c8d8cc; border-top: 3px solid var(--green-dark); border-radius: 6px; padding: 10px 14px; }
-    #daily-recap-print .dr-card-label { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
-    #daily-recap-print .dr-card-num { font-family: 'Lora', serif; font-size: 26px; font-weight: 700; color: var(--green-dark); line-height: 1; }
-    #daily-recap-print .dr-section-head { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--green-dark); margin: 0.4cm 0 0.2cm; padding-top: 0.2cm; border-top: 2px solid var(--green-dark); }
-    #daily-recap-print .dr-shift-row { display: flex; gap: 10px; }
-    #daily-recap-print .dr-shift-block { flex: 1; border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; }
-    #daily-recap-print .dr-shift-label { font-size: 12px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
-    #daily-recap-print .dr-plan-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; border-top: 1px solid #eee; }
-    #daily-recap-print .dr-plan-line:first-of-type { border-top: none; }
-    #daily-recap-print .dr-plan-label { font-size: 11px; font-weight: 600; color: var(--text); min-width: 70px; }
-    #daily-recap-print .dr-plan-num { font-size: 11px; color: var(--muted); flex: 1; text-align: right; padding-right: 8px; }
+    #daily-recap-print .dr-header { margin-bottom: 0.5cm; padding-bottom: 0.25cm; border-bottom: 4px solid var(--green-dark); }
+    #daily-recap-print .dr-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--green-dark); margin-bottom: 3px; }
+    #daily-recap-print .dr-title { font-family: 'Lora', serif; font-size: 32px; font-weight: 700; color: var(--green-dark); }
+    #daily-recap-print .dr-cards { display: flex; gap: 14px; margin-bottom: 0.5cm; }
+    #daily-recap-print .dr-card { flex: 1; border: 1px solid #c8d8cc; border-top: 4px solid var(--green-dark); border-radius: 8px; padding: 10px 16px; }
+    #daily-recap-print .dr-card-label { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+    #daily-recap-print .dr-card-num { font-family: 'Lora', serif; font-size: 38px; font-weight: 700; color: var(--green-dark); line-height: 1; }
+    #daily-recap-print .dr-section-head { font-size: 14px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--green-dark); margin: 0.4cm 0 0.25cm; padding-top: 0.2cm; border-top: 3px solid var(--green-dark); }
+    /* Day/Night stacked (not side by side) — owner request 2026-09-16 — so each
+       shift gets the full page width to work with. */
+    #daily-recap-print .dr-shift-row { display: flex; flex-direction: column; gap: 0.35cm; }
+    #daily-recap-print .dr-shift-block { border: 1px solid var(--border); border-radius: 8px; padding: 12px 18px; }
+    #daily-recap-print .dr-shift-label { font-size: 19px; font-weight: 700; color: var(--text); margin-bottom: 8px; padding-bottom: 5px; border-bottom: 2px solid var(--green-light); }
+    #daily-recap-print .dr-plan-cards-row { display: flex; gap: 14px; margin-bottom: 8px; }
+    #daily-recap-print .dr-plan-card { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; text-align: center; }
+    #daily-recap-print .dr-plan-card-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 4px; }
+    /* Actual / expected shown as a scoreboard-style fraction (owner request
+       2026-09-16) — big actual number, a rule, then the smaller expected
+       number underneath, instead of "X of Y expected" prose. */
+    #daily-recap-print .dr-fraction-num { font-family: 'Lora', serif; font-size: 30px; font-weight: 700; color: var(--text); line-height: 1.1; }
+    #daily-recap-print .dr-fraction-line { width: 60px; height: 2px; background: var(--border); margin: 3px auto; }
+    #daily-recap-print .dr-fraction-den { font-size: 13px; color: var(--muted); }
     #daily-recap-print .dr-muted { color: var(--muted); font-style: italic; }
-    #daily-recap-print .dr-plan-pct { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 10px; border: 1px solid; print-color-adjust: exact; -webkit-print-color-adjust: exact; min-width: 44px; text-align: center; }
-    #daily-recap-print .dr-machine-table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 10px; }
-    #daily-recap-print .dr-machine-table th { text-align: left; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 2px 4px; border-bottom: 1px solid var(--border); }
-    #daily-recap-print .dr-machine-table td { padding: 2px 4px; border-bottom: 1px solid #eee; }
+    #daily-recap-print .dr-plan-pct { display: inline-block; margin-top: 6px; font-size: 15px; font-weight: 700; padding: 3px 12px; border-radius: 14px; border: 1px solid; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    #daily-recap-print .dr-machine-table { width: 100%; border-collapse: collapse; margin-top: 4px; font-size: 13px; }
+    #daily-recap-print .dr-machine-table th { text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 3px 8px; border-bottom: 1px solid var(--border); }
+    #daily-recap-print .dr-machine-table td { padding: 3px 8px; border-bottom: 1px solid #eee; font-weight: 600; }
     #daily-recap-print .dr-machine-table tr:last-child td { border-bottom: none; }
     #daily-recap-print .dr-num { text-align: right; }
-    #daily-recap-print .dr-ship-row { display: flex; gap: 10px; }
-    #daily-recap-print .dr-ship-tile { flex: 1; text-align: center; border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
-    #daily-recap-print .dr-ship-num { font-family: 'Lora', serif; font-size: 20px; font-weight: 700; color: var(--green-dark); }
-    #daily-recap-print .dr-ship-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-top: 2px; }
-    #daily-recap-print .dr-ship-exceptions { margin-top: 6px; font-size: 11px; font-weight: 600; color: var(--red); }
-    #daily-recap-print .dr-footer { margin-top: 0.6cm; font-size: 9px; color: var(--muted); text-align: right; }
+    #daily-recap-print .dr-ship-row { display: flex; gap: 16px; }
+    #daily-recap-print .dr-ship-tile { flex: 1; text-align: center; border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+    #daily-recap-print .dr-ship-num { font-family: 'Lora', serif; font-size: 32px; font-weight: 700; color: var(--green-dark); }
+    #daily-recap-print .dr-ship-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-top: 5px; }
+    #daily-recap-print .dr-ship-exceptions { margin-top: 10px; font-size: 13px; font-weight: 600; color: var(--red); }
+    #daily-recap-print .dr-footer { margin-top: 0.7cm; font-size: 11px; color: var(--muted); text-align: right; }
   }
 </style>
 </head>
@@ -931,6 +938,12 @@ var RAW = { sessions: {}, targets: {}, maint: [], wait: [], oeeParams: {}, shift
 // it's only ever meaningful for TODAY, never a past date — see how the Daily
 // Recap print report gates on that below.
 var SHIPPING_STATUS = null;
+// Confirmed-shipped totals, keyed by date — synced by ship_confirm_sync.py
+// into Firebase path "shipConfirm/{date}" (one record per day, unlike
+// shippingStatus above). Has real per-date history, so — unlike the other
+// shipping numbers — this one is safe to show on a past date's Daily Recap.
+// Shape: { [date]: { total, rows, byHour, sourceFile, updatedAt } }.
+var SHIP_CONFIRM = {};
 
 var SHIFT_SEC = RAW.shiftMin * 60;
 var OEE_MACHINES = ['30','30+','H5'];
@@ -5646,34 +5659,41 @@ function _drMachineRows(plan, machines, byMachine, downMachines, elapsedFrac) {
     return { machine: m, down: down, actual: actual, expectedNow: expectedNow };
   });
 }
+// actual/expected shown as a compact inline fraction ("1,234 / 1,100") —
+// owner request 2026-09-16 — rather than two separate table columns.
 function _drMachineTableHtml(rows) {
-  var th = '<table class="dr-machine-table"><thead><tr><th>Machine</th><th class="dr-num">Actual</th><th class="dr-num">Expected</th><th class="dr-num">%</th></tr></thead><tbody>';
+  var th = '<table class="dr-machine-table"><thead><tr><th>Machine</th><th class="dr-num">Actual / Expected</th><th class="dr-num">%</th></tr></thead><tbody>';
   rows.forEach(function(r) {
     if (r.down) {
-      th += '<tr><td>' + r.machine + '</td><td colspan="3" class="dr-num dr-muted">Down</td></tr>';
+      th += '<tr><td>' + r.machine + '</td><td colspan="2" class="dr-num dr-muted">Down</td></tr>';
       return;
     }
     var pct = r.expectedNow > 0 ? Math.round(r.actual / r.expectedNow * 100) : null;
     var tier = pct != null ? _planPctTier(pct) : 'neutral';
     var tc = _tierColorVars(tier);
-    th += '<tr><td>' + r.machine + '</td><td class="dr-num">' + r.actual.toLocaleString() + '</td><td class="dr-num">' + r.expectedNow.toLocaleString() + '</td>'
+    th += '<tr><td>' + r.machine + '</td><td class="dr-num">' + r.actual.toLocaleString() + ' / ' + r.expectedNow.toLocaleString() + '</td>'
       + '<td class="dr-num" style="color:' + tc.fg + ';font-weight:700">' + (pct != null ? pct + '%' : '&mdash;') + '</td></tr>';
   });
   th += '</tbody></table>';
   return th;
 }
-function _drPlanLine(label, result) {
+// Big scoreboard-style fraction (actual over a rule over expected) + a % pill
+// — owner request 2026-09-16: "larger" numbers, shown as a fraction, for the
+// Print Floor / Drinkware summary (replaces the old single-line "X of Y" text).
+function _drPlanCard(label, result) {
   if (result.totalTarget == null) {
-    return '<div class="dr-plan-line"><span class="dr-plan-label">' + label + '</span><span class="dr-plan-num dr-muted">No plan committed</span></div>';
+    return '<div class="dr-plan-card"><div class="dr-plan-card-label">' + label + '</div><div class="dr-muted" style="font-size:13px;margin-top:14px">No plan committed</div></div>';
   }
-  var pct = result.totalExpectedNow ? Math.round(result.totalActual / result.totalExpectedNow * 100) : null;
+  var actual = result.totalActual || 0, expected = result.totalExpectedNow || 0;
+  var pct = expected ? Math.round(actual / expected * 100) : null;
   var tier = pct != null ? _planPctTier(pct) : 'neutral';
   var tc = _tierColorVars(tier);
-  var pctText = pct != null ? pct + '%' : '&mdash;';
-  return '<div class="dr-plan-line">'
-    + '<span class="dr-plan-label">' + label + '</span>'
-    + '<span class="dr-plan-num">' + (result.totalActual||0).toLocaleString() + ' of ' + (result.totalExpectedNow||0).toLocaleString() + ' expected</span>'
-    + '<span class="dr-plan-pct" style="color:' + tc.fg + ';background:' + tc.bg + ';border-color:' + tc.border + '">' + pctText + '</span>'
+  return '<div class="dr-plan-card">'
+    + '<div class="dr-plan-card-label">' + label + '</div>'
+    + '<div class="dr-fraction-num">' + actual.toLocaleString() + '</div>'
+    + '<div class="dr-fraction-line"></div>'
+    + '<div class="dr-fraction-den">' + expected.toLocaleString() + ' expected</div>'
+    + '<div class="dr-plan-pct" style="color:' + tc.fg + ';background:' + tc.bg + ';border-color:' + tc.border + '">' + (pct!=null?pct+'%':'&mdash;') + '</div>'
     + '</div>';
 }
 function _buildDailyRecapHtml(date) {
@@ -5704,8 +5724,7 @@ function _buildDailyRecapHtml(date) {
     var shiftLabel = shift === 'night' ? '🌙 Night Shift' : '☀ Day Shift';
     h += '<div class="dr-shift-block">';
     h += '<div class="dr-shift-label">' + shiftLabel + '</div>';
-    h += _drPlanLine('Print Floor', stdResult);
-    h += _drPlanLine('Drinkware', dwResult);
+    h += '<div class="dr-plan-cards-row">' + _drPlanCard('Print Floor', stdResult) + _drPlanCard('Drinkware', dwResult) + '</div>';
     if (stdPlan || dwPlan) {
       var stdElapsed = _shiftElapsedFraction(date, shift, 'standard');
       var dwElapsed  = _shiftElapsedFraction(date, shift, 'drinkware');
@@ -5717,20 +5736,30 @@ function _buildDailyRecapHtml(date) {
   });
   h += '</div>';
 
-  // Shipping is a live "right now" snapshot with no per-date history (see the
-  // SHIPPING_STATUS declaration) — only honest to show when printing today.
+  // Assembled/Sorted/Ready-to-Ship are a live "right now" snapshot with no
+  // per-date history (see the SHIPPING_STATUS declaration) — only honest to
+  // show when printing today. # Ship Confirmed (SHIP_CONFIRM) is different —
+  // it's written once per date by ship_confirm_sync.py, so it has real
+  // history and is shown for any date that has a record, live or not.
   var todayStr = new Date().toISOString().slice(0, 10);
-  if (date === todayStr && SHIPPING_STATUS && SHIPPING_STATUS.shiftBreakdown && SHIPPING_STATUS.shiftBreakdown.current) {
-    var sb = SHIPPING_STATUS.shiftBreakdown;
-    var shipShiftLabel = sb.shift === 'night' ? 'Night Shift' : 'Day Shift';
-    h += '<div class="dr-section-head">Shipping Recap &mdash; ' + shipShiftLabel + ' (live)</div>';
+  var isToday = date === todayStr;
+  var shipConfirmTotal = SHIP_CONFIRM[date] ? (SHIP_CONFIRM[date].total || 0) : null;
+  var hasLiveShipping = isToday && SHIPPING_STATUS && SHIPPING_STATUS.shiftBreakdown && SHIPPING_STATUS.shiftBreakdown.current;
+  if (hasLiveShipping || shipConfirmTotal != null) {
+    var sb = hasLiveShipping ? SHIPPING_STATUS.shiftBreakdown : null;
+    h += '<div class="dr-section-head">Shipping Recap' + (sb ? ' &mdash; ' + (sb.shift === 'night' ? 'Night Shift' : 'Day Shift') + ' (live)' : '') + '</div>';
     h += '<div class="dr-ship-row">';
-    [['collation','Collated'], ['assembly','Assembled'], ['sorting','Sorted'], ['readyToShip','Ready to Ship']].forEach(function(pair) {
-      var val = sb.current[pair[0]] || 0;
-      h += '<div class="dr-ship-tile"><div class="dr-ship-num">' + val.toLocaleString() + '</div><div class="dr-ship-label">' + pair[1] + '</div></div>';
-    });
+    if (sb) {
+      [['assembly','Assembled'], ['sorting','Sorted'], ['readyToShip','Ready to Ship']].forEach(function(pair) {
+        var val = sb.current[pair[0]] || 0;
+        h += '<div class="dr-ship-tile"><div class="dr-ship-num">' + val.toLocaleString() + '</div><div class="dr-ship-label">' + pair[1] + '</div></div>';
+      });
+    }
+    if (shipConfirmTotal != null) {
+      h += '<div class="dr-ship-tile"><div class="dr-ship-num">' + shipConfirmTotal.toLocaleString() + '</div><div class="dr-ship-label"># Ship Confirmed</div></div>';
+    }
     h += '</div>';
-    if (SHIPPING_STATUS.exceptions && SHIPPING_STATUS.exceptions.count > 0) {
+    if (hasLiveShipping && SHIPPING_STATUS.exceptions && SHIPPING_STATUS.exceptions.count > 0) {
       h += '<div class="dr-ship-exceptions">&#9888; ' + SHIPPING_STATUS.exceptions.count + ' exception' + (SHIPPING_STATUS.exceptions.count!==1?'s':'') + ' flagged today (' + (SHIPPING_STATUS.exceptions.qty||0).toLocaleString() + ' pcs)</div>';
     }
   }
@@ -7606,6 +7635,9 @@ function fetchFirebaseData() {
   var shippingStatusPromise = firebase.database().ref('shippingStatus').once('value')
     .then(function(s){ return s.val() || null; })
     .catch(function(){ return null; });
+  var shipConfirmPromise = firebase.database().ref('shipConfirm').once('value')
+    .then(function(s){ return s.val() || {}; })
+    .catch(function(){ return {}; });
   Promise.all([
     firebase.database().ref('sessions').once('value'),
     firebase.database().ref('targets').once('value'),
@@ -7614,7 +7646,8 @@ function fetchFirebaseData() {
     oeeParamsPromise,
     plannerSettingsPromise,
     machineBaselinePromise,
-    shippingStatusPromise
+    shippingStatusPromise,
+    shipConfirmPromise
   ]).then(function(snaps) {
     var fbSessions  = snaps[0].val() || {};
     var fbTargets   = snaps[1].val() || {};
@@ -7624,6 +7657,7 @@ function fetchFirebaseData() {
     var fbPphOverrides = snaps[5] || {};
     var fbMachineBaseline = snaps[6] || {};
     SHIPPING_STATUS = snaps[7] || null;
+    SHIP_CONFIRM = snaps[8] || {};
     // Apply Firebase PPH overrides on top of code defaults (Firebase wins over localStorage)
     if (Object.keys(fbPphOverrides).length) {
       Object.keys(fbPphOverrides).forEach(function(k) {

@@ -123,20 +123,38 @@ Examples: `Coir · 28x16 FC`, `Signs · Yard Sign`, `Non-Coir Mats · PVC`
   likely first response now is the same one PPH got: consider whether OEE is
   worth abandoning/de-emphasizing too, rather than another round of patching.
 
-## Daily Recap print report (added 2026-09-16)
+## Daily Recap print report (added 2026-09-16, enlarged same day)
 A single-page printable summary for one day, triggered by the "Print Daily
 Recap" button next to the datepicker on Today's Results (`printDailyRecap()`
 → `_buildDailyRecapHtml(date)`, print target `#daily-recap-print`, CSS under
 `body.print-daily-recap`). Meant primarily for *past* days (unlike the live
-on-screen report, which is most useful for today). Contents: date/weekday
-header, Print Floor/Drinkware/Wallets piece totals, % to Plan for Day and
-Night shift (reuses `buildPlanVsActual` directly, so it inherits the same
-pacing behavior as the on-screen Plan vs Actual — a past day naturally shows
-its final ratio since elapsed time is 100%), and — today only — a live
-Shipping Recap from `SHIPPING_STATUS` (see above; gated to today because that
-data has no history). Reads `_dailyRenderCache` (set at the end of `render()`)
-rather than recomputing the session aggregation — the date must already be
-loaded on Today's Results before printing.
+on-screen report, which is most useful for today). Contents, top to bottom:
+date/weekday header, Print Floor/Drinkware/Wallets piece totals, % to Plan
+for Day shift then Night shift **stacked** (not side by side — each gets the
+full page width), and a Shipping Recap. Numbers throughout are deliberately
+large (owner request) and actual/expected are shown as a fraction — a big
+"scoreboard" style stacked fraction (`.dr-fraction-num`/`-line`/`-den`) for
+the Print Floor/Drinkware summary cards, a compact inline "actual / expected"
+for the per-machine table rows.
+- % to Plan reuses `buildPlanVsActual` directly (both the shift summary cards
+  and, via `_drMachineRows`/`_plannedQtyFromPlan`, the per-machine table), so
+  it inherits the same pacing behavior as the on-screen Plan vs Actual — a
+  past day naturally shows its final ratio since elapsed time is 100%.
+- Shipping Recap blends two different data sources with different lifecycles:
+  Assembled/Sorted/Ready-to-Ship come from `SHIPPING_STATUS` (live only,
+  today-only — see above); **# Ship Confirmed** comes from `SHIP_CONFIRM`
+  (date-keyed, Firebase path `shipConfirm/{date}`, written once per day by
+  `ship_confirm_sync.py` — has real history), so it's shown on *any* date
+  that has a record, not just today. Collated is deliberately NOT shown
+  (owner asked for it removed in favor of Ship Confirmed).
+- Reads `_dailyRenderCache` (set at the end of `render()`) rather than
+  recomputing the session aggregation — the date must already be loaded on
+  Today's Results before printing.
+- Sizing was tuned by rough estimate, not an actual print-preview render (no
+  browser available in-session to verify) — if the owner reports it no longer
+  fits one page (or has room to grow further), the font-size/padding/margin
+  values in the `body.print-daily-recap` CSS block are all in one place to
+  adjust together.
 
 ## Rules for Claude Code
 - Do not change the data structure or variable names in the `RAW` object.
