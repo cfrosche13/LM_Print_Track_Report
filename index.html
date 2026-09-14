@@ -496,7 +496,7 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     #daily-recap-print .dr-shift-block { border: 1px solid var(--border); border-radius: 6px; padding: 8px 14px; }
     #daily-recap-print .dr-shift-label { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 5px; padding-bottom: 3px; border-bottom: 2px solid var(--green-light); }
     #daily-recap-print .dr-plan-cards-row { display: flex; gap: 10px; margin-bottom: 5px; }
-    #daily-recap-print .dr-plan-card { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; text-align: center; }
+    #daily-recap-print .dr-plan-card { flex: 1; background: var(--bg); border: 1px solid var(--border); border-top: 4px solid var(--border); border-radius: 6px; padding: 5px 10px; text-align: center; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
     #daily-recap-print .dr-plan-card-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 2px; }
     /* Actual / expected shown as a scoreboard-style fraction (owner request
        2026-09-16) — big actual number, a rule, then the smaller expected
@@ -5699,12 +5699,16 @@ function _drPlanCard(label, result) {
   var pct = expected ? Math.round(actual / expected * 100) : null;
   var tier = pct != null ? _planPctTier(pct) : 'neutral';
   var tc = _tierColorVars(tier);
-  return '<div class="dr-plan-card">'
+  // Card itself now carries the tier color (background tint + a colored top
+  // accent stripe, matching the .dr-total-row treatment in the table below)
+  // so it stands out at a glance, not just the small % pill — owner request
+  // 2026-09-16.
+  return '<div class="dr-plan-card" style="background:' + tc.bg + ';border-color:' + tc.border + ';border-top-color:' + tc.fg + '">'
     + '<div class="dr-plan-card-label">' + label + '</div>'
     + '<div class="dr-fraction-num">' + actual.toLocaleString() + '</div>'
     + '<div class="dr-fraction-line"></div>'
     + '<div class="dr-fraction-den">' + expected.toLocaleString() + ' expected</div>'
-    + '<div class="dr-plan-pct" style="color:' + tc.fg + ';background:' + tc.bg + ';border-color:' + tc.border + '">' + (pct!=null?pct+'%':'&mdash;') + '</div>'
+    + '<div class="dr-plan-pct" style="color:#fff;background:' + tc.fg + ';border-color:' + tc.fg + '">' + (pct!=null?pct+'%':'&mdash;') + '</div>'
     + '</div>';
 }
 function _buildDailyRecapHtml(date) {
