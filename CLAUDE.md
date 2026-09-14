@@ -42,7 +42,14 @@ browser to use it.
 - `RAW.targets` — keyed by piece type. Each has `pph` (pieces per hour target)
   and optionally `ppt` (pieces per table, for coir).
 - `RAW.maint` — maintenance and incident log. Each entry has `t`, `machine`,
-  `type` (Cleaning / Machine Down / Operator Fix / Defective Material), `notes`.
+  `type` (Cleaning / Machine Down / Operator Fix / Defective Material), `notes`,
+  `ts` (raw timestamp, added 2026-09-14 to bucket Cleaning entries into
+  Day/Night shift), and `detail` (added 2026-09-14 — for `type:"Cleaning"`
+  entries, the first `" · "`-separated segment is the checklist tier: "Start
+  of Shift"/"Mid Shift"/"End of Shift"/"40 Hour"/etc., set by `cleanSubmit()`
+  in the operator tracker's `js/maintenance.js`). Used by the Weekly Machine
+  Recap's cleaning-checklist indicators (`_cleaningStatusForShift`,
+  `_cleaningFortyHourDone`).
 - `RAW.wait` — wait/downtime log. Each entry has `t`, `machine`, `dur` (seconds),
   `notes`, `op`.
 - `RAW.oeeParams` — OEE parameters per machine: `stdDownMin` (standard planned

@@ -60,6 +60,7 @@ input[type="date"]:focus { border-color: var(--green-dark); }
 .divider { width: 1px; height: 24px; background: var(--border); }
 .quick-label { font-size: 11px; color: var(--muted); text-transform: uppercase; font-weight: 600; }
 .date-quick { display: flex; gap: 6px; flex-wrap: wrap; }
+.date-bar-row { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; width: 100%; }
 .qbtn { background: var(--white); border: 1px solid var(--border); color: var(--muted); border-radius: var(--radius-sm); padding: 4px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
 .qbtn:hover { border-color: var(--green-dark); color: var(--green-dark); background: var(--green-light); }
 .verdict-icon { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; flex-shrink: 0; margin-top: 1px; }
@@ -498,9 +499,13 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     #daily-recap-print .dr-plan-cards-row { display: flex; gap: 10px; margin-bottom: 5px; }
     #daily-recap-print .dr-plan-card { flex: 1; background: var(--bg); border: 1px solid var(--border); border-top: 4px solid var(--border); border-radius: 6px; padding: 5px 10px; text-align: center; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
     #daily-recap-print .dr-plan-card-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 2px; }
-    /* Actual / expected shown as a scoreboard-style fraction — big actual
+    /* Pace (how they're trending against elapsed shift time) is deliberately
+       separated from "% to Plan" (owner caught these being blended together
+       2026-09-14) — shown as a small line above the main fraction. */
+    #daily-recap-print .dr-pace-line { font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
+    /* Actual / plan shown as a scoreboard-style fraction — big actual
        number and the % badge on one row, same size (owner request), then a
-       rule, then the expected number underneath, enlarged too (owner
+       rule, then the full-shift plan number underneath, enlarged too (owner
        request) instead of "X of Y expected" prose. */
     #daily-recap-print .dr-fraction-top { display: flex; align-items: center; justify-content: center; gap: 12px; }
     #daily-recap-print .dr-fraction-num { font-family: 'Lora', serif; font-size: 30px; font-weight: 700; color: var(--text); line-height: 1.1; }
@@ -514,6 +519,7 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     #daily-recap-print .dr-machine-table { width: 100%; border-collapse: collapse; margin-top: 2px; font-size: 18px; }
     #daily-recap-print .dr-machine-table th { text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 2px 8px; border-bottom: 1px solid var(--border); }
     #daily-recap-print .dr-machine-table td { padding: 2px 8px; border-bottom: 1px solid #eee; font-weight: 600; }
+    #daily-recap-print .dr-pace-cell { font-size: 13px; font-weight: 600; color: var(--muted); }
     #daily-recap-print .dr-machine-table tr:last-child td { border-bottom: none; }
     #daily-recap-print .dr-num { text-align: right; }
     #daily-recap-print .dr-ship-caption { font-size: 9px; color: var(--muted); font-style: italic; margin-bottom: 4px; }
@@ -523,6 +529,41 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     #daily-recap-print .dr-ship-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-top: 3px; }
     #daily-recap-print .dr-ship-exceptions { margin-top: 6px; font-size: 12px; font-weight: 600; color: var(--red); }
     #daily-recap-print .dr-footer { margin-top: 0.35cm; font-size: 10px; color: var(--muted); text-align: right; }
+
+    /* ── body.print-weekly-recap: one machine, 7 days, printed landscape ───── */
+    body.print-weekly-recap > * { display: none !important; }
+    body.print-weekly-recap #page-report   { display: none !important; }
+    body.print-weekly-recap #page-planner  { display: none !important; }
+    body.print-weekly-recap #page-totals   { display: none !important; }
+    body.print-weekly-recap #page-settings { display: none !important; }
+    body.print-weekly-recap #weekly-recap-print { display: block !important; }
+    #weekly-recap-print .wr-header { margin-bottom: 0.4cm; padding-bottom: 0.2cm; border-bottom: 3px solid var(--green-dark); }
+    #weekly-recap-print .wr-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--green-dark); margin-bottom: 2px; }
+    #weekly-recap-print .wr-title { font-family: 'Lora', serif; font-size: 26px; font-weight: 700; color: var(--green-dark); }
+    #weekly-recap-print .wr-summary-row { display: flex; gap: 14px; margin-bottom: 0.5cm; }
+    #weekly-recap-print .wr-summary-card { flex: 1; border: 1px solid var(--border); border-top: 4px solid var(--border); border-radius: 6px; padding: 10px 14px; text-align: center; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    #weekly-recap-print .wr-summary-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 4px; }
+    #weekly-recap-print .wr-summary-num { font-family: 'Lora', serif; font-size: 30px; font-weight: 700; color: var(--text); line-height: 1; }
+    #weekly-recap-print .wr-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    #weekly-recap-print .wr-table th { text-align: center; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 6px 8px; border-bottom: 2px solid var(--border); line-height: 1.4; }
+    #weekly-recap-print .wr-table th:first-child { text-align: left; width: 16%; }
+    #weekly-recap-print .wr-table td { border-bottom: 1px solid #eee; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    #weekly-recap-print .wr-table tr:last-child td { border-bottom: none; }
+    #weekly-recap-print .wr-shift-label { font-size: 16px; font-weight: 700; color: var(--text); padding: 10px 12px; white-space: nowrap; }
+    #weekly-recap-print .wr-shift-sub { font-size: 10px; font-weight: 600; color: var(--muted); text-transform: none; margin-top: 8px; white-space: normal; }
+    #weekly-recap-print .wr-cell { text-align: center; padding: 10px 6px; }
+    #weekly-recap-print .wr-cell-num { font-family: 'Lora', serif; font-size: 22px; font-weight: 700; color: var(--text); line-height: 1.1; }
+    #weekly-recap-print .wr-cell-pct { font-size: 26px; font-weight: 700; margin-top: 2px; }
+    #weekly-recap-print .wr-cell-sub { font-size: 10px; margin-top: 2px; }
+    #weekly-recap-print .wr-table .dr-muted { text-align: center; font-size: 16px; }
+    /* Cleaning checklist indicators (Start/Mid/End of Shift dots inside each
+       cell; 40 Hour as its own row) — owner request 2026-09-14. */
+    #weekly-recap-print .wr-clean-row { display: flex; justify-content: center; gap: 6px; margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(0,0,0,0.08); }
+    #weekly-recap-print .wr-clean-dot { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; font-size: 11px; font-weight: 700; color: var(--muted); background: rgba(0,0,0,0.06); print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    #weekly-recap-print .wr-clean-dot.wr-clean-done { color: #fff; background: var(--green-dark); }
+    #weekly-recap-print .wr-40hr-label { font-size: 13px; color: var(--muted); font-weight: 700; }
+    #weekly-recap-print .wr-40hr-cell { padding: 8px 6px; }
+    #weekly-recap-print .wr-footer { margin-top: 0.4cm; font-size: 10px; color: var(--muted); text-align: right; }
   }
 </style>
 </head>
@@ -564,22 +605,33 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     <p>Select a date to review win/loss status, OEE, actual vs target pph, and incident log.</p>
   </div>
 
-  <div class="date-bar">
-    <label>Date</label>
-    <div class="date-nav">
-      <button class="nav-btn" onclick="stepDate(-1)">&#8592;</button>
-      <input type="date" id="datepicker" onchange="render()">
-      <button class="nav-btn" onclick="stepDate(1)">&#8594;</button>
+  <div class="date-bar" style="align-items:stretch">
+    <div class="date-bar-row">
+      <label>Date</label>
+      <div class="date-nav">
+        <button class="nav-btn" onclick="stepDate(-1)">&#8592;</button>
+        <input type="date" id="datepicker" onchange="render()">
+        <button class="nav-btn" onclick="stepDate(1)">&#8594;</button>
+      </div>
+      <div class="divider"></div>
+      <span class="quick-label">Jump to</span>
+      <div class="date-quick">
+        <button class="qbtn" onclick="jumpToToday()">Today</button>
+        <button class="qbtn" onclick="jumpToYesterday()">Yesterday</button>
+      </div>
     </div>
-    <div class="divider"></div>
-    <span class="quick-label">Jump to</span>
-    <div class="date-quick">
-      <button class="qbtn" onclick="jumpToToday()">Today</button>
-      <button class="qbtn" onclick="jumpToYesterday()">Yesterday</button>
+    <div class="date-bar-row">
+      <button class="qbtn" onclick="printDailyRecap()" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark)">&#128424; Print Daily Recap</button>
+      <div class="divider"></div>
+      <select id="weekly-recap-machine" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);font-size:13px;background:var(--white)">
+        <option value="30">30</option>
+        <option value="30+">30+</option>
+        <option value="H5">H5</option>
+        <option value="Drinkware M1">Drinkware M1</option>
+        <option value="Drinkware M2">Drinkware M2</option>
+      </select>
+      <button class="qbtn" onclick="printWeeklyMachineRecap()" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark)">&#128424; Print Weekly Recap</button>
     </div>
-    <div class="divider"></div>
-    <button class="qbtn" onclick="printDailyRecap()" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark)">&#128424; Print Daily Recap</button>
-
   </div>
 
   <div id="placeholder">
@@ -5482,11 +5534,22 @@ function _resolvePlanForShiftGroup(date, shift, group, overrideMap) {
 
 // Planned qty for one machine, given an already-resolved plan object (or null).
 // Same target formula as buildPlanVsActual: min(open load, achievable capacity). 0 if no plan.
+// Delegates to _savedMachineStat — the Totals tab's Shift Summary Report
+// (_comboPlanMachineRow) already computes "Plan" correctly via that
+// function, and this one was drifting from it in two ways (found 2026-09-14
+// via the Daily Recap showing 30+/H5 numbers that didn't match the trusted
+// Shift Summary print): (1) it never added back whatever was already made
+// AT THE MOMENT the plan was committed (machineActualCap/machineLoad alone
+// describe what was left to do, not the full-shift total) — this is exactly
+// why H5 showed 551 instead of 565, a 14-piece gap matching H5's "Made" on
+// the Shift Summary; (2) `machineActualCap[machine] || machineCap[machine]`
+// treats a real, valid 0 as "missing" and silently falls back to the larger
+// pre-adjustment capacity — _savedMachineStat's `!= null` check doesn't have
+// that bug. Every caller of this function (Daily Recap, Weekly Recap,
+// Totals calendar) gets the fix for free.
 function _plannedQtyFromPlan(plan, machine) {
   if (!plan) return 0;
-  var plannedLoad  = plan.machineLoad ? (plan.machineLoad[machine] || 0) : 0;
-  var potentialCap = plan.machineActualCap ? (plan.machineActualCap[machine] || plan.machineCap[machine] || 0) : (plan.machineCap ? plan.machineCap[machine] || 0 : 0);
-  return Math.round(Math.min(plannedLoad, potentialCap));
+  return Math.round(_savedMachineStat(plan, machine).made);
 }
 // Convenience wrapper for one-off lookups (Totals calendar resolves the plan once per day/shift instead).
 function _calendarPlannedForShift(date, shift, machine) {
@@ -5586,9 +5649,15 @@ function buildPlanVsActual(plans, byMachine, downMachines, date) {
       var machineDown = downMachines[m] === true;
       var mUp = !plan.machineUp || plan.machineUp[m] !== false;
       var plannedLoad = plan.machineLoad ? (plan.machineLoad[m] || 0) : 0;
-      var potentialCap = plan.machineActualCap ? (plan.machineActualCap[m] || plan.machineCap[m] || 0) : (plan.machineCap ? plan.machineCap[m] || 0 : 0);
-      // Target = what we expected to complete over the full shift = min(load, capacity)
-      var target = (!machineDown && mUp) ? Math.min(plannedLoad, potentialCap) : 0;
+      // Same safe null-check _savedMachineStat uses — a real, valid 0 here
+      // is a legitimate capacity, not "missing" (see _plannedQtyFromPlan).
+      var potentialCap = (plan.machineActualCap && plan.machineActualCap[m] != null) ? plan.machineActualCap[m] : ((plan.machineCap||{})[m] || 0);
+      // Target = what we expected to complete over the full shift. Delegates
+      // to _plannedQtyFromPlan (same formula _savedMachineStat/the Totals
+      // tab's Shift Summary Report use) rather than a separate min(load,cap)
+      // here, which used to drift from it by omitting whatever was already
+      // made at the moment the plan was committed (found 2026-09-14).
+      var target = (!machineDown && mUp) ? _plannedQtyFromPlan(plan, m) : 0;
       var actual = scopedByMachine[m] ? scopedByMachine[m].good : 0;
       // Expected-by-now = target scaled down by how much of the shift has elapsed.
       var expectedNow = elapsedFrac != null ? Math.round(target * elapsedFrac) : target;
@@ -5676,23 +5745,32 @@ function _drMachineRows(plan, machines, byMachine, downMachines, elapsedFrac) {
     var target = (plan && !down && mUp) ? _plannedQtyFromPlan(plan, m) : 0;
     var actual = (byMachine[m] && byMachine[m].good) || 0;
     var expectedNow = elapsedFrac != null ? Math.round(target * elapsedFrac) : target;
-    return { machine: m, down: down, actual: actual, expectedNow: expectedNow };
+    return { machine: m, down: down, actual: actual, target: target, expectedNow: expectedNow };
   });
 }
-// actual/expected shown as a compact inline fraction ("1,234 / 1,100") —
-// owner request 2026-09-16 — rather than two separate table columns.
+// Pace (actual vs. what's expected BY NOW, i.e. target scaled to elapsed
+// shift time) and "% to Plan" (actual vs. the FULL-SHIFT target) are two
+// different questions — owner caught 2026-09-14 that this table was
+// blending them under one "actual/expected" fraction. Pace gets its own
+// (smaller, muted) column; "Actual / Plan" and "% to Plan" now read against
+// the real full-shift target, so a completed day's % reads the same
+// whenever it's printed, and only Pace changes depending on when you print
+// mid-shift.
 function _drMachineTableHtml(rows) {
-  var th = '<table class="dr-machine-table"><thead><tr><th>Machine</th><th class="dr-num">Actual / Expected</th><th class="dr-num">%</th></tr></thead><tbody>';
+  var th = '<table class="dr-machine-table"><thead><tr><th>Machine</th><th class="dr-num">Pace</th><th class="dr-num">Actual / Plan</th><th class="dr-num">% to Plan</th></tr></thead><tbody>';
   rows.forEach(function(r) {
     if (r.down) {
-      th += '<tr><td>' + r.machine + '</td><td colspan="2" class="dr-num dr-muted">Down</td></tr>';
+      th += '<tr><td>' + r.machine + '</td><td colspan="3" class="dr-num dr-muted">Down</td></tr>';
       return;
     }
-    var pct = r.expectedNow > 0 ? Math.round(r.actual / r.expectedNow * 100) : null;
-    var tier = pct != null ? _planPctTier(pct) : 'neutral';
+    var pacePct = r.expectedNow > 0 ? Math.round(r.actual / r.expectedNow * 100) : null;
+    var planPct = r.target > 0 ? Math.round(r.actual / r.target * 100) : null;
+    var tier = planPct != null ? _planPctTier(planPct) : 'neutral';
     var tc = _tierColorVars(tier);
-    th += '<tr><td>' + r.machine + '</td><td class="dr-num">' + r.actual.toLocaleString() + ' / ' + r.expectedNow.toLocaleString() + '</td>'
-      + '<td class="dr-num" style="color:' + tc.fg + ';font-weight:700">' + (pct != null ? pct + '%' : '&mdash;') + '</td></tr>';
+    th += '<tr><td>' + r.machine + '</td>'
+      + '<td class="dr-num dr-pace-cell">' + (pacePct != null ? pacePct + '%' : '&mdash;') + '</td>'
+      + '<td class="dr-num">' + r.actual.toLocaleString() + ' / ' + r.target.toLocaleString() + '</td>'
+      + '<td class="dr-num" style="color:' + tc.fg + ';font-weight:700">' + (planPct != null ? planPct + '%' : '&mdash;') + '</td></tr>';
   });
   th += '</tbody></table>';
   return th;
@@ -5704,9 +5782,15 @@ function _drPlanCard(label, result) {
   if (result.totalTarget == null) {
     return '<div class="dr-plan-card"><div class="dr-plan-card-label">' + label + '</div><div class="dr-muted" style="font-size:13px;margin-top:14px">No plan committed</div></div>';
   }
-  var actual = result.totalActual || 0, expected = result.totalExpectedNow || 0;
-  var pct = expected ? Math.round(actual / expected * 100) : null;
-  var tier = pct != null ? _planPctTier(pct) : 'neutral';
+  var actual = result.totalActual || 0, target = result.totalTarget || 0, paceTarget = result.totalExpectedNow || 0;
+  // "% to Plan" is scored against the FULL-SHIFT target, not the
+  // elapsed-time-scaled one — owner caught 2026-09-14 that this card was
+  // blending "% to Plan" and "Pace" into one number (via totalExpectedNow),
+  // which made a completed day's % change depending on when it got
+  // printed. Pace is still shown, just as its own separate, smaller stat.
+  var planPct = target ? Math.round(actual / target * 100) : null;
+  var pacePct = paceTarget ? Math.round(actual / paceTarget * 100) : null;
+  var tier = planPct != null ? _planPctTier(planPct) : 'neutral';
   var tc = _tierColorVars(tier);
   // Card itself carries the tier color (background tint + a colored top
   // accent stripe) so it stands out at a glance, not just the % badge.
@@ -5715,12 +5799,13 @@ function _drPlanCard(label, result) {
   // below was removed, so this card is now the sole place these totals show.
   return '<div class="dr-plan-card" style="background:' + tc.bg + ';border-color:' + tc.border + ';border-top-color:' + tc.fg + '">'
     + '<div class="dr-plan-card-label">' + label + '</div>'
+    + '<div class="dr-pace-line">Pace: ' + (pacePct != null ? pacePct + '%' : '&mdash;') + '</div>'
     + '<div class="dr-fraction-top">'
       + '<div class="dr-fraction-num">' + actual.toLocaleString() + '</div>'
-      + '<div class="dr-plan-pct" style="color:#fff;background:' + tc.fg + ';border-color:' + tc.fg + '">' + (pct!=null?pct+'%':'&mdash;') + '</div>'
+      + '<div class="dr-plan-pct" style="color:#fff;background:' + tc.fg + ';border-color:' + tc.fg + '">' + (planPct!=null?planPct+'%':'&mdash;') + '</div>'
     + '</div>'
     + '<div class="dr-fraction-line"></div>'
-    + '<div class="dr-fraction-den"><span class="dr-fraction-den-num">' + expected.toLocaleString() + '</span> expected</div>'
+    + '<div class="dr-fraction-den"><span class="dr-fraction-den-num">' + target.toLocaleString() + '</span> planned</div>'
     + '</div>';
 }
 function _buildDailyRecapHtml(date) {
@@ -5750,8 +5835,18 @@ function _buildDailyRecapHtml(date) {
     // _shiftScopedByMachine (already used by the Totals tab's Shift Summary
     // report) filters to just this shift's AM/PM hour window instead.
     var shiftByMachine = _shiftScopedByMachine(date, shift);
-    var stdPlan = _resolvePlanForShiftGroup(date, shift, 'standard', null);
-    var dwPlan  = _resolvePlanForShiftGroup(date, shift, 'drinkware', null);
+    // Prefer a committed midshift snapshot over the original morning plan
+    // whenever one exists — same override the Totals tab's Shift Summary
+    // Report already forces for both its sections (_comboShiftBlock and its
+    // "Today's Plan" section). Missing this was the real reason the Daily
+    // Recap's numbers didn't match that report (found 2026-09-14, owner
+    // compared the two side by side): the Recap was silently reading the
+    // stale original plan while the Shift Summary read the updated one.
+    var midOverride = {};
+    midOverride['standard:' + shift]  = 'mid';
+    midOverride['drinkware:' + shift] = 'mid';
+    var stdPlan = _resolvePlanForShiftGroup(date, shift, 'standard', midOverride);
+    var dwPlan  = _resolvePlanForShiftGroup(date, shift, 'drinkware', midOverride);
     var stdResult = buildPlanVsActual(stdPlan ? [stdPlan] : [], shiftByMachine, cache.downMachines, date);
     var dwResult  = buildPlanVsActual(dwPlan ? [dwPlan] : [], shiftByMachine, {}, date);
     var shiftLabel = shift === 'night' ? '🌙 Night Shift' : '☀ Day Shift';
@@ -5820,6 +5915,186 @@ function printDailyRecap() {
   document.body.classList.add('print-daily-recap');
   _printAs('EGStudio_DailyRecap_' + _mmddyy(date));
   setTimeout(function() { document.body.classList.remove('print-daily-recap'); }, 500);
+}
+
+// ── WEEKLY MACHINE RECAP: one machine, Mon-Sat columns x Day/Night rows ────
+// Owner request (2026-09-14) — a second recap for reviewing a single
+// machine's pace across a whole week, reusing the same actual/expected/%
+// language as the Daily Recap. Week = Monday-Saturday containing whatever
+// date is on the datepicker (Sunday deliberately excluded — the floor
+// doesn't run that day). Owner's follow-up ask: days as COLUMNS, one row
+// each for Day Shift and Night Shift (not one combined row per day) —
+// _resolvePlanForShiftGroup/_plannedQtyFromPlan/_shiftElapsedFraction/
+// _shiftScopedByMachine are the exact same helpers the Daily Recap and
+// on-screen Plan vs Actual already use, just looped per shift per day.
+function _weekRangeContaining(dateStr) {
+  var d = new Date(dateStr + 'T12:00:00');
+  var dow = d.getDay(); // 0=Sun..6=Sat
+  var monday = new Date(d);
+  monday.setDate(d.getDate() - ((dow + 6) % 7)); // Monday of this Mon-Sun week
+  var out = [];
+  for (var i = 0; i < 6; i++) { // Monday..Saturday
+    var day = new Date(monday);
+    day.setDate(monday.getDate() + i);
+    var mm = String(day.getMonth() + 1).padStart(2, '0');
+    var dd = String(day.getDate()).padStart(2, '0');
+    out.push(day.getFullYear() + '-' + mm + '-' + dd);
+  }
+  return out;
+}
+// Cleaning checklist completions are logged into the same maintLog the rest
+// of this app reads (RAW.maint), type:"Cleaning", with the checklist tier
+// ("Start of Shift"/"Mid Shift"/"End of Shift"/"40 Hour"/etc.) as the first
+// " · "-separated segment of `detail` — see cleanSubmit() in the operator
+// tracker's js/maintenance.js. Bucket each entry into Day/Night by its own
+// timestamp using the same 4am/3pm/11pm cutoffs as everywhere else in this
+// app (_shiftScopedByMachine, _shiftElapsedFraction).
+function _cleaningEntriesFor(machine, date) {
+  return RAW.maint.filter(function(m) { return m.t === date && m.machine === machine && m.type === 'Cleaning'; });
+}
+function _cleaningTier(entry) {
+  return (entry.detail || '').split(' · ')[0].trim();
+}
+function _cleaningStatusForShift(machine, date, shift) {
+  var status = { start: false, mid: false, end: false };
+  _cleaningEntriesFor(machine, date).forEach(function(e) {
+    var hour = e.ts ? new Date(e.ts).getHours() : null;
+    var entryShift = (hour != null && hour >= 15) ? 'night' : 'day';
+    if (entryShift !== shift) return;
+    var tier = _cleaningTier(e);
+    if (tier === 'Start of Shift') status.start = true;
+    else if (tier === 'Mid Shift') status.mid = true;
+    else if (tier === 'End of Shift') status.end = true;
+  });
+  return status;
+}
+// 40 Hour is a machine-level periodic check, not tied to one shift — only
+// standard machines (30/30+/H5) have this tier at all (Drinkware's own
+// checklist uses Weekly/Biweekly instead, per CLEANING_SHIFT_TYPES in the
+// operator tracker's constants.js) — owner's real-world cadence is roughly
+// twice a week (mid-week, end-of-week), shown as its own row so it's not
+// buried inside a single shift's cell.
+function _cleaningFortyHourDone(machine, date) {
+  return _cleaningEntriesFor(machine, date).some(function(e) { return _cleaningTier(e) === '40 Hour'; });
+}
+// One shift's actual/expected for one machine on one date.
+function _wkMachineShiftCell(machine, group, date, shift) {
+  var shiftByMachine = _shiftScopedByMachine(date, shift);
+  var actual = (shiftByMachine[machine] && shiftByMachine[machine].good) || 0;
+  var clean = _cleaningStatusForShift(machine, date, shift);
+  // Prefer a committed midshift snapshot over the original morning plan,
+  // same fix applied to the Daily Recap (2026-09-14) and already established
+  // by the Totals tab's Shift Summary Report — otherwise this silently reads
+  // a stale plan once a midshift update has been committed for that date.
+  var midOverride = {};
+  midOverride[group + ':' + shift] = 'mid';
+  var plan = _resolvePlanForShiftGroup(date, shift, group, midOverride);
+  if (!plan) return { hasPlan: false, down: false, actual: actual, expectedNow: 0, clean: clean };
+  if (plan.machineUp && plan.machineUp[machine] === false) return { hasPlan: true, down: true, actual: actual, expectedNow: 0, clean: clean };
+  var target = _plannedQtyFromPlan(plan, machine);
+  var elapsedFrac = _shiftElapsedFraction(date, shift, group);
+  var expectedNow = elapsedFrac != null ? Math.round(target * elapsedFrac) : target;
+  return { hasPlan: true, down: false, actual: actual, expectedNow: expectedNow, clean: clean };
+}
+// Small "S · M · E" indicator row (Start/Mid/End of Shift) — only rendered
+// when the shift actually ran that day (a plan existed or pieces were
+// logged), so a genuinely non-scheduled shift doesn't read as a missed
+// cleaning check.
+function _wkCleanRowHtml(clean, ran) {
+  if (!ran) return '';
+  var dot = function(label, done) {
+    return '<span class="wr-clean-dot' + (done ? ' wr-clean-done' : '') + '" title="' + label + ' of Shift">' + (done ? '&#10003;' : '&middot;') + '</span>';
+  };
+  return '<div class="wr-clean-row">' + dot('Start', clean.start) + dot('Mid', clean.mid) + dot('End', clean.end) + '</div>';
+}
+function _wkCellHtml(cell) {
+  var ran = cell.hasPlan || cell.actual > 0;
+  var cleanHtml = _wkCleanRowHtml(cell.clean, ran);
+  if (cell.down) return '<td class="wr-cell dr-muted">Down' + (cell.actual > 0 ? '<div class="wr-cell-sub">' + cell.actual.toLocaleString() + ' pcs logged</div>' : '') + cleanHtml + '</td>';
+  if (!cell.hasPlan && cell.actual === 0) return '<td class="wr-cell dr-muted">&mdash;</td>';
+  var pct = cell.expectedNow > 0 ? Math.round(cell.actual / cell.expectedNow * 100) : null;
+  var tc = _tierColorVars(pct != null ? _planPctTier(pct) : 'neutral');
+  return '<td class="wr-cell" style="background:' + (pct != null ? tc.bg : 'transparent') + '">'
+    + '<div class="wr-cell-num">' + cell.actual.toLocaleString() + ' / ' + cell.expectedNow.toLocaleString() + '</div>'
+    + '<div class="wr-cell-pct" style="color:' + tc.fg + '">' + (pct != null ? pct + '%' : '&mdash;') + '</div>'
+    + cleanHtml
+    + '</td>';
+}
+function _buildWeeklyMachineRecapHtml(machine) {
+  var anchorDate = document.getElementById('datepicker').value;
+  if (!anchorDate) return '<div class="empty">Select a date on Today\'s Results first, then print.</div>';
+  var group = _dailyGroupFor(machine);
+  var weekDates = _weekRangeContaining(anchorDate);
+  var dayAbbrev = ['Mon','Tue','Wed','Thu','Fri','Sat'];
+  var fmtShort = function(ds) { return new Date(ds + 'T12:00:00').toLocaleDateString('en-US', {month:'short', day:'numeric'}); };
+
+  var dayCells = weekDates.map(function(d) { return _wkMachineShiftCell(machine, group, d, 'day'); });
+  var nightCells = weekDates.map(function(d) { return _wkMachineShiftCell(machine, group, d, 'night'); });
+
+  var weekActual = 0, weekExpected = 0;
+  dayCells.concat(nightCells).forEach(function(c) { weekActual += c.actual; weekExpected += c.expectedNow; });
+  var weekPct = weekExpected > 0 ? Math.round(weekActual / weekExpected * 100) : null;
+  var weekTc = _tierColorVars(weekPct != null ? _planPctTier(weekPct) : 'neutral');
+
+  var rangeLabel = fmtShort(weekDates[0]) + ' &ndash; ' + new Date(weekDates[5] + 'T12:00:00').toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+
+  var h = '';
+  h += '<div class="wr-header">';
+  h += '<div class="wr-eyebrow">Evergreen Studio &middot; Weekly Machine Recap</div>';
+  h += '<div class="wr-title">Machine ' + machine + ' &nbsp;&middot;&nbsp; Week of ' + rangeLabel + '</div>';
+  h += '</div>';
+
+  h += '<div class="wr-summary-row">';
+  h += '<div class="wr-summary-card"><div class="wr-summary-label">Week Actual</div><div class="wr-summary-num">' + weekActual.toLocaleString() + '</div></div>';
+  h += '<div class="wr-summary-card"><div class="wr-summary-label">Week Expected</div><div class="wr-summary-num">' + weekExpected.toLocaleString() + '</div></div>';
+  h += '<div class="wr-summary-card" style="background:' + weekTc.bg + ';border-color:' + weekTc.border + '"><div class="wr-summary-label">% to Plan</div><div class="wr-summary-num" style="color:' + weekTc.fg + '">' + (weekPct != null ? weekPct + '%' : '&mdash;') + '</div></div>';
+  h += '</div>';
+
+  h += '<table class="wr-table"><thead><tr><th>Shift</th>';
+  weekDates.forEach(function(d, i) { h += '<th class="wr-daycol">' + dayAbbrev[i] + '<br>' + fmtShort(d) + '</th>'; });
+  h += '</tr></thead><tbody>';
+  var shiftSub = '<div class="wr-shift-sub">Maintenance checks below</div>';
+  h += '<tr><td class="wr-shift-label">&#9728; Day Shift' + shiftSub + '</td>' + dayCells.map(_wkCellHtml).join('') + '</tr>';
+  h += '<tr><td class="wr-shift-label">&#127768; Night Shift' + shiftSub + '</td>' + nightCells.map(_wkCellHtml).join('') + '</tr>';
+  // 40 Hour is machine-level, not per-shift, and only exists as a tier for
+  // standard machines (30/30+/H5) — Drinkware's checklist has no such tier.
+  if (group === 'standard') {
+    h += '<tr><td class="wr-shift-label wr-40hr-label">&#128295; 40 Hour</td>';
+    weekDates.forEach(function(d) {
+      var done = _cleaningFortyHourDone(machine, d);
+      h += '<td class="wr-cell wr-40hr-cell">' + (done ? '<span class="wr-clean-dot wr-clean-done">&#10003;</span>' : '<span class="wr-clean-dot">&middot;</span>') + '</td>';
+    });
+    h += '</tr>';
+  }
+  h += '</tbody></table>';
+
+  h += '<div class="wr-footer">Printed ' + new Date().toLocaleString('en-US', {dateStyle:'medium', timeStyle:'short'}) + '</div>';
+  return h;
+}
+// Same idea as _printAs, but also forces the printed page to landscape.
+// There's no way to scope @page by a body class alone, so this injects a
+// one-off <style> with the override right before printing and removes it
+// right after — the app's other (portrait) print reports are untouched.
+function _printLandscape(filename) {
+  var prevTitle = document.title;
+  document.title = filename;
+  var styleEl = document.createElement('style');
+  styleEl.textContent = '@page { size: landscape; margin: 0.75cm; }';
+  document.head.appendChild(styleEl);
+  window.print();
+  setTimeout(function() {
+    document.title = prevTitle;
+    styleEl.remove();
+  }, 500);
+}
+function printWeeklyMachineRecap() {
+  var machine = document.getElementById('weekly-recap-machine').value;
+  var date = document.getElementById('datepicker').value;
+  if (!machine || !date) return;
+  document.getElementById('weekly-recap-print').innerHTML = _buildWeeklyMachineRecapHtml(machine);
+  document.body.classList.add('print-weekly-recap');
+  _printLandscape('EGStudio_WeeklyRecap_' + machine.replace(/\s+/g,'') + '_' + _mmddyy(date));
+  setTimeout(function() { document.body.classList.remove('print-weekly-recap'); }, 500);
 }
 
 // ── TOTALS TAB: Shift Summary print report ────────────────────────────────
@@ -7742,7 +8017,14 @@ function fetchFirebaseData() {
     });
     Object.keys(fbMaintLog).forEach(function(k) {
       var v = fbMaintLog[k]; if (!v) return;
-      newRAW.maint.push({ t: isoToLocalDate(v.time||v.t||v.ts||''), machine: v.machine||'', type: v.type||'', notes: v.notes||'' });
+      var rawTs = v.time||v.t||v.ts||'';
+      // ts (raw timestamp) is needed to bucket a Cleaning entry into Day vs
+      // Night shift (see _cleaningStatusForMachineDate) — detail carries the
+      // checklist tier ("Start of Shift"/"Mid Shift"/"End of Shift"/"40 Hour")
+      // as its first " · "-separated segment (see cleanSubmit() in the
+      // operator tracker's maintenance.js) — added 2026-09-14 for the Weekly
+      // Machine Recap's cleaning-checklist indicators.
+      newRAW.maint.push({ t: isoToLocalDate(rawTs), ts: rawTs, machine: v.machine||'', type: v.type||'', notes: v.notes||'', detail: v.detail||'' });
     });
     newRAW.maint.sort(function(a,b){ return a.t<b.t?-1:a.t>b.t?1:0; });
     Object.keys(fbWaitLog).forEach(function(k) {
@@ -8368,6 +8650,7 @@ function renderSettings() {
 <div id="saved-plan-print" style="display:none"></div>
 <div id="totals-combo-print" style="display:none"></div>
 <div id="daily-recap-print" style="display:none"></div>
+<div id="weekly-recap-print" style="display:none"></div>
 <script>
 (function() {
   var img = document.querySelector('.topbar-brand img');
