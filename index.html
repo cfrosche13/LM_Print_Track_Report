@@ -2584,10 +2584,8 @@ var _MACHINE_PPH_DEFAULTS = {
   'Roll Media · Small Canvas':  { 'H5':  64 },
   'Signs · Yard Sign':          { '30+': 70.6, 'H5': 200 },
   'Signs · 12x12':              { '30+': 90.9 },
-  'Signs · 12x8 Plock':         { '30+': 45.0 },
   'Signs · 6x6 Plock':          { '30+': 478.9 },
   'Signs · 16x24':              { '30+': 49.3 },
-  'Signs · 11x6 Plock':         { '30+': 80.7 },
   // Drinkware print-type settings (added 2026-08-05, owner to fill in real
   // speeds in the Targets & Rules tab) — CWCV/CV/WCV mirror the coir FC/OC
   // split: same piece type, different print process, different speed.
@@ -2600,9 +2598,9 @@ var _MACHINE_PPH_DEFAULTS = {
   'Drinkware · Acrylic Cup WCV':            { 'Drinkware M1': 60, 'Drinkware M2': 60 },
   'Drinkware · Stainless Steel Tumbler CV':   { 'Drinkware M1': 60, 'Drinkware M2': 60 },
   'Drinkware · Stainless Steel Tumbler WCV':  { 'Drinkware M1': 60, 'Drinkware M2': 60 },
-  'Drinkware · Stemless Pint Glass CWCV':   { 'Drinkware M1': 60, 'Drinkware M2': 60 },
-  'Drinkware · Stemless Pint Glass CV':     { 'Drinkware M1': 60, 'Drinkware M2': 60 },
-  'Drinkware · Stemless Pint Glass WCV':    { 'Drinkware M1': 60, 'Drinkware M2': 60 }
+  'Drinkware · Stemless Wine Glass CWCV':   { 'Drinkware M1': 60, 'Drinkware M2': 60 },
+  'Drinkware · Stemless Wine Glass CV':     { 'Drinkware M1': 60, 'Drinkware M2': 60 },
+  'Drinkware · Stemless Wine Glass WCV':    { 'Drinkware M1': 60, 'Drinkware M2': 60 }
 };
 
 var _machineTargetOverrides = {};
@@ -2697,6 +2695,28 @@ var _routingOverrides = {};
 })();
 function _saveRoutingOverrides() {
   try { localStorage.setItem('routingOverrides', JSON.stringify(_routingOverrides)); } catch(e) {}
+}
+
+function commitRoutingToFirebase() {
+  var btn = document.getElementById('commit-routing-btn');
+  var msg = document.getElementById('commit-routing-msg');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  if (msg) { msg.textContent = ''; msg.style.color = ''; }
+  try {
+    firebase.database().ref('plannerSettings/routingOverrides').set(_routingOverrides)
+      .then(function() {
+        if (btn) { btn.disabled = false; btn.textContent = 'Commit to all devices'; }
+        if (msg) { msg.textContent = '✓ Saved — all devices will use these routing rules on next load.'; msg.style.color = 'var(--green-dark)'; }
+        _saveRoutingOverrides(); // also keep localStorage in sync
+      })
+      .catch(function(err) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Commit to all devices'; }
+        if (msg) { msg.textContent = '✗ Save failed: ' + (err && err.message ? err.message : 'unknown error'); msg.style.color = 'var(--red)'; }
+      });
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Commit to all devices'; }
+    if (msg) { msg.textContent = '✗ Save failed (not signed in?).'; msg.style.color = 'var(--red)'; }
+  }
 }
 
 // Manually-curated Drinkware kids_item -> target-key lookup (e.g.
@@ -3114,12 +3134,29 @@ function isDrinkware(name, shortName) {
   return haystack(name, shortName).indexOf('drinkware') !== -1;
 }
 
+// Same as isDrinkware(), but checks a product's routing override first — so a
+// self-service "+ Add new piece type" entry (Targets & Rules) routes to the
+// Drinkware group correctly even if its name doesn't literally contain the
+// word "Drinkware" (e.g. "Stemless Wine Glass" with home machine set to
+// Drinkware M1). Only meaningful for our own piece-type key strings (manual
+// plan items, target/routing keys) — raw LMContainers order text has no
+// routing override to look up, so real-order grouping still uses plain
+// isDrinkware() untouched.
+function _productIsDrinkware(name, shortName) {
+  var key = name || shortName;
+  if (key && _routingOverrides[key] && _routingOverrides[key].home) {
+    return _routingOverrides[key].home.indexOf('Drinkware') === 0;
+  }
+  return isDrinkware(name, shortName);
+}
+
 // Groups a piece type into a product family for the Planning tab's drag-and-drop
 // breakdown (lets the owner drag "all Coir" etc. in one go instead of one row at
 // a time). Reuses the same classifiers the routing/flex logic already relies on,
 // in the same most-specific-first order, so the grouping matches how the plan
 // itself reasons about products.
 function productFamilyOf(name, shortName) {
+  if (_productIsDrinkware(name, shortName)) return 'Drinkware';
   if (isYardSign(name, shortName))         return 'Yard Signs';
   if (isPVC(name, shortName))               return 'PVC';
   if (isFlocked(name, shortName))           return 'Flocked';
@@ -3129,7 +3166,6 @@ function productFamilyOf(name, shortName) {
   if (isCoir(name, shortName))              return 'Coir';
   if (isWoodSign(name, shortName))          return 'Wood / Plock Signs';
   if (isCanvas(name, shortName))            return 'Canvas';
-  if (isDrinkware(name, shortName))         return 'Drinkware';
   return 'Other';
 }
 
@@ -4245,7 +4281,7 @@ function runPlan(orders) {
   // for this exact plan date. Tagged _manual so they get their own bucket, not lumped into REG.
   // Gated by the Manual order-type pill, same as DS/REG/ASAP/FBA.
   (activeTypes.Manual ? (planDate && _manualPlanItems[planDate] || []) : []).forEach(function(m) {
-    var isDW = isDrinkware(m.pieceType, '');
+    var isDW = _productIsDrinkware(m.pieceType, '');
     if ((PLAN_GROUP === 'drinkware') !== isDW) return;
     items.push({
       shortName: m.pieceType, itemName: '', machine: null,
@@ -7962,6 +7998,9 @@ function fetchFirebaseData() {
   var machineBaselinePromise = firebase.database().ref('plannerSettings/machineBaselinePph').once('value')
     .then(function(s){ return s.val() || {}; })
     .catch(function(){ return {}; });
+  var routingOverridesPromise = firebase.database().ref('plannerSettings/routingOverrides').once('value')
+    .then(function(s){ return s.val() || {}; })
+    .catch(function(){ return {}; });
   var shippingStatusPromise = firebase.database().ref('shippingStatus').once('value')
     .then(function(s){ return s.val() || null; })
     .catch(function(){ return null; });
@@ -7976,6 +8015,7 @@ function fetchFirebaseData() {
     oeeParamsPromise,
     plannerSettingsPromise,
     machineBaselinePromise,
+    routingOverridesPromise,
     shippingStatusPromise,
     shipConfirmPromise
   ]).then(function(snaps) {
@@ -7986,8 +8026,9 @@ function fetchFirebaseData() {
     var fbOeeParams = snaps[4] || {};
     var fbPphOverrides = snaps[5] || {};
     var fbMachineBaseline = snaps[6] || {};
-    SHIPPING_STATUS = snaps[7] || null;
-    SHIP_CONFIRM = snaps[8] || {};
+    var fbRoutingOverrides = snaps[7] || {};
+    SHIPPING_STATUS = snaps[8] || null;
+    SHIP_CONFIRM = snaps[9] || {};
     // Apply Firebase PPH overrides on top of code defaults (Firebase wins over localStorage)
     if (Object.keys(fbPphOverrides).length) {
       Object.keys(fbPphOverrides).forEach(function(k) {
@@ -8004,6 +8045,13 @@ function fetchFirebaseData() {
         if (fbMachineBaseline[m]) MACHINE_PPH[m] = fbMachineBaseline[m];
       });
       try { localStorage.setItem('machinePPH', JSON.stringify(fbMachineBaseline)); } catch(e) {}
+    }
+    // Same pattern for per-product routing overrides (Firebase wins over localStorage)
+    if (Object.keys(fbRoutingOverrides).length) {
+      Object.keys(fbRoutingOverrides).forEach(function(k) {
+        _routingOverrides[k] = fbRoutingOverrides[k];
+      });
+      try { localStorage.setItem('routingOverrides', JSON.stringify(fbRoutingOverrides)); } catch(e) {}
     }
     var newRAW = { sessions: {}, targets: fbTargets, maint: [], wait: [],
       oeeParams: Object.keys(fbOeeParams).length ? fbOeeParams : DEFAULT_OEE_PARAMS, shiftMin: 570 };
@@ -8130,6 +8178,7 @@ function _machineBadge(m) {
 }
 
 function _targetMachine(key) {
+  if (_routingOverrides[key] && _routingOverrides[key].home) return _routingOverrides[key].home;
   if (isDrinkware(key, ''))        return 'Drinkware M1';
   if (isFlocked(key, ''))          return '30+';
   if (isCoir(key, ''))             return '30';
@@ -8150,6 +8199,15 @@ function _targetMachine(key) {
 
 // Returns all machines a product can appear on (home + flex destinations).
 function _productMachines(key) {
+  if (_routingOverrides[key] && _routingOverrides[key].home) {
+    var ovHome = _routingOverrides[key].home;
+    var ovFlex = _routingOverrides[key].flex || [];
+    var list = [ovHome].concat(ovFlex.filter(function(m){ return m !== ovHome; }));
+    // Drinkware M1/M2 always travel together, same as every other classifier below.
+    if (ovHome === 'Drinkware M1' && list.indexOf('Drinkware M2') === -1) list.push('Drinkware M2');
+    if (ovHome === 'Drinkware M2' && list.indexOf('Drinkware M1') === -1) list.push('Drinkware M1');
+    return list;
+  }
   if (isDrinkware(key, ''))                              return ['Drinkware M1', 'Drinkware M2'];
   if (isFlocked(key, ''))                                return ['30+', 'H5'];
   if (isCoir(key, ''))                                   return ['30',  '30+'];
@@ -8300,6 +8358,80 @@ function resetRouting(key) {
   renderSettings();
 }
 
+// True only for a piece type that exists solely because of a self-service
+// "+ Add new piece type" addition — i.e. not baked into the code and not a
+// real target the operator tracker app has written to Firebase. Only these
+// can be fully deleted; a built-in/Firebase-sourced product would just
+// reappear on next page load (re-seeded from _MACHINE_PPH_DEFAULTS or
+// re-read from RAW.targets), so removePieceType() refuses those instead of
+// silently doing something that looks like it worked but doesn't stick.
+function _isCustomPieceType(key) {
+  return !_MACHINE_PPH_DEFAULTS[key] && !(RAW.targets && RAW.targets[key] && RAW.targets[key].pph);
+}
+
+function removePieceType(key) {
+  if (!_isCustomPieceType(key)) return; // guard — the UI shouldn't call this for anything else
+  if (!confirm('Remove "' + key + '" entirely? This deletes its speed and routing settings on this device, and (once you commit) on every device.')) return;
+  delete _machineTargetOverrides[key];
+  delete _routingOverrides[key];
+  if (window._planOrders) runPlan(window._planOrders);
+  _markUnsaved();
+  renderSettings();
+}
+
+// Registers a brand-new piece type that has no code default and no Firebase
+// target yet. Writes both a routing override (home machine — Drinkware always
+// pairs M1+M2, same as every built-in product) and a starting PPH override, so
+// it immediately appears in the Product Speed Targets table, the Routing Rules
+// table, and the Planning tab's manual-add dropdown (all three read from the
+// same _machineTargetOverrides / _routingOverrides objects this writes to).
+function addNewPieceType() {
+  var nameInput = document.getElementById('new-pt-name');
+  var homeSelect = document.getElementById('new-pt-home');
+  var pphInput = document.getElementById('new-pt-pph');
+  var msg = document.getElementById('new-pt-msg');
+  var name = (nameInput.value || '').trim();
+  var home = homeSelect.value;
+  var pph = parseFloat(pphInput.value);
+
+  function showMsg(text, isError) {
+    if (!msg) return;
+    msg.textContent = text;
+    msg.style.color = isError ? 'var(--red)' : 'var(--green-dark)';
+  }
+
+  if (!name) { showMsg('Enter a piece type name first.', true); return; }
+  // Every existing Drinkware product is named "Drinkware · ...", and the
+  // Drinkware SKU-matching dropdown below filters on that exact prefix — auto-add
+  // it so a name typed without it (e.g. "Stemless Wine Glass") still matches.
+  if (home === 'Drinkware M1' && name.indexOf('Drinkware · ') !== 0) name = 'Drinkware · ' + name;
+  var existingKeys = [];
+  Object.keys(_machineTargetOverrides).forEach(function(k){ existingKeys.push(k); });
+  Object.keys(RAW.targets || {}).forEach(function(k){ if (RAW.targets[k] && RAW.targets[k].pph) existingKeys.push(k); });
+  if (existingKeys.indexOf(name) !== -1) { showMsg('"' + name + '" already exists — edit it in the tables below instead.', true); return; }
+  if (!pph || pph <= 0) { showMsg('Enter a starting speed (pieces per hour) greater than 0.', true); return; }
+
+  var isDW = home === 'Drinkware M1';
+  _routingOverrides[name] = { home: home, flex: [] };
+  _machineTargetOverrides[name] = {};
+  if (isDW) {
+    _machineTargetOverrides[name]['Drinkware M1'] = pph;
+    _machineTargetOverrides[name]['Drinkware M2'] = pph;
+  } else {
+    _machineTargetOverrides[name][home] = pph;
+  }
+
+  _markUnsaved();
+  renderSettings();
+  // renderSettings() replaced the whole panel's markup, so re-find the (new)
+  // message element rather than writing into the one captured before render.
+  var msg2 = document.getElementById('new-pt-msg');
+  if (msg2) {
+    msg2.textContent = '✓ Added "' + name + '" — click "Save Overrides" below to keep it, then "Commit to all devices" to push the speed to Firebase.';
+    msg2.style.color = 'var(--green-dark)';
+  }
+}
+
 function exportTargetsAndRules() {
   var now = new Date().toISOString().slice(0, 10);
   var lines = [];
@@ -8319,9 +8451,11 @@ function exportTargetsAndRules() {
   });
   lines.push('');
 
-  // Build full product key list (committed baselines + Firebase)
+  // Build full product key list (committed baselines/overrides + Firebase) —
+  // _machineTargetOverrides is a superset of _MACHINE_PPH_DEFAULTS, so this
+  // also picks up self-service "+ Add new piece type" additions.
   var _xSeen = {}, allKeys = [];
-  Object.keys(_MACHINE_PPH_DEFAULTS).forEach(function(k){ if (!_xSeen[k]){ _xSeen[k]=true; allKeys.push(k); } });
+  Object.keys(_machineTargetOverrides).forEach(function(k){ if (!_xSeen[k]){ _xSeen[k]=true; allKeys.push(k); } });
   Object.keys(RAW.targets||{}).forEach(function(k){ if (!_xSeen[k] && RAW.targets[k] && RAW.targets[k].pph){ _xSeen[k]=true; allKeys.push(k); } });
   allKeys.sort();
 
@@ -8432,13 +8566,34 @@ function renderSettings() {
   h += '</div>';
   h += '</div>';
 
+  // ── Section 1b: Add New Piece Type ───────────────────────────────────────
+  h += '<div class="section animate">';
+  h += '<div class="section-head">+ Add new piece type</div>';
+  h += '<div class="settings-note">Use this when a product doesn\'t exist yet anywhere in the app. Once added it shows up below in Product Speed Targets and Machine Routing Rules, and in the Planning tab\'s manual-add dropdown. Follow the naming convention <strong>Category &middot; Size [Coat]</strong> (e.g. "Coir &middot; 28x16 FC") so it groups correctly with similar products.</div>';
+  h += '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">';
+  h += '<div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px">Piece type name</label>';
+  h += '<input type="text" id="new-pt-name" placeholder="e.g. Coir · 28x16 FC" style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:220px;font-family:inherit"></div>';
+  h += '<div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px">Home machine</label>';
+  h += '<select id="new-pt-home" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px 8px;font-size:13px;font-family:inherit;color:var(--text);background:var(--white);cursor:pointer">';
+  h += '<option value="30">Machine 30</option><option value="30+">Machine 30+</option><option value="H5">Machine H5</option><option value="Drinkware M1">Drinkware (M1 &amp; M2)</option>';
+  h += '</select></div>';
+  h += '<div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px">Starting speed</label>';
+  h += '<input class="pph-input" type="number" id="new-pt-pph" min="1" max="999" step="1" placeholder="pph" style="width:80px"></div>';
+  h += '<button onclick="addNewPieceType()" style="background:var(--green-dark);color:#fff;border:none;border-radius:var(--radius);padding:9px 20px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">+ Add</button>';
+  h += '</div>';
+  h += '<div id="new-pt-msg" style="font-size:12px;font-weight:600;margin-top:8px"></div>';
+  h += '</div>';
+
   // ── Section 2: Product Speed Targets — per machine ───────────────────────
   h += '<div class="section animate">';
   h += '<div class="section-head">Product speed targets — per machine</div>';
-  // Merge committed baseline keys with Firebase target keys so products with
-  // local defaults always appear even if they have no Firebase target yet.
+  // Merge committed baseline keys (which already includes every code default
+  // PLUS any self-service "+ Add new piece type" additions — it's always a
+  // superset of _MACHINE_PPH_DEFAULTS, seeded from it at load) with Firebase
+  // target keys, so products with only a local default/override still appear
+  // even if they have no Firebase target yet.
   var _tkSeen = {}, targetKeys = [];
-  Object.keys(_MACHINE_PPH_DEFAULTS).forEach(function(k){ if (!_tkSeen[k]){ _tkSeen[k]=true; targetKeys.push(k); } });
+  Object.keys(_machineTargetOverrides).forEach(function(k){ if (!_tkSeen[k]){ _tkSeen[k]=true; targetKeys.push(k); } });
   Object.keys(RAW.targets||{}).forEach(function(k){ if (!_tkSeen[k] && RAW.targets[k] && RAW.targets[k].pph){ _tkSeen[k]=true; targetKeys.push(k); } });
   // Hides legacy Drinkware Firebase targets saved before CWCV/CV/WCV tracking
   // existed (e.g. a bare "Drinkware · Pint Glass" with no print-type suffix).
@@ -8542,7 +8697,7 @@ function renderSettings() {
   h += '<div class="section-head">Drinkware SKU matching</div>';
   h += '<div class="settings-note">LMContainers only ever shows "Drinkware" as the product name, with no piece type or print process — so unlike coir (which is matched automatically from an art-file folder), each real SKU here has to be mapped by hand to tell the planner what it actually is. Match on the <strong>kids_item</strong> value from the order file, not item_id.</div>';
 
-  var _dwTargetKeys = Object.keys(_MACHINE_PPH_DEFAULTS).filter(function(k){ return k.indexOf('Drinkware · ') === 0; }).sort();
+  var _dwTargetKeys = Object.keys(_machineTargetOverrides).filter(function(k){ return k.indexOf('Drinkware · ') === 0; }).sort();
   function _dwTargetOptions(selected) {
     return _dwTargetKeys.map(function(k) {
       return '<option value="' + k.replace(/"/g,'&quot;') + '"' + (k === selected ? ' selected' : '') + '>' + k.replace('Drinkware · ', '') + '</option>';
@@ -8583,7 +8738,7 @@ function renderSettings() {
   // ── Section 3: Routing Rules (editable per product) ─────────────────────
   h += '<div class="section animate">';
   h += '<div class="section-head">Machine routing rules</div>';
-  h += '<div class="settings-note"><strong>Home machine</strong> is where a product normally runs. <strong>Can shift to</strong> controls load-balancing flex. Changes are held until you click Save Overrides above.</div>';
+  h += '<div class="settings-note"><strong>Home machine</strong> is where a product normally runs. <strong>Can shift to</strong> controls load-balancing flex. Click Save Overrides above to keep changes on this device, then Commit to all devices below to sync them to Firebase.</div>';
 
   if (!targetKeys.length) {
     h += '<div style="font-size:13px;color:var(--muted)">Load Firebase data first (visit Today\'s Results), then return here.</div>';
@@ -8644,11 +8799,20 @@ function renderSettings() {
         h += '<span style="color:var(--green-dark);font-weight:600">&#10003; committed</span> <button onclick="resetRouting(\'' + safeKey + '\')" style="font-size:10px;border:1px solid var(--border);background:none;border-radius:3px;padding:1px 6px;cursor:pointer;color:var(--muted);margin-left:4px">reset to built-in</button>';
       else
         h += '<span style="color:var(--muted)">built-in</span>';
+      if (_isCustomPieceType(key))
+        h += ' <button onclick="removePieceType(\'' + safeKey + '\')" title="Delete this piece type entirely" style="font-size:10px;border:1px solid var(--red);background:none;border-radius:3px;padding:1px 6px;cursor:pointer;color:var(--red);margin-left:4px">&#128465; remove</button>';
       h += '</td>';
       h += '</tr>';
     });
 
     h += '</tbody></table></div>';
+    h += '<div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin-top:14px">';
+    h += '<button id="commit-routing-btn" onclick="commitRoutingToFirebase()" ';
+    h += 'style="background:var(--green-dark);color:#fff;border:none;border-radius:var(--radius);padding:9px 20px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">';
+    h += '&#9729; Commit to all devices</button>';
+    h += '<span style="font-size:12px;color:var(--muted)">Saves these routing rules to Firebase so every device uses the same home/flex machines on next load.</span>';
+    h += '<span id="commit-routing-msg" style="font-size:12px;font-weight:600"></span>';
+    h += '</div>';
   }
   h += '</div>';
 
