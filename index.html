@@ -63,6 +63,13 @@ input[type="date"]:focus { border-color: var(--green-dark); }
 .date-bar-row { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; width: 100%; }
 .qbtn { background: var(--white); border: 1px solid var(--border); color: var(--muted); border-radius: var(--radius-sm); padding: 4px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
 .qbtn:hover { border-color: var(--green-dark); color: var(--green-dark); background: var(--green-light); }
+.maf-view-tab { background: var(--white); border: none; padding: 8px 18px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; font-family: inherit; }
+.maf-view-tab + .maf-view-tab { border-left: 1px solid var(--border); }
+.maf-view-tab.active { background: var(--green-dark); color: #fff; }
+.maf-chip-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.maf-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--green-light); border: 1px solid var(--green-win-border); border-radius: 20px; padding: 4px 6px 4px 12px; font-size: 12px; color: var(--green-dark); font-weight: 600; }
+.maf-chip button { background: none; border: none; color: var(--red); font-size: 14px; line-height: 1; cursor: pointer; padding: 2px 6px; }
+.maf-status-pill { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; white-space: nowrap; }
 .verdict-icon { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; flex-shrink: 0; margin-top: 1px; }
 .verdict-icon-pct { width: auto; min-width: 40px; height: 32px; border-radius: 16px; padding: 0 9px; font-size: 13px; }
 .verdict-label { font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 3px; }
@@ -496,38 +503,29 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     #daily-recap-print .dr-shift-row { display: flex; flex-direction: column; gap: 0.2cm; }
     #daily-recap-print .dr-shift-block { border: 1px solid var(--border); border-radius: 6px; padding: 8px 14px; }
     #daily-recap-print .dr-shift-label { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 5px; padding-bottom: 3px; border-bottom: 2px solid var(--green-light); }
-    #daily-recap-print .dr-plan-cards-row { display: flex; gap: 10px; margin-bottom: 5px; }
-    #daily-recap-print .dr-plan-card { flex: 1; background: var(--bg); border: 1px solid var(--border); border-top: 4px solid var(--border); border-radius: 6px; padding: 5px 10px; text-align: center; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-    #daily-recap-print .dr-plan-card-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 2px; }
-    /* Pace (how they're trending against elapsed shift time) is deliberately
-       separated from "% to Plan" (owner caught these being blended together
-       2026-09-14) — shown as a small line above the main fraction. */
-    #daily-recap-print .dr-pace-line { font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
-    /* Actual / plan shown as a scoreboard-style fraction — big actual
-       number and the % badge on one row, same size (owner request), then a
-       rule, then the full-shift plan number underneath, enlarged too (owner
-       request) instead of "X of Y expected" prose. */
-    #daily-recap-print .dr-fraction-top { display: flex; align-items: center; justify-content: center; gap: 12px; }
-    #daily-recap-print .dr-fraction-num { font-family: 'Lora', serif; font-size: 30px; font-weight: 700; color: var(--text); line-height: 1.1; }
-    #daily-recap-print .dr-fraction-line { width: 50px; height: 2px; background: var(--border); margin: 3px auto; }
-    #daily-recap-print .dr-fraction-den { font-size: 13px; color: var(--muted); }
-    #daily-recap-print .dr-fraction-den-num { font-family: 'Lora', serif; font-size: 20px; font-weight: 700; color: var(--text); }
     #daily-recap-print .dr-muted { color: var(--muted); font-style: italic; }
-    #daily-recap-print .dr-plan-pct { display: inline-block; font-family: 'Lora', serif; font-size: 30px; font-weight: 700; line-height: 1.1; padding: 0 10px; border-radius: 10px; border: 1px solid; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-    /* Per-machine table: keep the large 18px font (owner explicitly asked for
-       this to be bigger) — only padding/margin are trimmed here. */
+    /* Per-machine / checkpoints table: keep the large 18px font (owner
+       explicitly asked for this to be bigger) — only padding/margin are
+       trimmed here. */
     #daily-recap-print .dr-machine-table { width: 100%; border-collapse: collapse; margin-top: 2px; font-size: 18px; }
     #daily-recap-print .dr-machine-table th { text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 2px 8px; border-bottom: 1px solid var(--border); }
     #daily-recap-print .dr-machine-table td { padding: 2px 8px; border-bottom: 1px solid #eee; font-weight: 600; }
-    #daily-recap-print .dr-pace-cell { font-size: 13px; font-weight: 600; color: var(--muted); }
     #daily-recap-print .dr-machine-table tr:last-child td { border-bottom: none; }
-    #daily-recap-print .dr-num { text-align: right; }
-    #daily-recap-print .dr-ship-caption { font-size: 9px; color: var(--muted); font-style: italic; margin-bottom: 4px; }
+    /* Extended Dwell Times (owner request 2026-09-21: its own page, always
+       fitting on one page) — smaller/tighter than the other checkpoint-style
+       tables so more rows fit; page-break-inside:avoid per row keeps a
+       single dwell span from being cut in half across a page boundary. A day
+       with an unusually large number of dwell spans could still run past one
+       page — there's no way to guarantee that in pure print CSS without a
+       row cap, which hasn't been added since it would mean hiding real data. */
+    #daily-recap-print .dr-dwell-table { font-size: 15px; }
+    #daily-recap-print .dr-dwell-table th { padding: 3px 8px; }
+    #daily-recap-print .dr-dwell-table td { padding: 3px 8px; }
+    #daily-recap-print .dr-dwell-table tr { break-inside: avoid; page-break-inside: avoid; }
     #daily-recap-print .dr-ship-row { display: flex; gap: 12px; }
     #daily-recap-print .dr-ship-tile { flex: 1; text-align: center; border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
     #daily-recap-print .dr-ship-num { font-family: 'Lora', serif; font-size: 24px; font-weight: 700; color: var(--green-dark); }
     #daily-recap-print .dr-ship-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-top: 3px; }
-    #daily-recap-print .dr-ship-exceptions { margin-top: 6px; font-size: 12px; font-weight: 600; color: var(--red); }
     #daily-recap-print .dr-footer { margin-top: 0.35cm; font-size: 10px; color: var(--muted); text-align: right; }
 
     /* ── body.print-weekly-recap: one machine, 7 days, printed landscape ───── */
@@ -564,6 +562,22 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     #weekly-recap-print .wr-40hr-label { font-size: 13px; color: var(--muted); font-weight: 700; }
     #weekly-recap-print .wr-40hr-cell { padding: 8px 6px; }
     #weekly-recap-print .wr-footer { margin-top: 0.4cm; font-size: 10px; color: var(--muted); text-align: right; }
+
+    /* ── body.print-missing-files: Missing Art Files report ────────────────── */
+    body.print-missing-files > * { display: none !important; }
+    body.print-missing-files #page-report   { display: none !important; }
+    body.print-missing-files #page-planner  { display: none !important; }
+    body.print-missing-files #page-totals   { display: none !important; }
+    body.print-missing-files #page-settings { display: none !important; }
+    body.print-missing-files #page-missing  { display: none !important; }
+    body.print-missing-files #missing-files-print { display: block !important; }
+    #missing-files-print .mf-print-header { margin-bottom: 0.3cm; padding-bottom: 0.15cm; border-bottom: 3px solid var(--green-dark); }
+    #missing-files-print .mf-print-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--green-dark); margin-bottom: 2px; }
+    #missing-files-print .mf-print-title { font-family: 'Lora', serif; font-size: 24px; font-weight: 700; color: var(--green-dark); }
+    #missing-files-print .mf-print-sub { font-size: 12px; color: var(--muted); }
+    #missing-files-print .mf-print-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    #missing-files-print .mf-print-table th { background: var(--green-light); padding: 5px 8px; font-weight: 600; color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); text-align: left; }
+    #missing-files-print .mf-print-table td { padding: 5px 8px; border-bottom: 1px solid #eee; }
   }
 </style>
 </head>
@@ -597,6 +611,7 @@ input[type="date"]:focus { border-color: var(--green-dark); }
   <div class="subnav-item" id="tab-planner" onclick="showTab('planner')">&#128197; Planning</div>
   <div class="subnav-item" id="tab-settings" onclick="showTab('settings')">&#9881; Targets &amp; Rules</div>
   <div class="subnav-item" id="tab-report"   onclick="showTab('report')">&#128203; Plan vs. Actual</div>
+  <div class="subnav-item" id="tab-missing"  onclick="showTab('missing')">&#128196; Missing Files</div>
 </div>
 
 <div class="main">
@@ -991,6 +1006,49 @@ input[type="date"]:focus { border-color: var(--green-dark); }
 
   <div class="footer">EG Studio &nbsp;&middot;&nbsp; Print Track &nbsp;&middot;&nbsp; Plan vs. Actual</div>
 </div>
+</div>
+
+<!-- MISSING ART FILES PAGE -->
+<div id="page-missing" style="display:none">
+<div class="main">
+  <div class="page-head">
+    <h1>Missing Art Files</h1>
+    <p>Track orders missing an art file or personalization, who's handling it, and when it gets resolved.</p>
+  </div>
+
+  <div class="report-controls">
+    <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden">
+      <button class="maf-view-tab active" id="maf-view-active-btn" onclick="mafSetView('active')">Active</button>
+      <button class="maf-view-tab" id="maf-view-archive-btn" onclick="mafSetView('archive')">Archive</button>
+    </div>
+    <button class="qbtn" onclick="mafOpenModal(null)" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark);align-self:flex-end">+ Add Missing File</button>
+    <button class="qbtn" onclick="printMissingFilesReport()" style="align-self:flex-end">&#128424; Print / Export</button>
+    <button class="qbtn" onclick="mafToggleManage()" id="maf-manage-btn" style="align-self:flex-end">&#9881; Manage Departments &amp; Contacts</button>
+  </div>
+
+  <div id="maf-manage-panel" style="display:none"></div>
+
+  <div id="maf-table-wrap"></div>
+
+  <div class="footer">EG Studio &nbsp;&middot;&nbsp; Print Track &nbsp;&middot;&nbsp; Missing Art Files</div>
+</div>
+</div>
+
+<!-- Add/Edit Missing File modal -->
+<div id="maf-modal" onclick="if(event.target===this)mafCloseModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:500;overflow-y:auto;padding:2rem 1rem">
+  <div style="max-width:560px;margin:0 auto;background:var(--white);border-radius:var(--radius);box-shadow:0 8px 32px rgba(0,0,0,0.18);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);background:var(--green-light)">
+      <span id="maf-modal-title" style="font-size:14px;font-weight:700;color:var(--green-dark)"></span>
+      <button onclick="mafCloseModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted);line-height:1">&#x2715;</button>
+    </div>
+    <div id="maf-modal-body" style="padding:18px;display:flex;flex-direction:column;gap:12px"></div>
+    <div style="display:flex;justify-content:space-between;gap:8px;padding:0 18px 18px">
+      <button id="maf-delete-btn" onclick="mafDeleteEntry()" style="display:none;background:none;border:1px solid var(--red-border);border-radius:var(--radius-sm);padding:8px 16px;font-size:13px;font-weight:600;color:var(--red);cursor:pointer;font-family:inherit">&#128465; Delete</button>
+      <div style="flex:1"></div>
+      <button onclick="mafCloseModal()" style="background:none;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 16px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;font-family:inherit">Cancel</button>
+      <button onclick="mafSaveFromModal()" style="background:var(--green-dark);color:#fff;border:none;border-radius:var(--radius-sm);padding:8px 20px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Save</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -1630,18 +1688,387 @@ function render(forceDate) {
 }
 
 
+// ─── MISSING ART FILES ────────────────────────────────────
+// Replaces the team's manually-maintained "File Requests.xlsx" (Missing
+// Files + Resolved sheets). One Firebase path, "missingArtFiles", holds
+// entries/departments/contacts together so a single rules block covers
+// all three. Departments and Contacts are independent editable lists —
+// a row picks one of each, they aren't linked/filtered against each other.
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+    return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+  });
+}
+
+var MAF_STATUSES = ['Missing', 'Email Sent', 'Follow Up', 'Resolved', 'Cancelled'];
+var MAF_ARCHIVED_STATUSES = ['Resolved', 'Cancelled'];
+var MAF_DEPARTMENTS_DEFAULT = ['Inline Personalized Plock', 'Inline Files', 'Personalization Drop Ship', 'Sports', 'Drinkware'];
+var MAF_CONTACTS_DEFAULT = ['Erin Bushnell', 'Suzanne Karzoun', 'Creative Team', 'Cathleen Alleyne', 'Brigitte Crowder', 'Brian Martin', 'Steven Warrick', 'Lain'];
+
+var _mafEntries     = {};   // { id: {department, contact, company, orderId, item, design, issue, sizeMedia, status, dateReported, dateResolved, notes} }
+var _mafDepartments = MAF_DEPARTMENTS_DEFAULT.slice();
+var _mafContacts    = MAF_CONTACTS_DEFAULT.slice();
+var _mafLoaded      = false;
+var _mafView        = 'active'; // 'active' | 'archive'
+var _mafEditId      = null;     // id being edited in the modal, null = new entry
+var _mafManageOpen  = false;
+
+function mafSaveEntries()     { firebase.database().ref('missingArtFiles/entries').set(_mafEntries).catch(function(e){ console.error('mafSaveEntries failed:', e); }); }
+function mafSaveDepartments() { firebase.database().ref('missingArtFiles/departments').set(_mafDepartments).catch(function(e){ console.error('mafSaveDepartments failed:', e); }); }
+function mafSaveContacts()    { firebase.database().ref('missingArtFiles/contacts').set(_mafContacts).catch(function(e){ console.error('mafSaveContacts failed:', e); }); }
+
+// Back-compat with any entry saved before contact became multi-select.
+function _mafContactsDisplay(e) {
+  var list = e.contacts || (e.contact ? [e.contact] : []);
+  return list.length ? list.join(', ') : '—';
+}
+
+function mafSetView(view) {
+  _mafView = view;
+  document.getElementById('maf-view-active-btn').classList.toggle('active', view === 'active');
+  document.getElementById('maf-view-archive-btn').classList.toggle('active', view === 'archive');
+  renderMissingFiles();
+}
+
+function mafToggleManage() {
+  _mafManageOpen = !_mafManageOpen;
+  renderMissingFiles();
+}
+
+function _mafStatusColor(status) {
+  if (status === 'Resolved')   return { bg: '#e3f5ea', fg: 'var(--green-dark)' };
+  if (status === 'Cancelled')  return { bg: '#f0f0f0', fg: 'var(--muted)' };
+  if (status === 'Follow Up')  return { bg: '#fff3d6', fg: '#a8760a' };
+  if (status === 'Email Sent') return { bg: '#e4eefc', fg: '#2a5ea8' };
+  return { bg: '#fde8e8', fg: 'var(--red)' }; // Missing
+}
+
+// Whole calendar days between a "YYYY-MM-DD" date and today, computed via
+// UTC-midnight on both sides so it can't drift a day off near midnight in a
+// non-UTC timezone (dateReported has no time component to begin with).
+function _mafDaysSince(dateStr) {
+  if (!dateStr) return null;
+  var p = dateStr.split('-');
+  if (p.length !== 3) return null;
+  var reportedMs = Date.UTC(+p[0], +p[1] - 1, +p[2]);
+  var now = new Date();
+  var todayMs = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((todayMs - reportedMs) / 86400000);
+}
+// Tiers: 1-2 days green, 3-4 yellow, 5-6 orange, 7+ red.
+function _mafAgeColor(dateStr) {
+  var days = _mafDaysSince(dateStr);
+  if (days == null) return null;
+  if (days < 3) return { bg: '#e3f5ea', fg: 'var(--green-dark)' };
+  if (days < 5) return { bg: '#fff3d6', fg: '#a8760a' };
+  if (days < 7) return { bg: '#ffe4cc', fg: '#b85c00' };
+  return { bg: '#fde8e8', fg: 'var(--red)' };
+}
+
+function renderMissingFiles() {
+  var wrap       = document.getElementById('maf-table-wrap');
+  var manageWrap = document.getElementById('maf-manage-panel');
+  if (!wrap) return;
+
+  if (!_mafLoaded) {
+    wrap.innerHTML = '<p style="color:var(--muted);font-size:14px">Loading&hellip;</p>';
+    return;
+  }
+
+  // ── Manage Departments & Contacts panel ──
+  manageWrap.style.display = _mafManageOpen ? '' : 'none';
+  if (_mafManageOpen) {
+    var mh = '<div class="section" style="margin-bottom:16px">';
+    mh += '<div class="section-head">Departments</div>';
+    mh += '<div class="maf-chip-list">';
+    _mafDepartments.forEach(function(d, i) {
+      mh += '<span class="maf-chip">' + escapeHtml(d) + '<button onclick="mafRemoveDepartment(' + i + ')" title="Remove">&times;</button></span>';
+    });
+    mh += '</div>';
+    mh += '<div style="display:flex;gap:8px"><input type="text" id="maf-new-dept" placeholder="Add a department…" style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;flex:1;font-family:inherit" onkeydown="if(event.key===\'Enter\')mafAddDepartment()"><button class="qbtn" onclick="mafAddDepartment()">+ Add</button></div>';
+    mh += '</div>';
+    mh += '<div class="section">';
+    mh += '<div class="section-head">Points of Contact</div>';
+    mh += '<div class="maf-chip-list">';
+    _mafContacts.forEach(function(c, i) {
+      mh += '<span class="maf-chip">' + escapeHtml(c) + '<button onclick="mafRemoveContact(' + i + ')" title="Remove">&times;</button></span>';
+    });
+    mh += '</div>';
+    mh += '<div style="display:flex;gap:8px"><input type="text" id="maf-new-contact" placeholder="Add a contact…" style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;flex:1;font-family:inherit" onkeydown="if(event.key===\'Enter\')mafAddContact()"><button class="qbtn" onclick="mafAddContact()">+ Add</button></div>';
+    mh += '</div>';
+    manageWrap.innerHTML = mh;
+  }
+
+  // ── Table ──
+  var ids = Object.keys(_mafEntries).filter(function(id) {
+    var isArchived = MAF_ARCHIVED_STATUSES.indexOf(_mafEntries[id].status) !== -1;
+    return _mafView === 'archive' ? isArchived : !isArchived;
+  });
+  ids.sort(function(a, b) {
+    var da = _mafEntries[a].dateReported || '', db = _mafEntries[b].dateReported || '';
+    return db < da ? -1 : db > da ? 1 : 0; // newest first
+  });
+
+  if (!ids.length) {
+    wrap.innerHTML = '<p style="color:var(--muted);font-size:14px;padding:20px 0">' +
+      (_mafView === 'archive' ? 'No resolved/cancelled entries yet.' : 'Nothing missing right now — click "+ Add Missing File" to log one.') +
+      '</p>';
+    return;
+  }
+
+  var h = '<div class="table-wrap"><table class="settings-table"><thead><tr>';
+  h += '<th>Department</th><th>Company</th><th>Order ID</th><th>Item Id</th><th>Container #</th><th>Issue</th><th>Size / Media</th><th>Contact</th><th>Status</th><th>Reported</th>';
+  if (_mafView === 'archive') h += '<th>Resolved</th>';
+  h += '<th></th></tr></thead><tbody>';
+
+  ids.forEach(function(id) {
+    var e  = _mafEntries[id];
+    var sc = _mafStatusColor(e.status);
+    h += '<tr>';
+    h += '<td>' + escapeHtml(e.department || '—') + '</td>';
+    h += '<td>' + escapeHtml(e.company || '—') + '</td>';
+    h += '<td>' + escapeHtml(e.orderId || '—') + '</td>';
+    h += '<td>' + escapeHtml(e.item || '—') + '</td>';
+    h += '<td>' + escapeHtml(e.containerNumber || '—') + '</td>';
+    h += '<td>' + escapeHtml(e.issue || '—') + '</td>';
+    h += '<td>' + escapeHtml(e.sizeMedia || '—') + '</td>';
+    h += '<td>' + escapeHtml(_mafContactsDisplay(e)) + '</td>';
+    h += '<td><span class="maf-status-pill" style="background:' + sc.bg + ';color:' + sc.fg + '">' + escapeHtml(e.status || 'Missing') + '</span></td>';
+    var ac = _mafAgeColor(e.dateReported);
+    h += '<td>' + (ac ? '<span class="maf-status-pill" style="background:' + ac.bg + ';color:' + ac.fg + '">' + escapeHtml(e.dateReported) + '</span>' : '—') + '</td>';
+    if (_mafView === 'archive') h += '<td>' + escapeHtml(e.dateResolved || '—') + '</td>';
+    h += '<td><button class="qbtn" onclick="mafOpenModal(\'' + id + '\')">Edit</button></td>';
+    h += '</tr>';
+  });
+  h += '</tbody></table></div>';
+  wrap.innerHTML = h;
+}
+
+function mafAddDepartment() {
+  var input = document.getElementById('maf-new-dept');
+  var v = (input.value || '').trim();
+  if (!v) return;
+  if (_mafDepartments.indexOf(v) !== -1) { alert('"' + v + '" already exists.'); return; }
+  _mafDepartments.push(v);
+  mafSaveDepartments();
+  renderMissingFiles();
+}
+function mafRemoveDepartment(i) {
+  if (!confirm('Remove department "' + _mafDepartments[i] + '"? Existing entries keep their department text — this only affects the dropdown going forward.')) return;
+  _mafDepartments.splice(i, 1);
+  mafSaveDepartments();
+  renderMissingFiles();
+}
+function mafAddContact() {
+  var input = document.getElementById('maf-new-contact');
+  var v = (input.value || '').trim();
+  if (!v) return;
+  if (_mafContacts.indexOf(v) !== -1) { alert('"' + v + '" already exists.'); return; }
+  _mafContacts.push(v);
+  mafSaveContacts();
+  renderMissingFiles();
+}
+function mafRemoveContact(i) {
+  if (!confirm('Remove contact "' + _mafContacts[i] + '"? Existing entries keep their assigned contact text — this only affects the dropdown going forward.')) return;
+  _mafContacts.splice(i, 1);
+  mafSaveContacts();
+  renderMissingFiles();
+}
+
+function _mafSelectOptions(list, selected) {
+  var h = '<option value="">—</option>';
+  list.forEach(function(v) {
+    h += '<option value="' + escapeHtml(v) + '"' + (v === selected ? ' selected' : '') + '>' + escapeHtml(v) + '</option>';
+  });
+  return h;
+}
+
+// Checkbox picker for Point of Contact — a native multi-select <select>
+// requires ctrl/cmd-click to pick more than one option, which isn't obvious
+// for a non-technical team, so this uses plain checkboxes instead.
+function _mafContactCheckboxes(selected) {
+  var sel = selected || [];
+  if (!_mafContacts.length) {
+    return '<div style="font-size:12px;color:var(--muted)">No contacts yet — add one via "Manage Departments &amp; Contacts."</div>';
+  }
+  var h = '<div style="display:flex;flex-wrap:wrap;gap:6px 16px;border:1px solid var(--border);border-radius:6px;padding:10px 12px">';
+  _mafContacts.forEach(function(c) {
+    var checked = sel.indexOf(c) !== -1;
+    h += '<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap">';
+    h += '<input type="checkbox" class="maf-contact-cb" value="' + escapeHtml(c) + '"' + (checked ? ' checked' : '') + '> ' + escapeHtml(c);
+    h += '</label>';
+  });
+  h += '</div>';
+  return h;
+}
+
+function mafOpenModal(id) {
+  _mafEditId = id;
+  var e = id ? _mafEntries[id] : {
+    department: '', contacts: [], company: '', orderId: '', item: '', containerNumber: '', design: '',
+    issue: '', sizeMedia: '', status: 'Missing',
+    dateReported: new Date().toISOString().slice(0, 10), dateResolved: '', notes: ''
+  };
+  // Back-compat with any entry saved before contact became multi-select.
+  var contacts = e.contacts || (e.contact ? [e.contact] : []);
+
+  document.getElementById('maf-modal-title').textContent = id ? 'Edit Missing File' : 'Add Missing File';
+  document.getElementById('maf-delete-btn').style.display = id ? '' : 'none';
+
+  var fieldStyle = 'padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:100%;font-family:inherit;box-sizing:border-box';
+  function row(label, inputHtml) {
+    return '<div><label style="display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:3px">' + label + '</label>' + inputHtml + '</div>';
+  }
+
+  var h = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
+  h += row('Department', '<select id="maf-f-department" style="' + fieldStyle + '">' + _mafSelectOptions(_mafDepartments, e.department) + '</select>');
+  h += row('Size / Media', '<select id="maf-f-sizemedia" style="' + fieldStyle + '">' + _mafSelectOptions(_allKnownPieceTypes(), e.sizeMedia) + '</select>');
+  h += '</div>';
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
+  h += row('Company / Client', '<input type="text" id="maf-f-company" value="' + escapeHtml(e.company || '') + '" style="' + fieldStyle + '">');
+  h += row('Item Id', '<input type="text" id="maf-f-item" value="' + escapeHtml(e.item || '') + '" style="' + fieldStyle + '">');
+  h += '</div>';
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
+  h += row('Order ID', '<input type="text" id="maf-f-orderid" value="' + escapeHtml(e.orderId || '') + '" style="' + fieldStyle + '">');
+  h += row('Container Number', '<input type="text" id="maf-f-container" value="' + escapeHtml(e.containerNumber || '') + '" style="' + fieldStyle + '">');
+  h += '</div>';
+  h += row('Point of Contact', _mafContactCheckboxes(contacts));
+  h += row('Personalized Text / Design', '<input type="text" id="maf-f-design" value="' + escapeHtml(e.design || '') + '" style="' + fieldStyle + '">');
+  h += row('Issue', '<input type="text" id="maf-f-issue" value="' + escapeHtml(e.issue || '') + '" style="' + fieldStyle + '">');
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">';
+  h += row('Status', '<select id="maf-f-status" onchange="mafOnStatusChange()" style="' + fieldStyle + '">' + MAF_STATUSES.map(function(s){ return '<option value="' + s + '"' + (s === e.status ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select>');
+  h += row('Date Reported', '<input type="date" id="maf-f-reported" value="' + (e.dateReported || '') + '" style="' + fieldStyle + '">');
+  h += row('Date Resolved', '<input type="date" id="maf-f-resolved" value="' + (e.dateResolved || '') + '" style="' + fieldStyle + '">');
+  h += '</div>';
+  h += row('Notes', '<textarea id="maf-f-notes" rows="2" style="' + fieldStyle + ';resize:vertical">' + escapeHtml(e.notes || '') + '</textarea>');
+
+  document.getElementById('maf-modal-body').innerHTML = h;
+  document.getElementById('maf-modal').style.display = 'block';
+}
+
+function mafOnStatusChange() {
+  var status = document.getElementById('maf-f-status').value;
+  var resolvedInput = document.getElementById('maf-f-resolved');
+  if (MAF_ARCHIVED_STATUSES.indexOf(status) !== -1 && !resolvedInput.value) {
+    resolvedInput.value = new Date().toISOString().slice(0, 10);
+  }
+}
+
+function mafCloseModal() {
+  document.getElementById('maf-modal').style.display = 'none';
+  _mafEditId = null;
+}
+
+function mafSaveFromModal() {
+  var contacts = Array.prototype.slice.call(document.querySelectorAll('.maf-contact-cb:checked')).map(function(cb) { return cb.value; });
+  var data = {
+    department:   document.getElementById('maf-f-department').value,
+    contacts:     contacts,
+    company:      document.getElementById('maf-f-company').value.trim(),
+    orderId:      document.getElementById('maf-f-orderid').value.trim(),
+    item:         document.getElementById('maf-f-item').value.trim(),
+    containerNumber: document.getElementById('maf-f-container').value.trim(),
+    design:       document.getElementById('maf-f-design').value.trim(),
+    issue:        document.getElementById('maf-f-issue').value.trim(),
+    sizeMedia:    document.getElementById('maf-f-sizemedia').value.trim(),
+    status:       document.getElementById('maf-f-status').value,
+    dateReported: document.getElementById('maf-f-reported').value,
+    dateResolved: document.getElementById('maf-f-resolved').value,
+    notes:        document.getElementById('maf-f-notes').value.trim()
+  };
+  if (!data.company && !data.orderId && !data.item) {
+    alert('Enter at least a company, order ID, or item so this entry is identifiable.');
+    return;
+  }
+  var id = _mafEditId || firebase.database().ref('missingArtFiles/entries').push().key;
+  _mafEntries[id] = data;
+  mafSaveEntries();
+  mafCloseModal();
+  renderMissingFiles();
+}
+
+function mafDeleteEntry() {
+  if (!_mafEditId) return;
+  if (!confirm('Delete this missing-file entry? This cannot be undone.')) return;
+  delete _mafEntries[_mafEditId];
+  mafSaveEntries();
+  mafCloseModal();
+  renderMissingFiles();
+}
+
+// Printable export (Save as PDF, then attach to an email) — same pattern as
+// the Daily Recap / Weekly Recap / Totals Combo print buttons elsewhere in
+// this app (_printAs, body.print-* CSS). Exports whichever view (Active or
+// Archive) is currently showing.
+function _buildMissingFilesPrintHtml() {
+  var ids = Object.keys(_mafEntries).filter(function(id) {
+    var isArchived = MAF_ARCHIVED_STATUSES.indexOf(_mafEntries[id].status) !== -1;
+    return _mafView === 'archive' ? isArchived : !isArchived;
+  });
+  ids.sort(function(a, b) {
+    var da = _mafEntries[a].dateReported || '', db = _mafEntries[b].dateReported || '';
+    return db < da ? -1 : db > da ? 1 : 0;
+  });
+
+  var h = '<div class="mf-print-header">';
+  h += '<div class="mf-print-eyebrow">EG Studio &middot; Missing Art Files</div>';
+  h += '<div class="mf-print-title">' + (_mafView === 'archive' ? 'Resolved / Cancelled' : 'Active') + '</div>';
+  h += '<div class="mf-print-sub">' + new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) +
+       ' &middot; ' + ids.length + ' entr' + (ids.length === 1 ? 'y' : 'ies') + '</div>';
+  h += '</div>';
+
+  if (!ids.length) {
+    h += '<p style="font-size:13px;color:#666">Nothing to show.</p>';
+    return h;
+  }
+
+  h += '<table class="mf-print-table"><thead><tr>';
+  h += '<th>Department</th><th>Company</th><th>Order ID</th><th>Item Id</th><th>Container #</th><th>Issue</th><th>Size / Media</th><th>Contact</th><th>Status</th><th>Reported</th>';
+  if (_mafView === 'archive') h += '<th>Resolved</th>';
+  h += '</tr></thead><tbody>';
+  ids.forEach(function(id) {
+    var e = _mafEntries[id];
+    h += '<tr>';
+    h += '<td>' + escapeHtml(e.department || '—') + '</td>';
+    h += '<td>' + escapeHtml(e.company || '—') + '</td>';
+    h += '<td>' + escapeHtml(e.orderId || '—') + '</td>';
+    h += '<td>' + escapeHtml(e.item || '—') + '</td>';
+    h += '<td>' + escapeHtml(e.containerNumber || '—') + '</td>';
+    h += '<td>' + escapeHtml(e.issue || '—') + '</td>';
+    h += '<td>' + escapeHtml(e.sizeMedia || '—') + '</td>';
+    h += '<td>' + escapeHtml(_mafContactsDisplay(e)) + '</td>';
+    h += '<td>' + escapeHtml(e.status || 'Missing') + '</td>';
+    var pac = _mafAgeColor(e.dateReported);
+    h += '<td>' + (pac ? '<span style="background:' + pac.bg + ';color:' + pac.fg + ';padding:2px 8px;border-radius:20px;font-weight:700;print-color-adjust:exact;-webkit-print-color-adjust:exact">' + escapeHtml(e.dateReported) + '</span>' : '—') + '</td>';
+    if (_mafView === 'archive') h += '<td>' + escapeHtml(e.dateResolved || '—') + '</td>';
+    h += '</tr>';
+  });
+  h += '</tbody></table>';
+  return h;
+}
+
+function printMissingFilesReport() {
+  document.getElementById('missing-files-print').innerHTML = _buildMissingFilesPrintHtml();
+  document.body.classList.add('print-missing-files');
+  _printAs('EGStudio_MissingFiles_' + (_mafView === 'archive' ? 'Archive' : 'Active') + '_' + _mmddyy(new Date().toISOString().slice(0, 10)));
+  setTimeout(function() { document.body.classList.remove('print-missing-files'); }, 500);
+}
+
+
 // ─── TAB SWITCHING ───────────────────────────────────────
 function showTab(tab) {
   document.getElementById('page-totals').style.display   = tab === 'totals'   ? 'block' : 'none';
   document.getElementById('page-planner').style.display  = tab === 'planner'  ? 'block' : 'none';
   document.getElementById('page-settings').style.display = tab === 'settings' ? 'block' : 'none';
   document.getElementById('page-report').style.display   = tab === 'report'   ? 'block' : 'none';
+  document.getElementById('page-missing').style.display  = tab === 'missing'  ? 'block' : 'none';
   document.querySelector('.main').style.display = tab === 'daily' ? 'block' : 'none';
   document.getElementById('tab-daily').classList.toggle('active',    tab === 'daily');
   document.getElementById('tab-totals').classList.toggle('active',   tab === 'totals');
   document.getElementById('tab-planner').classList.toggle('active',  tab === 'planner');
   document.getElementById('tab-settings').classList.toggle('active', tab === 'settings');
   document.getElementById('tab-report').classList.toggle('active',   tab === 'report');
+  document.getElementById('tab-missing').classList.toggle('active',  tab === 'missing');
   if (tab === 'totals') {
     renderCalendar();
     _initTotalsComboDefaults();
@@ -1659,6 +2086,7 @@ function showTab(tab) {
     var rdp = document.getElementById('report-datepicker');
     if (!rdp.value) rdp.value = new Date().toISOString().slice(0, 10);
   }
+  if (tab === 'missing') { renderMissingFiles(); }
 }
 
 // ─── TOTALS DATA ──────────────────────────────────────────
@@ -4140,6 +4568,17 @@ function toggleManualItemForm() {
   f.style.display = f.style.display === 'none' ? '' : 'none';
   if (f.style.display !== 'none') { _renderManualPlanItems(); _populateManualPieceTypeOptions(); }
 }
+// Every piece type known to the app — code defaults, self-added ("+ Add new
+// piece type" on Targets & Rules), and anything with a live Firebase target —
+// same union Targets & Rules itself uses, so this always matches what's on
+// that page. Shared by the manual-add datalist and the Missing Art Files
+// "Size / Media" dropdown.
+function _allKnownPieceTypes() {
+  var names = {};
+  Object.keys(_machineTargetOverrides).forEach(function(k) { names[k] = true; });
+  Object.keys(RAW.targets).forEach(function(k) { names[k] = true; });
+  return Object.keys(names).sort(function(a,b){ return a.localeCompare(b); });
+}
 // Fills the piece-type datalist behind the manual-item input so typing a
 // few letters (e.g. "coir") narrows the browser's suggestion list to
 // matching applicable types, while still allowing free text for anything
@@ -4147,11 +4586,7 @@ function toggleManualItemForm() {
 function _populateManualPieceTypeOptions() {
   var dl = document.getElementById('manual-piecetype-list');
   if (!dl) return;
-  var names = {};
-  Object.keys(_machineTargetOverrides).forEach(function(k) { names[k] = true; });
-  Object.keys(RAW.targets).forEach(function(k) { names[k] = true; });
-  var sorted = Object.keys(names).sort(function(a,b){ return a.localeCompare(b); });
-  dl.innerHTML = sorted.map(function(n) { return '<option value="' + n.replace(/"/g,'&quot;') + '">'; }).join('');
+  dl.innerHTML = _allKnownPieceTypes().map(function(n) { return '<option value="' + n.replace(/"/g,'&quot;') + '">'; }).join('');
 }
 function addManualPlanItem() {
   var planDate = document.getElementById('plan-datepicker').value;
@@ -5773,86 +6208,323 @@ function buildPlanVsActual(plans, byMachine, downMachines, date) {
 
 // ── DAILY RECAP: one-page printable summary of a single day ────────────────
 // Owner request (2026-09-16): a single-sided sheet for reviewing a *past*
-// day's results — header, production totals, % to plan for both shifts
-// (reusing buildPlanVsActual, so it's automatically paced the same way the
-// on-screen Plan vs Actual is), and (today only — see below) a live shipping
-// recap. Reuses _dailyRenderCache (set at the end of render()) instead of
-// re-running the session-aggregation loop for the viewed date.
-// Per-machine actual/expected-by-now for one plan (or no plan — machineLoad/
-// machineCap simply come back empty, so target/expectedNow are 0 for every
-// machine). Reuses _plannedQtyFromPlan for the same min(load,cap) target
-// formula buildPlanVsActual uses, rather than re-deriving it. Down machines
-// are flagged rather than scored, matching the on-screen Plan vs Actual.
-function _drMachineRows(plan, machines, byMachine, downMachines, elapsedFrac) {
-  return machines.map(function(m) {
-    var down = downMachines[m] === true;
-    var mUp = !plan || !plan.machineUp || plan.machineUp[m] !== false;
-    var target = (plan && !down && mUp) ? _plannedQtyFromPlan(plan, m) : 0;
-    var actual = (byMachine[m] && byMachine[m].good) || 0;
-    var expectedNow = elapsedFrac != null ? Math.round(target * elapsedFrac) : target;
-    return { machine: m, down: down, actual: actual, target: target, expectedNow: expectedNow };
-  });
+// day's results — header, production totals, per-shift totals, and (today
+// only — see below) a live shipping recap. Reuses _dailyRenderCache (set at
+// the end of render()) instead of re-running the session-aggregation loop
+// for the viewed date.
+// Owner request (2026-09-21): replaced the % to Plan / pace machine table
+// entirely with plain shift totals (Print Floor / Drinkware / Ship Confirm),
+// and added a Machine Activity Checkpoints table below it — see
+// _drFirstFlags* below. This only touches Daily-Recap-specific functions
+// (the "_dr" prefix) and #daily-recap-print CSS; nothing shared with the
+// Weekly Recap (its own "_wr"/#weekly-recap-print scope) was changed.
+
+// Sums SHIP_CONFIRM's per-hour breakdown for one shift's hour window (same
+// 4am-3pm Day / 3pm-11pm Night cutoff as _shiftScopedByMachine). byHour keys
+// come back from Firebase as strings (ship_confirm_sync.py writes str(hour)).
+function _shipConfirmByHourRange(date, hourMin, hourMax) {
+  var byHour = (SHIP_CONFIRM[date] && SHIP_CONFIRM[date].byHour) || {};
+  var sum = 0;
+  for (var h = hourMin; h <= hourMax; h++) sum += byHour[String(h)] || byHour[h] || 0;
+  return sum;
 }
-// Pace (actual vs. what's expected BY NOW, i.e. target scaled to elapsed
-// shift time) and "% to Plan" (actual vs. the FULL-SHIFT target) are two
-// different questions — owner caught 2026-09-14 that this table was
-// blending them under one "actual/expected" fraction. Pace gets its own
-// (smaller, muted) column; "Actual / Plan" and "% to Plan" now read against
-// the real full-shift target, so a completed day's % reads the same
-// whenever it's printed, and only Pace changes depending on when you print
-// mid-shift.
-function _drMachineTableHtml(rows) {
-  var th = '<table class="dr-machine-table"><thead><tr><th>Machine</th><th class="dr-num">Pace</th><th class="dr-num">Actual / Plan</th><th class="dr-num">% to Plan</th></tr></thead><tbody>';
-  rows.forEach(function(r) {
-    if (r.down) {
-      th += '<tr><td>' + r.machine + '</td><td colspan="3" class="dr-num dr-muted">Down</td></tr>';
-      return;
-    }
-    var pacePct = r.expectedNow > 0 ? Math.round(r.actual / r.expectedNow * 100) : null;
-    var planPct = r.target > 0 ? Math.round(r.actual / r.target * 100) : null;
-    var tier = planPct != null ? _planPctTier(planPct) : 'neutral';
-    var tc = _tierColorVars(tier);
-    th += '<tr><td>' + r.machine + '</td>'
-      + '<td class="dr-num dr-pace-cell">' + (pacePct != null ? pacePct + '%' : '&mdash;') + '</td>'
-      + '<td class="dr-num">' + r.actual.toLocaleString() + ' / ' + r.target.toLocaleString() + '</td>'
-      + '<td class="dr-num" style="color:' + tc.fg + ';font-weight:700">' + (planPct != null ? planPct + '%' : '&mdash;') + '</td></tr>';
-  });
-  th += '</tbody></table>';
-  return th;
+
+// "First engagement" tracking, owner request 2026-09-21: for each machine,
+// every maintLog entry (cleaning, defective, operator fix, machine down/up —
+// ANY of them) and every logged session (any mode — stop/go, continuous,
+// tally, tally2, stamped) counts as a "flag" that someone was actively
+// working that machine. Collects every flag's timestamp, plus whatever we
+// need to work out how much of the gap before it is real production time —
+// timestamps alone drive the Checkpoints table; the rest drives Run/Dwell/
+// Down time below.
+//
+// A flag's timestamp is always when that task FINISHED (mechConfirm()/
+// cleanSubmit()/runSummaryFinish()/tally2.js's _t2SaveNow() all log
+// `time: now`). Two kinds of "explained" time before a flag:
+//  - trustedDurMs: a REAL measured duration (stop/go or continuous session's
+//    totalSec; an Operator Fix/Cleaning maint entry's embedded HH:MM:SS) —
+//    used as-is, never capped, because it's a fact, not an estimate.
+//  - pieceType/qty: for a tally-family session (mode starting "tally") —
+//    each is confirmed (by reading tally2.js's _t2SaveNow() directly) to
+//    write the real DELTA piece count saved since the last save, not a
+//    running total, so qty/targetPPH gives a genuine expected production
+//    time for that specific save. Owner request 2026-09-21, follow-up: use
+//    this instead of treating every tally save as a 0-duration instant —
+//    resolved per-gap in _drMachineTimeBreakdown, capped at +50% variance
+//    AND at the actual available gap (since it's an estimate, not a fact).
+function _drMaintDurationMs(detail) {
+  if (!detail || detail.indexOf(' · ') === -1) return 0;
+  var last = detail.split(' · ').pop();
+  var m = /^(\d{2}):(\d{2}):(\d{2})$/.exec(last);
+  if (!m) return 0;
+  return (parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseInt(m[3], 10)) * 1000;
 }
-// Big scoreboard-style fraction (actual over a rule over expected) + a % pill
-// — owner request 2026-09-16: "larger" numbers, shown as a fraction, for the
-// Print Floor / Drinkware summary (replaces the old single-line "X of Y" text).
-function _drPlanCard(label, result) {
-  if (result.totalTarget == null) {
-    return '<div class="dr-plan-card"><div class="dr-plan-card-label">' + label + '</div><div class="dr-muted" style="font-size:13px;margin-top:14px">No plan committed</div></div>';
+// Same lookup precedence as everywhere else in Targets & Rules (see
+// pphCell() in exportTargetsAndRules): committed/code-default override
+// first, live Firebase target second.
+function _drTargetPphFor(pieceType, machine) {
+  if (!pieceType) return 0;
+  if (_machineTargetOverrides[pieceType] && _machineTargetOverrides[pieceType][machine] != null) return _machineTargetOverrides[pieceType][machine];
+  if (RAW.targets[pieceType] && RAW.targets[pieceType].pph) return RAW.targets[pieceType].pph;
+  return 0;
+}
+
+function _drEventsByMachine(date) {
+  var byMachine = {};
+  function add(machine, ts, extra) {
+    if (!machine || !ts) return;
+    var d = new Date(ts);
+    if (isNaN(d.getTime())) return;
+    if (!byMachine[machine]) byMachine[machine] = [];
+    byMachine[machine].push(Object.assign({ ts: d, trustedDurMs: 0, pieceType: null, qty: 0 }, extra));
   }
-  var actual = result.totalActual || 0, target = result.totalTarget || 0, paceTarget = result.totalExpectedNow || 0;
-  // "% to Plan" is scored against the FULL-SHIFT target, not the
-  // elapsed-time-scaled one — owner caught 2026-09-14 that this card was
-  // blending "% to Plan" and "Pace" into one number (via totalExpectedNow),
-  // which made a completed day's % change depending on when it got
-  // printed. Pace is still shown, just as its own separate, smaller stat.
-  var planPct = target ? Math.round(actual / target * 100) : null;
-  var pacePct = paceTarget ? Math.round(actual / paceTarget * 100) : null;
-  var tier = planPct != null ? _planPctTier(planPct) : 'neutral';
-  var tc = _tierColorVars(tier);
-  // Card itself carries the tier color (background tint + a colored top
-  // accent stripe) so it stands out at a glance, not just the % badge.
-  // Actual number and % badge sit side by side on one row, same size (owner
-  // request) — the group Total row that used to live in the machine table
-  // below was removed, so this card is now the sole place these totals show.
-  return '<div class="dr-plan-card" style="background:' + tc.bg + ';border-color:' + tc.border + ';border-top-color:' + tc.fg + '">'
-    + '<div class="dr-plan-card-label">' + label + '</div>'
-    + '<div class="dr-pace-line">Pace: ' + (pacePct != null ? pacePct + '%' : '&mdash;') + '</div>'
-    + '<div class="dr-fraction-top">'
-      + '<div class="dr-fraction-num">' + actual.toLocaleString() + '</div>'
-      + '<div class="dr-plan-pct" style="color:#fff;background:' + tc.fg + ';border-color:' + tc.fg + '">' + (planPct!=null?planPct+'%':'&mdash;') + '</div>'
-    + '</div>'
-    + '<div class="dr-fraction-line"></div>'
-    + '<div class="dr-fraction-den"><span class="dr-fraction-den-num">' + target.toLocaleString() + '</span> planned</div>'
-    + '</div>';
+  RAW.maint.forEach(function(e) {
+    if (e.t !== date) return;
+    add(e.machine, e.ts, { trustedDurMs: _drMaintDurationMs(e.detail) });
+  });
+  Object.keys(RAW.sessions).forEach(function(machine) {
+    (RAW.sessions[machine] || []).forEach(function(s) {
+      if (s.t !== date) return;
+      var isTally = s.m && s.m.indexOf('tally') === 0;
+      add(machine, s.ts, isTally
+        ? { pieceType: s.p || null, qty: (s.g || 0) + (s.b || 0) }
+        : { trustedDurMs: (s.s || 0) * 1000 });
+    });
+  });
+  Object.keys(byMachine).forEach(function(m) { byMachine[m].sort(function(a, b) { return a.ts - b.ts; }); });
+  return byMachine;
 }
+
+// Timestamps only (no duration) — the Checkpoints table just needs "when",
+// so this stays a thin wrapper over _drEventsByMachine for that one purpose.
+function _drFirstFlagsByMachine(date) {
+  var events = _drEventsByMachine(date);
+  var byMachine = {};
+  Object.keys(events).forEach(function(m) { byMachine[m] = events[m].map(function(e) { return e.ts; }); });
+  return byMachine;
+}
+
+function _drFlagThreshold(date, hour, minute) {
+  var d = new Date(date + 'T00:00:00');
+  d.setHours(hour, minute, 0, 0);
+  return d;
+}
+
+function _drFlagTimeHtml(d) {
+  if (!d) return '<span class="dr-muted">&mdash;</span>';
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+// One row per machine: Start of Shift (first flag of the day, no lower
+// bound), Lunch (first flag at/after 12:04pm), Changeover (first flag
+// at/after 3:04pm — the Day/Night shift boundary), Dinner (first flag
+// at/after 8:00pm), End of Day (last flag of the day).
+function _drCheckpointsTableHtml(date) {
+  var byMachine = _drFirstFlagsByMachine(date);
+  var machines = GROUP_MACHINES.standard.concat(GROUP_MACHINES.drinkware, ['Wallets']);
+  var lunchAt = _drFlagThreshold(date, 12, 4);
+  var changeoverAt = _drFlagThreshold(date, 15, 4);
+  var dinnerAt = _drFlagThreshold(date, 20, 0);
+
+  function firstAtOrAfter(events, threshold) {
+    for (var i = 0; i < events.length; i++) { if (events[i] >= threshold) return events[i]; }
+    return null;
+  }
+
+  var rows = machines.map(function(m) {
+    var events = byMachine[m];
+    if (!events || !events.length) return null;
+    return {
+      machine: m,
+      start: events[0],
+      lunch: firstAtOrAfter(events, lunchAt),
+      changeover: firstAtOrAfter(events, changeoverAt),
+      dinner: firstAtOrAfter(events, dinnerAt),
+      end: events[events.length - 1]
+    };
+  }).filter(Boolean);
+
+  if (!rows.length) return '';
+
+  var h = '<div class="dr-section-head">Machine Activity Checkpoints</div>';
+  h += '<table class="dr-machine-table"><thead><tr>'
+     + '<th>Machine</th><th>Start of Shift</th><th>Lunch</th><th>Changeover</th><th>Dinner</th><th>End of Day</th>'
+     + '</tr></thead><tbody>';
+  rows.forEach(function(r) {
+    // If nothing happened after the changeover checkpoint, End of Day IS
+    // that same flag — owner request 2026-09-21: don't print the identical
+    // time twice, leave End of Day blank in that case instead.
+    var sameAsChangeover = r.changeover && r.end && r.changeover.getTime() === r.end.getTime();
+    h += '<tr><td>' + r.machine + '</td>'
+       + '<td>' + _drFlagTimeHtml(r.start) + '</td>'
+       + '<td>' + _drFlagTimeHtml(r.lunch) + '</td>'
+       + '<td>' + _drFlagTimeHtml(r.changeover) + '</td>'
+       + '<td>' + _drFlagTimeHtml(r.dinner) + '</td>'
+       + '<td>' + (sameAsChangeover ? '<span class="dr-muted">&mdash;</span>' : _drFlagTimeHtml(r.end)) + '</td></tr>';
+  });
+  h += '</tbody></table>';
+  return h;
+}
+
+// Misprints (qtyBad logged during a print run — NOT the separate "Defective
+// Material" manual tally, same distinction used in the maintenance email
+// report) summed per machine for the date, owner request 2026-09-21.
+function _drMisprintsByMachine(date) {
+  var byMachine = {};
+  Object.keys(RAW.sessions).forEach(function(machine) {
+    (RAW.sessions[machine] || []).forEach(function(s) {
+      if (s.t !== date || !s.b) return;
+      byMachine[machine] = (byMachine[machine] || 0) + s.b;
+    });
+  });
+  return byMachine;
+}
+
+function _drMisprintsTableHtml(date) {
+  var byMachine = _drMisprintsByMachine(date);
+  var machines = Object.keys(byMachine).sort(function(a, b) { return byMachine[b] - byMachine[a]; });
+  if (!machines.length) return '';
+  var total = machines.reduce(function(sum, m) { return sum + byMachine[m]; }, 0);
+  var h = '<div class="dr-section-head">Misprints by Machine &mdash; ' + total.toLocaleString() + ' total</div>';
+  h += '<table class="dr-machine-table"><thead><tr><th>Machine</th><th>Misprints</th></tr></thead><tbody>';
+  machines.forEach(function(m) {
+    h += '<tr><td>' + m + '</td><td>' + byMachine[m].toLocaleString() + '</td></tr>';
+  });
+  h += '</tbody></table>';
+  return h;
+}
+
+// Extended Dwell Times, owner request 2026-09-21: gaps longer than 15
+// minutes between consecutive flags (same combined maintLog+session flag
+// data as the Checkpoints table above) on the same machine. Deliberately
+// NOT excluding planned-break windows — the owner wants those included, so
+// this can also surface whether staggered-shift break coverage is actually
+// happening (a gap lining up with a break time is useful signal, not noise).
+// Consecutive over-threshold gaps are merged into one span (owner caught
+// 2026-09-21: a single isolated flag sitting between two long silences —
+// e.g. one lone tally save — was fragmenting one real ~6hr quiet stretch
+// into several separate rows around it, instead of reading as one span).
+function _drDurationHtml(mins) {
+  if (mins < 60) return mins + ' min';
+  var h = Math.floor(mins / 60), m = mins % 60;
+  return h + 'h' + (m ? ' ' + m + 'm' : '');
+}
+// Tally2 autosave can write several piece-type saves a second or two apart
+// (one Firebase record per changed piece type) — those are one real save
+// moment, not separate moments of engagement, so they're grouped into a
+// "burst" rather than treated as independent flags (owner caught 2026-09-21:
+// a burst of 3 flags one second apart at 12:17pm was splitting one real
+// quiet span into two). A burst can span more than one piece type, so each
+// member's own qty/target-rate estimate is kept and summed per burst, rather
+// than collapsed into a single duration the way the old version did.
+var DR_BURST_MS = 60 * 1000;
+function _drGroupIntoBursts(events) {
+  var bursts = [];
+  events.forEach(function(e) {
+    var last = bursts[bursts.length - 1];
+    if (last && (e.ts - last.ts) <= DR_BURST_MS) {
+      last.ts = e.ts; // burst's reference point = its latest member
+      last.members.push(e);
+    } else {
+      bursts.push({ ts: e.ts, members: [e] });
+    }
+  });
+  return bursts;
+}
+
+// Owner request 2026-09-21, follow-up (two rounds): split each machine's day
+// into Run Time, Dwell Time (idle gaps up to 15 min), and Down Time (idle
+// gaps over 15 min, reported as one whole number, never a list of
+// instances). Run Time now covers tally-family production too, not just
+// measured stop/go — see the long comment above _drEventsByMachine for why
+// each tally save's own qty/target-PPH gives a real expected production
+// time, capped at +50% variance AND at the actual available gap (an
+// estimate, unlike a stop/go session's real totalSec or a maint entry's
+// real logged duration, which are trusted outright).
+//
+// By construction Run + Dwell + Down = the span from the first flag to the
+// last flag: the idle gap before each burst is shortened by however much of
+// it that burst's own work explains, and the very first burst's own
+// work/duration is excluded from Run Time — it's the "Start of Shift"
+// marker itself, the boundary the window starts at, not time spent within it.
+var DR_TALLY_VARIANCE = 1.5; // +50%
+function _drMachineTimeBreakdown(date, machine) {
+  var raw = (_drEventsByMachine(date))[machine] || [];
+  var bursts = _drGroupIntoBursts(raw);
+  var n = bursts.length;
+  if (n < 2) return null;
+  var THRESHOLD_MS = 15 * 60 * 1000;
+  var runMs = 0, dwellMs = 0, downMs = 0;
+  var dwellSpans = [];
+  for (var i = 0; i < n - 1; i++) {
+    var rawGapMs = bursts[i + 1].ts - bursts[i].ts;
+    var trustedMs = 0, estimatedMs = 0;
+    bursts[i + 1].members.forEach(function(e) {
+      if (e.trustedDurMs > 0) {
+        trustedMs += e.trustedDurMs;
+      } else if (e.pieceType && e.qty > 0) {
+        var pph = _drTargetPphFor(e.pieceType, machine);
+        if (pph > 0) estimatedMs += (e.qty / pph) * 3600 * 1000;
+      }
+    });
+    var explainedMs = Math.min(rawGapMs, trustedMs + estimatedMs * DR_TALLY_VARIANCE);
+    var idleMs = rawGapMs - explainedMs;
+    if (idleMs < 0) idleMs = 0;
+    runMs += explainedMs;
+    if (idleMs > THRESHOLD_MS) {
+      downMs += idleMs;
+    } else {
+      dwellMs += idleMs;
+      if (idleMs > 0) dwellSpans.push({ machine: machine, from: bursts[i].ts, to: new Date(bursts[i + 1].ts - explainedMs), mins: Math.round(idleMs / 60000) });
+    }
+  }
+  return {
+    machine: machine, start: bursts[0].ts, end: bursts[n - 1].ts,
+    totalMs: bursts[n - 1].ts - bursts[0].ts,
+    runMs: runMs, dwellMs: dwellMs, downMs: downMs, dwellSpans: dwellSpans
+  };
+}
+
+// Page-1 summary: Run / Dwell / Down time side by side per machine (their
+// sum equals the Total column, by construction — see _drMachineTimeBreakdown
+// above). Down time never gets a separate breakdown list anywhere, only this
+// one number, per owner request.
+function _drTimeAccountingTableHtml(date) {
+  var machines = GROUP_MACHINES.standard.concat(GROUP_MACHINES.drinkware, ['Wallets']);
+  var rows = machines.map(function(m) { return _drMachineTimeBreakdown(date, m); }).filter(Boolean);
+  if (!rows.length) return '';
+  var h = '<div class="dr-section-head">Run / Dwell / Down Time by Machine</div>';
+  h += '<table class="dr-machine-table"><thead><tr><th>Machine</th><th>Run Time</th><th>Dwell Time</th><th>Down Time</th><th>Total (Start&ndash;End)</th></tr></thead><tbody>';
+  rows.forEach(function(r) {
+    h += '<tr><td>' + r.machine + '</td>'
+       + '<td>' + _drDurationHtml(Math.round(r.runMs / 60000)) + '</td>'
+       + '<td>' + _drDurationHtml(Math.round(r.dwellMs / 60000)) + '</td>'
+       + '<td>' + _drDurationHtml(Math.round(r.downMs / 60000)) + '</td>'
+       + '<td>' + _drDurationHtml(Math.round(r.totalMs / 60000)) + '</td></tr>';
+  });
+  h += '</tbody></table>';
+  return h;
+}
+
+// Page-2 detailed list: every individual dwell span (idle gap up to 15 min).
+function _drDwellBreakdownTableHtml(date) {
+  var machines = GROUP_MACHINES.standard.concat(GROUP_MACHINES.drinkware, ['Wallets']);
+  var allSpans = [];
+  machines.forEach(function(m) {
+    var bd = _drMachineTimeBreakdown(date, m);
+    if (bd) allSpans = allSpans.concat(bd.dwellSpans);
+  });
+  if (!allSpans.length) return '';
+  allSpans.sort(function(a, b) { return a.machine === b.machine ? a.from - b.from : a.machine.localeCompare(b.machine); });
+  var h = '<div class="dr-section-head">Dwell Time Breakdown (idle gaps up to 15 min)</div>';
+  h += '<table class="dr-machine-table dr-dwell-table"><thead><tr><th>Machine</th><th>From</th><th>To</th><th>Duration</th></tr></thead><tbody>';
+  allSpans.forEach(function(r) {
+    h += '<tr><td>' + r.machine + '</td><td>' + _drFlagTimeHtml(r.from) + '</td><td>' + _drFlagTimeHtml(r.to) + '</td><td>' + _drDurationHtml(r.mins) + '</td></tr>';
+  });
+  h += '</tbody></table>';
+  return h;
+}
+
 function _buildDailyRecapHtml(date) {
   var cache = _dailyRenderCache;
   if (!cache || cache.date !== date) return '<div class="empty">Select this date on Today\'s Results first, then print.</div>';
@@ -5868,87 +6540,53 @@ function _buildDailyRecapHtml(date) {
   h += '<div class="dr-cards">';
   h += '<div class="dr-card"><div class="dr-card-label">Print Floor (30 + 30+ + H5)</div><div class="dr-card-num">' + cache.stdGood.toLocaleString() + '</div></div>';
   h += '<div class="dr-card"><div class="dr-card-label">Drinkware (M1 + M2)</div><div class="dr-card-num">' + cache.dwGood.toLocaleString() + '</div></div>';
-  h += '<div class="dr-card"><div class="dr-card-label">Wallets</div><div class="dr-card-num">' + cache.walletGood.toLocaleString() + '</div></div>';
+  h += '<div class="dr-card"><div class="dr-card-label">Ship Confirm (Units)</div><div class="dr-card-num">' + ((SHIP_CONFIRM[date] && SHIP_CONFIRM[date].total) || 0).toLocaleString() + '</div></div>';
   h += '</div>';
 
-  h += '<div class="dr-section-head">% to Plan</div>';
+  // Owner request 2026-09-21: no more % to Plan / pace here — just the plain
+  // shift totals (Print Floor / Drinkware units, Ship Confirm units), each
+  // scoped to that shift's hour window same as everywhere else in the app.
+  h += '<div class="dr-section-head">Shift Totals</div>';
   h += '<div class="dr-shift-row">';
   ['day', 'night'].forEach(function(shift) {
-    // cache.byMachine is the WHOLE DAY's totals — using it here would show
-    // the exact same "actual" for both Day and Night shift blocks (found
-    // 2026-09-16: owner noticed the two shifts' numbers looked identical).
-    // _shiftScopedByMachine (already used by the Totals tab's Shift Summary
-    // report) filters to just this shift's AM/PM hour window instead.
+    var hourMin = shift === 'night' ? 15 : 4;
+    var hourMax = shift === 'night' ? 23 : 15;
     var shiftByMachine = _shiftScopedByMachine(date, shift);
-    // Prefer a committed midshift snapshot over the original morning plan
-    // whenever one exists — same override the Totals tab's Shift Summary
-    // Report already forces for both its sections (_comboShiftBlock and its
-    // "Today's Plan" section). Missing this was the real reason the Daily
-    // Recap's numbers didn't match that report (found 2026-09-14, owner
-    // compared the two side by side): the Recap was silently reading the
-    // stale original plan while the Shift Summary read the updated one.
-    var midOverride = {};
-    midOverride['standard:' + shift]  = 'mid';
-    midOverride['drinkware:' + shift] = 'mid';
-    var stdPlan = _resolvePlanForShiftGroup(date, shift, 'standard', midOverride);
-    var dwPlan  = _resolvePlanForShiftGroup(date, shift, 'drinkware', midOverride);
-    var stdResult = buildPlanVsActual(stdPlan ? [stdPlan] : [], shiftByMachine, cache.downMachines, date);
-    var dwResult  = buildPlanVsActual(dwPlan ? [dwPlan] : [], shiftByMachine, {}, date);
+    var stdTotal = GROUP_MACHINES.standard.reduce(function(sum, m) { return sum + ((shiftByMachine[m] && shiftByMachine[m].good) || 0); }, 0);
+    var dwTotal  = GROUP_MACHINES.drinkware.reduce(function(sum, m) { return sum + ((shiftByMachine[m] && shiftByMachine[m].good) || 0); }, 0);
+    // Ship Confirm switches cleanly at 3:00 PM (no overlap hour), unlike
+    // _shiftScopedByMachine's 4am-3pm/3pm-11pm windows above (which share hour
+    // 15 between Day and Night — an existing app-wide convention used by
+    // Print Floor/Drinkware elsewhere, left untouched here on purpose).
+    var shipHourMin = shift === 'night' ? 15 : 4;
+    var shipHourMax = shift === 'night' ? 23 : 14;
+    var shipTotal = _shipConfirmByHourRange(date, shipHourMin, shipHourMax);
     var shiftLabel = shift === 'night' ? '🌙 Night Shift' : '☀ Day Shift';
     h += '<div class="dr-shift-block">';
     h += '<div class="dr-shift-label">' + shiftLabel + '</div>';
-    h += '<div class="dr-plan-cards-row">' + _drPlanCard('Print Floor', stdResult) + _drPlanCard('Drinkware', dwResult) + '</div>';
-    if (stdPlan || dwPlan) {
-      var stdElapsed = _shiftElapsedFraction(date, shift, 'standard');
-      var dwElapsed  = _shiftElapsedFraction(date, shift, 'drinkware');
-      // No group Total row here anymore (removed per owner request — the
-      // plan cards above already show the same combined actual/expected/%,
-      // so the table stays pure per-machine detail).
-      var machineRows = [];
-      if (stdPlan) {
-        machineRows = machineRows.concat(_drMachineRows(stdPlan, GROUP_MACHINES.standard, shiftByMachine, cache.downMachines, stdElapsed));
-      }
-      if (dwPlan) {
-        machineRows = machineRows.concat(_drMachineRows(dwPlan, GROUP_MACHINES.drinkware, shiftByMachine, {}, dwElapsed));
-      }
-      h += _drMachineTableHtml(machineRows);
-    }
+    h += '<div class="dr-ship-row">';
+    h += '<div class="dr-ship-tile"><div class="dr-ship-num">' + stdTotal.toLocaleString() + '</div><div class="dr-ship-label">Print Floor</div></div>';
+    h += '<div class="dr-ship-tile"><div class="dr-ship-num">' + dwTotal.toLocaleString() + '</div><div class="dr-ship-label">Drinkware</div></div>';
+    h += '<div class="dr-ship-tile"><div class="dr-ship-num">' + shipTotal.toLocaleString() + '</div><div class="dr-ship-label">Ship Confirm</div></div>';
+    h += '</div>';
     h += '</div>';
   });
   h += '</div>';
 
-  // Assembled/Sorted/Ready-to-Ship are a live "right now" snapshot with no
-  // per-date history (see the SHIPPING_STATUS declaration) — there is no way
-  // to show *that date's* numbers for these three on a past date. Owner
-  // confirmed 2026-09-16 she wants them shown anyway on past-date recaps,
-  // understanding they'll be today's live snapshot rather than the printed
-  // date's actual numbers — so they're always shown when live data exists,
-  // clearly labeled "(Live)" and captioned, to avoid implying they're
-  // historical. # Ship Confirmed (SHIP_CONFIRM) is different — it's written
-  // once per date by ship_confirm_sync.py, so it has real history and always
-  // reflects the printed date specifically, live or not.
-  var shipConfirmTotal = SHIP_CONFIRM[date] ? (SHIP_CONFIRM[date].total || 0) : null;
-  var sb = (SHIPPING_STATUS && SHIPPING_STATUS.shiftBreakdown && SHIPPING_STATUS.shiftBreakdown.current) ? SHIPPING_STATUS.shiftBreakdown : null;
-  if (sb || shipConfirmTotal != null) {
-    h += '<div class="dr-section-head">Shipping Recap</div>';
-    if (sb) {
-      h += '<div class="dr-ship-caption">Assembled / Sorted / Ready to Ship are live as of printing (' + (sb.shift === 'night' ? 'Night' : 'Day') + ' Shift) &mdash; not specific to ' + dateLabel + '. # Ship Confirmed is ' + dateLabel + '\'s actual total.</div>';
-    }
-    h += '<div class="dr-ship-row">';
-    if (sb) {
-      [['assembly','Assembled'], ['sorting','Sorted'], ['readyToShip','Ready to Ship']].forEach(function(pair) {
-        var val = sb.current[pair[0]] || 0;
-        h += '<div class="dr-ship-tile"><div class="dr-ship-num">' + val.toLocaleString() + '</div><div class="dr-ship-label">' + pair[1] + ' (Live)</div></div>';
-      });
-    }
-    if (shipConfirmTotal != null) {
-      h += '<div class="dr-ship-tile"><div class="dr-ship-num">' + shipConfirmTotal.toLocaleString() + '</div><div class="dr-ship-label"># Ship Confirmed</div></div>';
-    }
-    h += '</div>';
-    if (sb && SHIPPING_STATUS.exceptions && SHIPPING_STATUS.exceptions.count > 0) {
-      h += '<div class="dr-ship-exceptions">&#9888; ' + SHIPPING_STATUS.exceptions.count + ' exception' + (SHIPPING_STATUS.exceptions.count!==1?'s':'') + ' flagged today (' + (SHIPPING_STATUS.exceptions.qty||0).toLocaleString() + ' pcs)</div>';
-    }
-  }
+  // New 2026-09-21: first-engagement checkpoints per machine (see
+  // _drCheckpointsTableHtml / _drFirstFlagsByMachine above).
+  h += _drCheckpointsTableHtml(date);
+
+  // Owner request 2026-09-21: Shipping Recap removed from here — replaced
+  // with Misprints by Machine and a Run/Dwell/Down Time accounting table,
+  // both still on page 1. The detailed Dwell Time Breakdown list moves to
+  // its own page 2 (see .report-page-break below — same page-break utility
+  // class the Plan vs. Actual report already uses, not something new).
+  h += _drMisprintsTableHtml(date);
+  h += _drTimeAccountingTableHtml(date);
+
+  h += '<div class="report-page-break"></div>';
+  h += _drDwellBreakdownTableHtml(date);
 
   h += '<div class="dr-footer">Printed ' + new Date().toLocaleString('en-US', {dateStyle:'medium', timeStyle:'short'}) + '</div>';
   return h;
@@ -8007,6 +8645,15 @@ function fetchFirebaseData() {
   var shipConfirmPromise = firebase.database().ref('shipConfirm').once('value')
     .then(function(s){ return s.val() || {}; })
     .catch(function(){ return {}; });
+  var mafEntriesPromise = firebase.database().ref('missingArtFiles/entries').once('value')
+    .then(function(s){ return s.val() || {}; })
+    .catch(function(){ return {}; });
+  var mafDepartmentsPromise = firebase.database().ref('missingArtFiles/departments').once('value')
+    .then(function(s){ return s.val() || null; })
+    .catch(function(){ return null; });
+  var mafContactsPromise = firebase.database().ref('missingArtFiles/contacts').once('value')
+    .then(function(s){ return s.val() || null; })
+    .catch(function(){ return null; });
   Promise.all([
     firebase.database().ref('sessions').once('value'),
     firebase.database().ref('targets').once('value'),
@@ -8017,7 +8664,10 @@ function fetchFirebaseData() {
     machineBaselinePromise,
     routingOverridesPromise,
     shippingStatusPromise,
-    shipConfirmPromise
+    shipConfirmPromise,
+    mafEntriesPromise,
+    mafDepartmentsPromise,
+    mafContactsPromise
   ]).then(function(snaps) {
     var fbSessions  = snaps[0].val() || {};
     var fbTargets   = snaps[1].val() || {};
@@ -8029,6 +8679,11 @@ function fetchFirebaseData() {
     var fbRoutingOverrides = snaps[7] || {};
     SHIPPING_STATUS = snaps[8] || null;
     SHIP_CONFIRM = snaps[9] || {};
+    _mafEntries = snaps[10] || {};
+    _mafDepartments = snaps[11] || MAF_DEPARTMENTS_DEFAULT.slice();
+    _mafContacts    = snaps[12] || MAF_CONTACTS_DEFAULT.slice();
+    _mafLoaded = true;
+    if (document.getElementById('page-missing').style.display !== 'none') renderMissingFiles();
     // Apply Firebase PPH overrides on top of code defaults (Firebase wins over localStorage)
     if (Object.keys(fbPphOverrides).length) {
       Object.keys(fbPphOverrides).forEach(function(k) {
@@ -8824,6 +9479,7 @@ function renderSettings() {
 <div id="totals-combo-print" style="display:none"></div>
 <div id="daily-recap-print" style="display:none"></div>
 <div id="weekly-recap-print" style="display:none"></div>
+<div id="missing-files-print" style="display:none"></div>
 <script>
 (function() {
   var img = document.querySelector('.topbar-brand img');
