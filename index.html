@@ -1724,7 +1724,24 @@ var _mafManageOpen  = false;
 // in-memory change until the next refresh pulled the real, empty Firebase
 // state. Every call site below now awaits these and rolls back + shows a
 // visible error on failure instead of assuming success.
-function mafSaveEntries()     { return firebase.database().ref('missingArtFiles/entries').set(_mafEntries); }
+//
+// Entry add/edit/delete use targeted multi-path .update() calls (below),
+// NOT a whole-object .set(_mafEntries) — found 2026-09-22: a .set() of the
+// whole entries object writes whatever the browser's local _mafEntries
+// snapshot happens to hold for every OTHER entry too, including any field
+// (like the email notifier's "notified" flag) that a script or another
+// device wrote after this tab last synced. A targeted update to just the
+// one id being changed can never clobber a sibling entry that way.
+function _mafWriteEntry(id, data) {
+  var updates = {};
+  updates[id] = data;
+  return firebase.database().ref('missingArtFiles/entries').update(updates);
+}
+function _mafRemoveEntry(id) {
+  var updates = {};
+  updates[id] = null;
+  return firebase.database().ref('missingArtFiles/entries').update(updates);
+}
 function mafSaveDepartments() { return firebase.database().ref('missingArtFiles/departments').set(_mafDepartments); }
 function mafSaveContacts()    { return firebase.database().ref('missingArtFiles/contacts').set(_mafContacts); }
 
@@ -2021,14 +2038,14 @@ function mafSaveFromModal() {
   if (errEl) errEl.style.display = 'none';
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
 
-  mafSaveEntries().then(function() {
+  _mafWriteEntry(id, data).then(function() {
     mafCloseModal();
     renderMissingFiles();
   }).catch(function(err) {
     console.error('mafSaveFromModal failed:', err);
     // Roll back the in-memory change — don't let the screen claim this
     // saved when Firebase never actually received it (see comment above
-    // mafSaveEntries for why this matters).
+    // _mafWriteEntry for why this matters).
     if (hadPrev) _mafEntries[id] = prevData; else delete _mafEntries[id];
     if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
     if (errEl) {
@@ -2044,7 +2061,7 @@ function mafDeleteEntry() {
   var id = _mafEditId;
   var prevData = _mafEntries[id];
   delete _mafEntries[id];
-  mafSaveEntries().then(function() {
+  _mafRemoveEntry(id).then(function() {
     mafCloseModal();
     renderMissingFiles();
   }).catch(function(err) {
