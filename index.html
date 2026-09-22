@@ -1026,7 +1026,7 @@ input[type="date"]:focus { border-color: var(--green-dark); }
       <button class="maf-view-tab" id="maf-view-archive-btn" onclick="mafSetView('archive')">Archive</button>
     </div>
     <button class="qbtn" onclick="mafOpenModal(null)" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark);align-self:flex-end">+ Add Missing File</button>
-    <button class="qbtn" onclick="printMissingFilesReport()" style="align-self:flex-end">&#128424; Print / Export</button>
+    <button class="qbtn" onclick="mafOpenExportModal()" style="align-self:flex-end">&#128424; Print / Export</button>
     <button class="qbtn" onclick="mafToggleManage()" id="maf-manage-btn" style="align-self:flex-end">&#9881; Manage Departments &amp; Contacts</button>
   </div>
 
@@ -1052,6 +1052,29 @@ input[type="date"]:focus { border-color: var(--green-dark); }
       <div style="flex:1"></div>
       <button onclick="mafCloseModal()" style="background:none;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 16px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;font-family:inherit">Cancel</button>
       <button id="maf-save-btn" onclick="mafSaveFromModal()" style="background:var(--green-dark);color:#fff;border:none;border-radius:var(--radius-sm);padding:8px 20px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Missing Files export date-range modal -->
+<div id="maf-export-modal" onclick="if(event.target===this)mafCloseExportModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:500;overflow-y:auto;padding:2rem 1rem">
+  <div style="max-width:380px;margin:0 auto;background:var(--white);border-radius:var(--radius);box-shadow:0 8px 32px rgba(0,0,0,0.18);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);background:var(--green-light)">
+      <span style="font-size:14px;font-weight:700;color:var(--green-dark)">Print / Export</span>
+      <button onclick="mafCloseExportModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted);line-height:1">&#x2715;</button>
+    </div>
+    <div style="padding:18px;display:flex;flex-direction:column;gap:12px">
+      <p style="margin:0;font-size:12px;color:var(--muted)">Filters by Date Reported. Leave either side blank to leave that end open.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div><label style="display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:3px">From</label>
+          <input type="date" id="maf-export-from" style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:100%;font-family:inherit;box-sizing:border-box"></div>
+        <div><label style="display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:3px">To</label>
+          <input type="date" id="maf-export-to" style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:100%;font-family:inherit;box-sizing:border-box"></div>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:0 18px 18px">
+      <button onclick="mafCloseExportModal()" style="background:none;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 16px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;font-family:inherit">Cancel</button>
+      <button onclick="printMissingFilesReport()" style="background:var(--green-dark);color:#fff;border:none;border-radius:var(--radius-sm);padding:8px 20px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">&#128424; Print / Export</button>
     </div>
   </div>
 </div>
@@ -1773,7 +1796,28 @@ function mafSaveContacts()    { return firebase.database().ref('missingArtFiles/
 // Back-compat with any entry saved before contact became multi-select.
 function _mafContactsDisplay(e) {
   var list = e.contacts || (e.contact ? [e.contact] : []);
-  return list.length ? list.join(', ') : '—';
+  if (!list.length) return '—';
+  // Owner request 2026-09-22: the Contact column got too wide once every
+  // Point of Contact was checked on some entries — collapse to "All" when
+  // every currently-known contact is selected.
+  if (_mafContacts.length && list.length >= _mafContacts.length &&
+      _mafContacts.every(function(c) { return list.indexOf(c) !== -1; })) {
+    return 'All';
+  }
+  return list.join(', ');
+}
+
+// Small "sent 9/22 2:14 PM" note next to the Status pill once the email
+// notifier (missing_files_notify.py) has actually gone out — it stamps
+// notifiedAt (ISO timestamp) on the entry right after a successful send.
+function _mafNotifiedAtHtml(e) {
+  if (!e.notifiedAt) return '';
+  var d;
+  try { d = new Date(e.notifiedAt); } catch (err) { return ''; }
+  if (isNaN(d.getTime())) return '';
+  var stamp = (d.getMonth() + 1) + '/' + d.getDate() + ' ' +
+    d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return '<div style="font-size:10px;color:var(--muted);margin-top:2px;white-space:nowrap">sent ' + escapeHtml(stamp) + '</div>';
 }
 
 function mafSetView(view) {
@@ -1886,7 +1930,7 @@ function renderMissingFiles() {
     h += '<td>' + escapeHtml(e.issue || '—') + '</td>';
     h += '<td>' + escapeHtml(e.sizeMedia || '—') + '</td>';
     h += '<td>' + escapeHtml(_mafContactsDisplay(e)) + '</td>';
-    h += '<td><span class="maf-status-pill" style="background:' + sc.bg + ';color:' + sc.fg + '">' + escapeHtml(e.status || 'Missing') + '</span></td>';
+    h += '<td><span class="maf-status-pill" style="background:' + sc.bg + ';color:' + sc.fg + '">' + escapeHtml(e.status || 'Missing') + '</span>' + _mafNotifiedAtHtml(e) + '</td>';
     var ac = _mafAgeColor(e.dateReported);
     h += '<td>' + (ac ? '<span class="maf-status-pill" style="background:' + ac.bg + ';color:' + ac.fg + '">' + escapeHtml(e.dateReported) + '</span>' : '—') + '</td>';
     if (_mafView === 'archive') h += '<td>' + escapeHtml(e.dateResolved || '—') + '</td>';
@@ -2116,21 +2160,30 @@ function mafDeleteEntry() {
 // the Daily Recap / Weekly Recap / Totals Combo print buttons elsewhere in
 // this app (_printAs, body.print-* CSS). Exports whichever view (Active or
 // Archive) is currently showing.
-function _buildMissingFilesPrintHtml() {
+function _buildMissingFilesPrintHtml(fromDate, toDate) {
   var ids = Object.keys(_mafEntries).filter(function(id) {
     var isArchived = MAF_ARCHIVED_STATUSES.indexOf(_mafEntries[id].status) !== -1;
-    return _mafView === 'archive' ? isArchived : !isArchived;
+    if (_mafView === 'archive' ? !isArchived : isArchived) return false;
+    var reported = _mafEntries[id].dateReported || '';
+    if (fromDate && reported < fromDate) return false;
+    if (toDate && reported > toDate) return false;
+    return true;
   });
   ids.sort(function(a, b) {
     var da = _mafEntries[a].dateReported || '', db = _mafEntries[b].dateReported || '';
     return db < da ? -1 : db > da ? 1 : 0;
   });
 
+  var rangeLabel = '';
+  if (fromDate || toDate) {
+    rangeLabel = ' &middot; ' + (fromDate || 'earliest') + ' to ' + (toDate || 'latest');
+  }
+
   var h = '<div class="mf-print-header">';
   h += '<div class="mf-print-eyebrow">EG Studio &middot; Missing Art Files</div>';
   h += '<div class="mf-print-title">' + (_mafView === 'archive' ? 'Resolved / Cancelled' : 'Active') + '</div>';
   h += '<div class="mf-print-sub">' + new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) +
-       ' &middot; ' + ids.length + ' entr' + (ids.length === 1 ? 'y' : 'ies') + '</div>';
+       ' &middot; ' + ids.length + ' entr' + (ids.length === 1 ? 'y' : 'ies') + rangeLabel + '</div>';
   h += '</div>';
 
   if (!ids.length) {
@@ -2153,7 +2206,7 @@ function _buildMissingFilesPrintHtml() {
     h += '<td>' + escapeHtml(e.issue || '—') + '</td>';
     h += '<td>' + escapeHtml(e.sizeMedia || '—') + '</td>';
     h += '<td>' + escapeHtml(_mafContactsDisplay(e)) + '</td>';
-    h += '<td>' + escapeHtml(e.status || 'Missing') + '</td>';
+    h += '<td>' + escapeHtml(e.status || 'Missing') + _mafNotifiedAtHtml(e) + '</td>';
     var pac = _mafAgeColor(e.dateReported);
     h += '<td>' + (pac ? '<span style="background:' + pac.bg + ';color:' + pac.fg + ';padding:2px 8px;border-radius:20px;font-weight:700;print-color-adjust:exact;-webkit-print-color-adjust:exact">' + escapeHtml(e.dateReported) + '</span>' : '—') + '</td>';
     if (_mafView === 'archive') h += '<td>' + escapeHtml(e.dateResolved || '—') + '</td>';
@@ -2163,8 +2216,18 @@ function _buildMissingFilesPrintHtml() {
   return h;
 }
 
+function mafOpenExportModal() {
+  document.getElementById('maf-export-modal').style.display = '';
+}
+function mafCloseExportModal() {
+  document.getElementById('maf-export-modal').style.display = 'none';
+}
+
 function printMissingFilesReport() {
-  document.getElementById('missing-files-print').innerHTML = _buildMissingFilesPrintHtml();
+  var fromDate = (document.getElementById('maf-export-from').value || '').trim();
+  var toDate   = (document.getElementById('maf-export-to').value || '').trim();
+  mafCloseExportModal();
+  document.getElementById('missing-files-print').innerHTML = _buildMissingFilesPrintHtml(fromDate, toDate);
   document.body.classList.add('print-missing-files');
   _printAs('EGStudio_MissingFiles_' + (_mafView === 'archive' ? 'Archive' : 'Active') + '_' + _mmddyy(new Date().toISOString().slice(0, 10)));
   setTimeout(function() { document.body.classList.remove('print-missing-files'); }, 500);
