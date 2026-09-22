@@ -1742,6 +1742,31 @@ function _mafRemoveEntry(id) {
   updates[id] = null;
   return firebase.database().ref('missingArtFiles/entries').update(updates);
 }
+// Safety net so a save/delete can never leave the UI stuck on "Saving…"
+// forever, no matter what's wrong underneath (dropped connection, a rules
+// issue, anything) — after 10s with no response from Firebase, this forces
+// the same failure path a real rejection would take.
+function _mafWithTimeout(promise, ms) {
+  return new Promise(function(resolve, reject) {
+    var done = false;
+    var timer = setTimeout(function() {
+      if (done) return;
+      done = true;
+      reject(new Error('Timed out waiting for Firebase after ' + (ms / 1000) + 's — check your internet connection and try again.'));
+    }, ms);
+    promise.then(function(v) {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(v);
+    }, function(err) {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
 function mafSaveDepartments() { return firebase.database().ref('missingArtFiles/departments').set(_mafDepartments); }
 function mafSaveContacts()    { return firebase.database().ref('missingArtFiles/contacts').set(_mafContacts); }
 
@@ -1876,7 +1901,7 @@ function renderMissingFiles() {
 // on failure undo the mutation + alert, so the on-screen list never shows
 // something that didn't actually make it to Firebase.
 function _mafSaveListOrRevert(saveFn, list, snapshot, label) {
-  saveFn().then(function() {
+  _mafWithTimeout(saveFn(), 10000).then(function() {
     renderMissingFiles();
   }).catch(function(err) {
     console.error(label + ' save failed:', err);
@@ -2038,7 +2063,7 @@ function mafSaveFromModal() {
   if (errEl) errEl.style.display = 'none';
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
 
-  _mafWriteEntry(id, data).then(function() {
+  _mafWithTimeout(_mafWriteEntry(id, data), 10000).then(function() {
     mafCloseModal();
     renderMissingFiles();
   }).catch(function(err) {
@@ -2061,7 +2086,7 @@ function mafDeleteEntry() {
   var id = _mafEditId;
   var prevData = _mafEntries[id];
   delete _mafEntries[id];
-  _mafRemoveEntry(id).then(function() {
+  _mafWithTimeout(_mafRemoveEntry(id), 10000).then(function() {
     mafCloseModal();
     renderMissingFiles();
   }).catch(function(err) {
