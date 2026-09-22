@@ -522,6 +522,10 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     #daily-recap-print .dr-dwell-table th { padding: 3px 8px; }
     #daily-recap-print .dr-dwell-table td { padding: 3px 8px; }
     #daily-recap-print .dr-dwell-table tr { break-inside: avoid; page-break-inside: avoid; }
+    /* Run/Dwell/Down Time by Machine (owner request 2026-09-22): keep the
+       whole table together rather than letting it split awkwardly across a
+       page boundary. */
+    #daily-recap-print .dr-time-accounting-table { break-inside: avoid; page-break-inside: avoid; }
     #daily-recap-print .dr-ship-row { display: flex; gap: 12px; }
     #daily-recap-print .dr-ship-tile { flex: 1; text-align: center; border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
     #daily-recap-print .dr-ship-num { font-family: 'Lora', serif; font-size: 24px; font-weight: 700; color: var(--green-dark); }
@@ -1042,11 +1046,12 @@ input[type="date"]:focus { border-color: var(--green-dark); }
       <button onclick="mafCloseModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted);line-height:1">&#x2715;</button>
     </div>
     <div id="maf-modal-body" style="padding:18px;display:flex;flex-direction:column;gap:12px"></div>
+    <div id="maf-modal-error" style="display:none;margin:0 18px 12px;padding:8px 12px;background:var(--red-bg,#fdf0f0);border:1px solid var(--red-border,#f0c8c8);border-radius:var(--radius-sm);color:var(--red);font-size:12px;font-weight:600;"></div>
     <div style="display:flex;justify-content:space-between;gap:8px;padding:0 18px 18px">
       <button id="maf-delete-btn" onclick="mafDeleteEntry()" style="display:none;background:none;border:1px solid var(--red-border);border-radius:var(--radius-sm);padding:8px 16px;font-size:13px;font-weight:600;color:var(--red);cursor:pointer;font-family:inherit">&#128465; Delete</button>
       <div style="flex:1"></div>
       <button onclick="mafCloseModal()" style="background:none;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 16px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;font-family:inherit">Cancel</button>
-      <button onclick="mafSaveFromModal()" style="background:var(--green-dark);color:#fff;border:none;border-radius:var(--radius-sm);padding:8px 20px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Save</button>
+      <button id="maf-save-btn" onclick="mafSaveFromModal()" style="background:var(--green-dark);color:#fff;border:none;border-radius:var(--radius-sm);padding:8px 20px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Save</button>
     </div>
   </div>
 </div>
@@ -1703,7 +1708,7 @@ function escapeHtml(s) {
 var MAF_STATUSES = ['Missing', 'Email Sent', 'Follow Up', 'Resolved', 'Cancelled'];
 var MAF_ARCHIVED_STATUSES = ['Resolved', 'Cancelled'];
 var MAF_DEPARTMENTS_DEFAULT = ['Inline Personalized Plock', 'Inline Files', 'Personalization Drop Ship', 'Sports', 'Drinkware'];
-var MAF_CONTACTS_DEFAULT = ['Erin Bushnell', 'Suzanne Karzoun', 'Creative Team', 'Cathleen Alleyne', 'Brigitte Crowder', 'Brian Martin', 'Steven Warrick', 'Lain'];
+var MAF_CONTACTS_DEFAULT = ['Suzanne Karzoun', 'Creative Team', 'Cathleen Alleyne', 'Brigitte Crowder', 'EGStudio-Ops'];
 
 var _mafEntries     = {};   // { id: {department, contact, company, orderId, item, design, issue, sizeMedia, status, dateReported, dateResolved, notes} }
 var _mafDepartments = MAF_DEPARTMENTS_DEFAULT.slice();
@@ -1713,9 +1718,15 @@ var _mafView        = 'active'; // 'active' | 'archive'
 var _mafEditId      = null;     // id being edited in the modal, null = new entry
 var _mafManageOpen  = false;
 
-function mafSaveEntries()     { firebase.database().ref('missingArtFiles/entries').set(_mafEntries).catch(function(e){ console.error('mafSaveEntries failed:', e); }); }
-function mafSaveDepartments() { firebase.database().ref('missingArtFiles/departments').set(_mafDepartments).catch(function(e){ console.error('mafSaveDepartments failed:', e); }); }
-function mafSaveContacts()    { firebase.database().ref('missingArtFiles/contacts').set(_mafContacts).catch(function(e){ console.error('mafSaveContacts failed:', e); }); }
+// Return the raw promise (no internal .catch) — owner report 2026-09-22: a
+// coworker's entry vanished because a failed write was only logged to the
+// console, never shown on screen, so the UI kept showing the (never-saved)
+// in-memory change until the next refresh pulled the real, empty Firebase
+// state. Every call site below now awaits these and rolls back + shows a
+// visible error on failure instead of assuming success.
+function mafSaveEntries()     { return firebase.database().ref('missingArtFiles/entries').set(_mafEntries); }
+function mafSaveDepartments() { return firebase.database().ref('missingArtFiles/departments').set(_mafDepartments); }
+function mafSaveContacts()    { return firebase.database().ref('missingArtFiles/contacts').set(_mafContacts); }
 
 // Back-compat with any entry saved before contact became multi-select.
 function _mafContactsDisplay(e) {
@@ -1844,35 +1855,53 @@ function renderMissingFiles() {
   wrap.innerHTML = h;
 }
 
+// Shared helper: run a list mutation already applied to `list`, save it, and
+// on failure undo the mutation + alert, so the on-screen list never shows
+// something that didn't actually make it to Firebase.
+function _mafSaveListOrRevert(saveFn, list, snapshot, label) {
+  saveFn().then(function() {
+    renderMissingFiles();
+  }).catch(function(err) {
+    console.error(label + ' save failed:', err);
+    list.length = 0;
+    Array.prototype.push.apply(list, snapshot);
+    renderMissingFiles();
+    alert('✗ Save failed — this change to ' + label + ' was NOT saved: ' + (err && err.message ? err.message : err) + '. Check Firebase permissions for the "missingArtFiles" path.');
+  });
+}
 function mafAddDepartment() {
   var input = document.getElementById('maf-new-dept');
   var v = (input.value || '').trim();
   if (!v) return;
   if (_mafDepartments.indexOf(v) !== -1) { alert('"' + v + '" already exists.'); return; }
+  var snapshot = _mafDepartments.slice();
   _mafDepartments.push(v);
-  mafSaveDepartments();
   renderMissingFiles();
+  _mafSaveListOrRevert(mafSaveDepartments, _mafDepartments, snapshot, 'departments');
 }
 function mafRemoveDepartment(i) {
   if (!confirm('Remove department "' + _mafDepartments[i] + '"? Existing entries keep their department text — this only affects the dropdown going forward.')) return;
+  var snapshot = _mafDepartments.slice();
   _mafDepartments.splice(i, 1);
-  mafSaveDepartments();
   renderMissingFiles();
+  _mafSaveListOrRevert(mafSaveDepartments, _mafDepartments, snapshot, 'departments');
 }
 function mafAddContact() {
   var input = document.getElementById('maf-new-contact');
   var v = (input.value || '').trim();
   if (!v) return;
   if (_mafContacts.indexOf(v) !== -1) { alert('"' + v + '" already exists.'); return; }
+  var snapshot = _mafContacts.slice();
   _mafContacts.push(v);
-  mafSaveContacts();
   renderMissingFiles();
+  _mafSaveListOrRevert(mafSaveContacts, _mafContacts, snapshot, 'contacts');
 }
 function mafRemoveContact(i) {
   if (!confirm('Remove contact "' + _mafContacts[i] + '"? Existing entries keep their assigned contact text — this only affects the dropdown going forward.')) return;
+  var snapshot = _mafContacts.slice();
   _mafContacts.splice(i, 1);
-  mafSaveContacts();
   renderMissingFiles();
+  _mafSaveListOrRevert(mafSaveContacts, _mafContacts, snapshot, 'contacts');
 }
 
 function _mafSelectOptions(list, selected) {
@@ -1905,7 +1934,7 @@ function _mafContactCheckboxes(selected) {
 function mafOpenModal(id) {
   _mafEditId = id;
   var e = id ? _mafEntries[id] : {
-    department: '', contacts: [], company: '', orderId: '', item: '', containerNumber: '', design: '',
+    department: '', contacts: [], additionalEmail: '', company: '', orderId: '', item: '', containerNumber: '', design: '',
     issue: '', sizeMedia: '', status: 'Missing',
     dateReported: new Date().toISOString().slice(0, 10), dateResolved: '', notes: ''
   };
@@ -1933,6 +1962,7 @@ function mafOpenModal(id) {
   h += row('Container Number', '<input type="text" id="maf-f-container" value="' + escapeHtml(e.containerNumber || '') + '" style="' + fieldStyle + '">');
   h += '</div>';
   h += row('Point of Contact', _mafContactCheckboxes(contacts));
+  h += row('Additional Email (optional)', '<input type="email" id="maf-f-additional-email" value="' + escapeHtml(e.additionalEmail || '') + '" placeholder="e.g. someone@myevergreen.com" style="' + fieldStyle + '">');
   h += row('Personalized Text / Design', '<input type="text" id="maf-f-design" value="' + escapeHtml(e.design || '') + '" style="' + fieldStyle + '">');
   h += row('Issue', '<input type="text" id="maf-f-issue" value="' + escapeHtml(e.issue || '') + '" style="' + fieldStyle + '">');
   h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">';
@@ -1964,6 +1994,7 @@ function mafSaveFromModal() {
   var data = {
     department:   document.getElementById('maf-f-department').value,
     contacts:     contacts,
+    additionalEmail: document.getElementById('maf-f-additional-email').value.trim(),
     company:      document.getElementById('maf-f-company').value.trim(),
     orderId:      document.getElementById('maf-f-orderid').value.trim(),
     item:         document.getElementById('maf-f-item').value.trim(),
@@ -1981,19 +2012,47 @@ function mafSaveFromModal() {
     return;
   }
   var id = _mafEditId || firebase.database().ref('missingArtFiles/entries').push().key;
+  var hadPrev = Object.prototype.hasOwnProperty.call(_mafEntries, id);
+  var prevData = _mafEntries[id];
   _mafEntries[id] = data;
-  mafSaveEntries();
-  mafCloseModal();
-  renderMissingFiles();
+
+  var saveBtn = document.getElementById('maf-save-btn');
+  var errEl = document.getElementById('maf-modal-error');
+  if (errEl) errEl.style.display = 'none';
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+
+  mafSaveEntries().then(function() {
+    mafCloseModal();
+    renderMissingFiles();
+  }).catch(function(err) {
+    console.error('mafSaveFromModal failed:', err);
+    // Roll back the in-memory change — don't let the screen claim this
+    // saved when Firebase never actually received it (see comment above
+    // mafSaveEntries for why this matters).
+    if (hadPrev) _mafEntries[id] = prevData; else delete _mafEntries[id];
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+    if (errEl) {
+      errEl.textContent = '✗ Save failed — this entry was NOT saved: ' + (err && err.message ? err.message : err) + '. Check Firebase permissions for the "missingArtFiles" path before trying again.';
+      errEl.style.display = 'block';
+    }
+  });
 }
 
 function mafDeleteEntry() {
   if (!_mafEditId) return;
   if (!confirm('Delete this missing-file entry? This cannot be undone.')) return;
-  delete _mafEntries[_mafEditId];
-  mafSaveEntries();
-  mafCloseModal();
-  renderMissingFiles();
+  var id = _mafEditId;
+  var prevData = _mafEntries[id];
+  delete _mafEntries[id];
+  mafSaveEntries().then(function() {
+    mafCloseModal();
+    renderMissingFiles();
+  }).catch(function(err) {
+    console.error('mafDeleteEntry failed:', err);
+    _mafEntries[id] = prevData; // roll back — the delete didn't actually happen
+    renderMissingFiles();
+    alert('✗ Delete failed — this entry was NOT removed: ' + (err && err.message ? err.message : err) + '. Check Firebase permissions for the "missingArtFiles" path.');
+  });
 }
 
 // Printable export (Save as PDF, then attach to an email) — same pattern as
@@ -6368,13 +6427,19 @@ function _drCheckpointsTableHtml(date) {
 
 // Misprints (qtyBad logged during a print run — NOT the separate "Defective
 // Material" manual tally, same distinction used in the maintenance email
-// report) summed per machine for the date, owner request 2026-09-21.
+// report) summed per machine for the date, owner request 2026-09-21. Also
+// tracks each machine's total pieces (good+bad) so Defect Rate (owner
+// request 2026-09-22) can be computed alongside the raw misprint count.
 function _drMisprintsByMachine(date) {
   var byMachine = {};
   Object.keys(RAW.sessions).forEach(function(machine) {
     (RAW.sessions[machine] || []).forEach(function(s) {
-      if (s.t !== date || !s.b) return;
-      byMachine[machine] = (byMachine[machine] || 0) + s.b;
+      if (s.t !== date) return;
+      var good = s.g || 0, bad = s.b || 0;
+      if (!good && !bad) return;
+      if (!byMachine[machine]) byMachine[machine] = { bad: 0, total: 0 };
+      byMachine[machine].bad += bad;
+      byMachine[machine].total += good + bad;
     });
   });
   return byMachine;
@@ -6382,13 +6447,18 @@ function _drMisprintsByMachine(date) {
 
 function _drMisprintsTableHtml(date) {
   var byMachine = _drMisprintsByMachine(date);
-  var machines = Object.keys(byMachine).sort(function(a, b) { return byMachine[b] - byMachine[a]; });
+  // Rank by misprint count, not rate — a machine with 1 bad out of 2 total
+  // pieces would otherwise outrank one with real, meaningful volume.
+  var machines = Object.keys(byMachine).filter(function(m) { return byMachine[m].bad > 0; })
+    .sort(function(a, b) { return byMachine[b].bad - byMachine[a].bad; });
   if (!machines.length) return '';
-  var total = machines.reduce(function(sum, m) { return sum + byMachine[m]; }, 0);
+  var total = machines.reduce(function(sum, m) { return sum + byMachine[m].bad; }, 0);
   var h = '<div class="dr-section-head">Misprints by Machine &mdash; ' + total.toLocaleString() + ' total</div>';
-  h += '<table class="dr-machine-table"><thead><tr><th>Machine</th><th>Misprints</th></tr></thead><tbody>';
+  h += '<table class="dr-machine-table"><thead><tr><th>Machine</th><th>Misprints</th><th>Defect Rate</th></tr></thead><tbody>';
   machines.forEach(function(m) {
-    h += '<tr><td>' + m + '</td><td>' + byMachine[m].toLocaleString() + '</td></tr>';
+    var rec = byMachine[m];
+    var rate = rec.total > 0 ? (rec.bad / rec.total * 100) : 0;
+    h += '<tr><td>' + m + '</td><td>' + rec.bad.toLocaleString() + '</td><td>' + rate.toFixed(2) + '%</td></tr>';
   });
   h += '</tbody></table>';
   return h;
@@ -6494,7 +6564,7 @@ function _drTimeAccountingTableHtml(date) {
   var rows = machines.map(function(m) { return _drMachineTimeBreakdown(date, m); }).filter(Boolean);
   if (!rows.length) return '';
   var h = '<div class="dr-section-head">Run / Dwell / Down Time by Machine</div>';
-  h += '<table class="dr-machine-table"><thead><tr><th>Machine</th><th>Run Time</th><th>Dwell Time</th><th>Down Time</th><th>Total (Start&ndash;End)</th></tr></thead><tbody>';
+  h += '<table class="dr-machine-table dr-time-accounting-table"><thead><tr><th>Machine</th><th>Run Time</th><th>Dwell Time</th><th>Down Time</th><th>Total (Start&ndash;End)</th></tr></thead><tbody>';
   rows.forEach(function(r) {
     h += '<tr><td>' + r.machine + '</td>'
        + '<td>' + _drDurationHtml(Math.round(r.runMs / 60000)) + '</td>'
@@ -6577,11 +6647,11 @@ function _buildDailyRecapHtml(date) {
   // _drCheckpointsTableHtml / _drFirstFlagsByMachine above).
   h += _drCheckpointsTableHtml(date);
 
-  // Owner request 2026-09-21: Shipping Recap removed from here — replaced
-  // with Misprints by Machine and a Run/Dwell/Down Time accounting table,
-  // both still on page 1. The detailed Dwell Time Breakdown list moves to
-  // its own page 2 (see .report-page-break below — same page-break utility
-  // class the Plan vs. Actual report already uses, not something new).
+  // Owner request 2026-09-21, corrected 2026-09-22: Shipping Recap removed
+  // from here — replaced with Misprints by Machine and the Run/Dwell/Down
+  // Time accounting table, both staying on page 1. Only the detailed Dwell
+  // Time Breakdown list moves to its own page 2 (.report-page-break, same
+  // utility class the Plan vs. Actual report already uses).
   h += _drMisprintsTableHtml(date);
   h += _drTimeAccountingTableHtml(date);
 
@@ -8574,6 +8644,37 @@ firebase.initializeApp(REPORT_FB_CONFIG);
 var TEAM_EMAIL = 'team@printtrack.internal';
 
 var _autoRefreshStarted = false;
+// Owner request 2026-09-22: Missing Art Files needs to actually sync across
+// machines, not wait for the 5-minute fetchFirebaseData() poll — a live
+// listener picks up any device's change (add/edit/delete an entry, or edit
+// the Department/Contact lists) within moments instead. fetchFirebaseData()
+// itself is left untouched (still does its own one-time read of these same
+// paths on load/every poll) rather than risk reshuffling its long
+// Promise.all snapshot-index list — a little redundant on first load, never
+// wrong, since both just read the same current server value.
+var _mafLiveListenersStarted = false;
+function _mafStartLiveSync() {
+  if (_mafLiveListenersStarted) return;
+  _mafLiveListenersStarted = true;
+  function rerenderIfOpen() {
+    var panel = document.getElementById('page-missing');
+    if (panel && panel.style.display !== 'none') renderMissingFiles();
+  }
+  firebase.database().ref('missingArtFiles/entries').on('value', function(snap) {
+    _mafEntries = snap.val() || {};
+    _mafLoaded = true;
+    rerenderIfOpen();
+  }, function(err) { console.error('missingArtFiles/entries live sync error:', err); });
+  firebase.database().ref('missingArtFiles/departments').on('value', function(snap) {
+    _mafDepartments = snap.val() || MAF_DEPARTMENTS_DEFAULT.slice();
+    rerenderIfOpen();
+  }, function(err) { console.error('missingArtFiles/departments live sync error:', err); });
+  firebase.database().ref('missingArtFiles/contacts').on('value', function(snap) {
+    _mafContacts = snap.val() || MAF_CONTACTS_DEFAULT.slice();
+    rerenderIfOpen();
+  }, function(err) { console.error('missingArtFiles/contacts live sync error:', err); });
+}
+
 function startReportApp() {
   document.getElementById('report-login-btn').addEventListener('click', doLogin);
   document.getElementById('report-passcode').addEventListener('keydown', function(e) { if (e.key === 'Enter') doLogin(); });
@@ -8581,6 +8682,7 @@ function startReportApp() {
     if (user) {
       hideLoginScreen();
       fetchFirebaseData();
+      _mafStartLiveSync();
       // Sync committed plans from Firebase so they appear on any device
       fbSyncPlans(function(added, errMsg) {
         if (added > 0) _renderSavedPlansList();
