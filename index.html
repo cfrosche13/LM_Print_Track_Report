@@ -2208,7 +2208,7 @@ function _buildMissingFilesPrintHtml(fromDate, toDate) {
     h += '<td>' + escapeHtml(_mafContactsDisplay(e)) + '</td>';
     h += '<td>' + escapeHtml(e.status || 'Missing') + _mafNotifiedAtHtml(e) + '</td>';
     var pac = _mafAgeColor(e.dateReported);
-    h += '<td>' + (pac ? '<span style="background:' + pac.bg + ';color:' + pac.fg + ';padding:2px 8px;border-radius:20px;font-weight:700;print-color-adjust:exact;-webkit-print-color-adjust:exact">' + escapeHtml(e.dateReported) + '</span>' : '—') + '</td>';
+    h += '<td style="white-space:nowrap">' + (pac ? '<span style="display:inline-block;white-space:nowrap;background:' + pac.bg + ';color:' + pac.fg + ';padding:2px 8px;border-radius:20px;font-weight:700;print-color-adjust:exact;-webkit-print-color-adjust:exact">' + escapeHtml(e.dateReported) + '</span>' : '—') + '</td>';
     if (_mafView === 'archive') h += '<td>' + escapeHtml(e.dateResolved || '—') + '</td>';
     h += '</tr>';
   });
