@@ -2042,7 +2042,12 @@ function mafCloseModal() {
 
 function mafSaveFromModal() {
   var contacts = Array.prototype.slice.call(document.querySelectorAll('.maf-contact-cb:checked')).map(function(cb) { return cb.value; });
-  var data = {
+  // Start from the existing entry (edit) so fields the form doesn't manage
+  // — e.g. the email notifier's "notified" flag — carry forward instead of
+  // being silently dropped. Found 2026-09-22: _mafWriteEntry replaces the
+  // whole entry object at its id, so building `data` from scratch here was
+  // wiping "notified" on every ordinary edit, causing duplicate emails.
+  var data = Object.assign({}, (_mafEditId && _mafEntries[_mafEditId]) || {}, {
     department:   document.getElementById('maf-f-department').value,
     contacts:     contacts,
     additionalEmail: document.getElementById('maf-f-additional-email').value.trim(),
@@ -2057,7 +2062,7 @@ function mafSaveFromModal() {
     dateReported: document.getElementById('maf-f-reported').value,
     dateResolved: document.getElementById('maf-f-resolved').value,
     notes:        document.getElementById('maf-f-notes').value.trim()
-  };
+  });
   if (!data.company && !data.orderId && !data.item) {
     alert('Enter at least a company, order ID, or item so this entry is identifiable.');
     return;
