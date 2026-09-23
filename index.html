@@ -471,11 +471,11 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     body.print-totals-combo #page-totals   { display: none !important; }
     body.print-totals-combo #page-settings { display: none !important; }
     body.print-totals-combo #totals-combo-print { display: block !important; }
-    #totals-combo-print .tc-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 1rem; }
-    #totals-combo-print .tc-table th { background: var(--green-light); padding: 6px 10px; font-weight: 600; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid var(--border); text-align: left; }
-    #totals-combo-print .tc-table td { padding: 6px 10px; border-bottom: 1px solid #eee; }
-    #totals-combo-print .tc-table .col-num { text-align: right; }
-    #totals-combo-print .tc-section-head { font-size: 13px; font-weight: 700; color: var(--green-dark); margin: 1rem 0 6px; padding-top: 0.5rem; border-top: 2px solid var(--green-dark); }
+    #totals-combo-print .tc-table, #management-recap-print .tc-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 1rem; }
+    #totals-combo-print .tc-table th, #management-recap-print .tc-table th { background: var(--green-light); padding: 6px 10px; font-weight: 600; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid var(--border); text-align: left; }
+    #totals-combo-print .tc-table td, #management-recap-print .tc-table td { padding: 6px 10px; border-bottom: 1px solid #eee; }
+    #totals-combo-print .tc-table .col-num, #management-recap-print .tc-table .col-num { text-align: right; }
+    #totals-combo-print .tc-section-head, #management-recap-print .tc-section-head { font-size: 13px; font-weight: 700; color: var(--green-dark); margin: 1rem 0 6px; padding-top: 0.5rem; border-top: 2px solid var(--green-dark); }
 
     /* ── body.print-daily-recap: single-page Daily Recap ───────────────────── */
     body.print-daily-recap > * { display: none !important; }
@@ -490,27 +490,40 @@ input[type="date"]:focus { border-color: var(--green-dark); }
        asked for bigger per-machine numbers) — the cut is in padding/margins
        throughout instead, which is what was actually driving the overflow
        across many small elements added up, not any single font size. */
-    #daily-recap-print .dr-header { margin-bottom: 0.3cm; padding-bottom: 0.15cm; border-bottom: 3px solid var(--green-dark); }
-    #daily-recap-print .dr-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--green-dark); margin-bottom: 2px; }
-    #daily-recap-print .dr-title { font-family: 'Lora', serif; font-size: 27px; font-weight: 700; color: var(--green-dark); }
-    #daily-recap-print .dr-cards { display: flex; gap: 12px; margin-bottom: 0.25cm; }
-    #daily-recap-print .dr-card { flex: 1; border: 1px solid #c8d8cc; border-top: 3px solid var(--green-dark); border-radius: 6px; padding: 6px 12px; }
-    #daily-recap-print .dr-card-label { font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 3px; }
-    #daily-recap-print .dr-card-num { font-family: 'Lora', serif; font-size: 25px; font-weight: 700; color: var(--green-dark); line-height: 1; }
-    #daily-recap-print .dr-section-head { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--green-dark); margin: 0.25cm 0 0.15cm; padding-top: 0.12cm; border-top: 2px solid var(--green-dark); }
+    /* ── body.print-management-recap: single-page Management Recap (owner
+       request 2026-09-23) — merges Daily Recap page 1 with the Shift Summary
+       Report's Plan/Actual/Hours/Operators/Open data, always for the last
+       worked date (see _lastWorkedDate()), no manual date picking needed.
+       Reuses the same .dr-* / .tc-* classes and print sizing as the two
+       reports it's built from — every selector below is shared with those,
+       not duplicated, so a sizing tweak to one applies to all three. */
+    body.print-management-recap > * { display: none !important; }
+    body.print-management-recap #page-report   { display: none !important; }
+    body.print-management-recap #page-planner  { display: none !important; }
+    body.print-management-recap #page-totals   { display: none !important; }
+    body.print-management-recap #page-settings { display: none !important; }
+    body.print-management-recap #management-recap-print { display: block !important; }
+    #daily-recap-print .dr-header, #management-recap-print .dr-header { margin-bottom: 0.3cm; padding-bottom: 0.15cm; border-bottom: 3px solid var(--green-dark); }
+    #daily-recap-print .dr-eyebrow, #management-recap-print .dr-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--green-dark); margin-bottom: 2px; }
+    #daily-recap-print .dr-title, #management-recap-print .dr-title { font-family: 'Lora', serif; font-size: 27px; font-weight: 700; color: var(--green-dark); }
+    #daily-recap-print .dr-cards, #management-recap-print .dr-cards { display: flex; gap: 12px; margin-bottom: 0.25cm; }
+    #daily-recap-print .dr-card, #management-recap-print .dr-card { flex: 1; border: 1px solid #c8d8cc; border-top: 3px solid var(--green-dark); border-radius: 6px; padding: 6px 12px; }
+    #daily-recap-print .dr-card-label, #management-recap-print .dr-card-label { font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 3px; }
+    #daily-recap-print .dr-card-num, #management-recap-print .dr-card-num { font-family: 'Lora', serif; font-size: 25px; font-weight: 700; color: var(--green-dark); line-height: 1; }
+    #daily-recap-print .dr-section-head, #management-recap-print .dr-section-head { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--green-dark); margin: 0.25cm 0 0.15cm; padding-top: 0.12cm; border-top: 2px solid var(--green-dark); }
     /* Day/Night stacked (not side by side) — owner request 2026-09-16 — so each
        shift gets the full page width to work with. */
-    #daily-recap-print .dr-shift-row { display: flex; flex-direction: column; gap: 0.2cm; }
-    #daily-recap-print .dr-shift-block { border: 1px solid var(--border); border-radius: 6px; padding: 8px 14px; }
-    #daily-recap-print .dr-shift-label { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 5px; padding-bottom: 3px; border-bottom: 2px solid var(--green-light); }
-    #daily-recap-print .dr-muted { color: var(--muted); font-style: italic; }
+    #daily-recap-print .dr-shift-row, #management-recap-print .dr-shift-row { display: flex; flex-direction: column; gap: 0.2cm; }
+    #daily-recap-print .dr-shift-block, #management-recap-print .dr-shift-block { border: 1px solid var(--border); border-radius: 6px; padding: 8px 14px; }
+    #daily-recap-print .dr-shift-label, #management-recap-print .dr-shift-label { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 5px; padding-bottom: 3px; border-bottom: 2px solid var(--green-light); }
+    #daily-recap-print .dr-muted, #management-recap-print .dr-muted { color: var(--muted); font-style: italic; }
     /* Per-machine / checkpoints table: keep the large 18px font (owner
        explicitly asked for this to be bigger) — only padding/margin are
        trimmed here. */
-    #daily-recap-print .dr-machine-table { width: 100%; border-collapse: collapse; margin-top: 2px; font-size: 18px; }
-    #daily-recap-print .dr-machine-table th { text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 2px 8px; border-bottom: 1px solid var(--border); }
-    #daily-recap-print .dr-machine-table td { padding: 2px 8px; border-bottom: 1px solid #eee; font-weight: 600; }
-    #daily-recap-print .dr-machine-table tr:last-child td { border-bottom: none; }
+    #daily-recap-print .dr-machine-table, #management-recap-print .dr-machine-table { width: 100%; border-collapse: collapse; margin-top: 2px; font-size: 18px; }
+    #daily-recap-print .dr-machine-table th, #management-recap-print .dr-machine-table th { text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 2px 8px; border-bottom: 1px solid var(--border); }
+    #daily-recap-print .dr-machine-table td, #management-recap-print .dr-machine-table td { padding: 2px 8px; border-bottom: 1px solid #eee; font-weight: 600; }
+    #daily-recap-print .dr-machine-table tr:last-child td, #management-recap-print .dr-machine-table tr:last-child td { border-bottom: none; }
     /* Extended Dwell Times (owner request 2026-09-21: its own page, always
        fitting on one page) — smaller/tighter than the other checkpoint-style
        tables so more rows fit; page-break-inside:avoid per row keeps a
@@ -518,19 +531,48 @@ input[type="date"]:focus { border-color: var(--green-dark); }
        with an unusually large number of dwell spans could still run past one
        page — there's no way to guarantee that in pure print CSS without a
        row cap, which hasn't been added since it would mean hiding real data. */
-    #daily-recap-print .dr-dwell-table { font-size: 15px; }
-    #daily-recap-print .dr-dwell-table th { padding: 3px 8px; }
-    #daily-recap-print .dr-dwell-table td { padding: 3px 8px; }
-    #daily-recap-print .dr-dwell-table tr { break-inside: avoid; page-break-inside: avoid; }
-    /* Run/Dwell/Down Time by Machine (owner request 2026-09-22): keep the
-       whole table together rather than letting it split awkwardly across a
-       page boundary. */
-    #daily-recap-print .dr-time-accounting-table { break-inside: avoid; page-break-inside: avoid; }
-    #daily-recap-print .dr-ship-row { display: flex; gap: 12px; }
-    #daily-recap-print .dr-ship-tile { flex: 1; text-align: center; border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
-    #daily-recap-print .dr-ship-num { font-family: 'Lora', serif; font-size: 24px; font-weight: 700; color: var(--green-dark); }
-    #daily-recap-print .dr-ship-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-top: 3px; }
-    #daily-recap-print .dr-footer { margin-top: 0.35cm; font-size: 10px; color: var(--muted); text-align: right; }
+    #daily-recap-print .dr-dwell-table, #management-recap-print .dr-dwell-table { font-size: 15px; }
+    #daily-recap-print .dr-dwell-table th, #management-recap-print .dr-dwell-table th { padding: 3px 8px; }
+    #daily-recap-print .dr-dwell-table td, #management-recap-print .dr-dwell-table td { padding: 3px 8px; }
+    #daily-recap-print .dr-dwell-table tr, #management-recap-print .dr-dwell-table tr { break-inside: avoid; page-break-inside: avoid; }
+    /* Run/Maintenance/Dwell/Down/Unreported Time by Machine (owner request
+       2026-09-22, extended 2026-09-23): keep the whole table together rather
+       than letting it split awkwardly across a page boundary. Two extra
+       columns (Maintenance, Unreported) don't fit at the 18px base size
+       .dr-machine-table normally uses, so this gets its own smaller size
+       like .dr-dwell-table does. */
+    #daily-recap-print .dr-time-accounting-table, #management-recap-print .dr-time-accounting-table { font-size: 13px; break-inside: avoid; page-break-inside: avoid; }
+    #daily-recap-print .dr-time-accounting-table th, #management-recap-print .dr-time-accounting-table th { padding: 2px 5px; }
+    #daily-recap-print .dr-time-accounting-table td, #management-recap-print .dr-time-accounting-table td { padding: 2px 5px; }
+    #daily-recap-print .dr-ship-row, #management-recap-print .dr-ship-row { display: flex; gap: 12px; }
+    #daily-recap-print .dr-ship-tile, #management-recap-print .dr-ship-tile { flex: 1; text-align: center; border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
+    #daily-recap-print .dr-ship-num, #management-recap-print .dr-ship-num { font-family: 'Lora', serif; font-size: 24px; font-weight: 700; color: var(--green-dark); }
+    #daily-recap-print .dr-ship-label, #management-recap-print .dr-ship-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-top: 3px; }
+    #daily-recap-print .dr-footer, #management-recap-print .dr-footer { margin-top: 0.35cm; font-size: 10px; color: var(--muted); text-align: right; }
+
+    /* ── Management Recap sizing (owner request 2026-09-23: 2 single-sided
+       pages, break before Machine Activity Checkpoints — see
+       _buildManagementRecapHtml for the page-1/page-2 split). Roomier than
+       the plain Daily Recap sizing since page 1 only has to carry the cards
+       + Shift Performance vs Plan, not the whole report. First estimate, not
+       verified against an actual print preview (no browser available
+       in-session) — if it doesn't land on exactly 2 pages once printed for
+       real, these are the values to adjust together. */
+    body.print-management-recap #management-recap-print .dr-title { font-size: 30px; }
+    body.print-management-recap #management-recap-print .dr-cards { margin-bottom: 0.4cm; }
+    body.print-management-recap #management-recap-print .dr-card { padding: 10px 16px; }
+    body.print-management-recap #management-recap-print .dr-card-label { font-size: 14px; }
+    body.print-management-recap #management-recap-print .dr-card-num { font-size: 30px; }
+    body.print-management-recap #management-recap-print .dr-section-head { font-size: 15px; margin: 0.4cm 0 0.2cm; }
+    body.print-management-recap #management-recap-print .dr-shift-block { padding: 12px 18px; }
+    body.print-management-recap #management-recap-print .dr-shift-label { font-size: 18px; }
+    body.print-management-recap #management-recap-print .dr-machine-table { font-size: 18px; }
+    body.print-management-recap #management-recap-print .dr-time-accounting-table { font-size: 14px; }
+    body.print-management-recap #management-recap-print .dr-dwell-table { font-size: 15px; }
+    body.print-management-recap #management-recap-print .tc-table { font-size: 13px; margin-bottom: 1rem; }
+    body.print-management-recap #management-recap-print .tc-table th,
+    body.print-management-recap #management-recap-print .tc-table td { padding: 7px 10px; }
+    body.print-management-recap #management-recap-print .tc-section-head { font-size: 14px; margin: 1rem 0 6px; }
 
     /* ── body.print-weekly-recap: one machine, 7 days, printed landscape ───── */
     body.print-weekly-recap > * { display: none !important; }
@@ -641,6 +683,7 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     </div>
     <div class="date-bar-row">
       <button class="qbtn" onclick="printDailyRecap()" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark)">&#128424; Print Daily Recap</button>
+      <button class="qbtn" onclick="printManagementRecap()" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark)">&#128424; Print Management Recap</button>
       <div class="divider"></div>
       <select id="weekly-recap-machine" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);font-size:13px;background:var(--white)">
         <option value="30">30</option>
@@ -6450,25 +6493,35 @@ function _drTargetPphFor(pieceType, machine) {
 
 function _drEventsByMachine(date) {
   var byMachine = {};
-  function add(machine, ts, extra) {
+  function add(machine, ts, kind, extra) {
     if (!machine || !ts) return;
     var d = new Date(ts);
     if (isNaN(d.getTime())) return;
     if (!byMachine[machine]) byMachine[machine] = [];
-    byMachine[machine].push(Object.assign({ ts: d, trustedDurMs: 0, pieceType: null, qty: 0 }, extra));
+    byMachine[machine].push(Object.assign({ ts: d, kind: kind, trustedDurMs: 0, pieceType: null, qty: 0 }, extra));
   }
   RAW.maint.forEach(function(e) {
     if (e.t !== date) return;
-    add(e.machine, e.ts, { trustedDurMs: _drMaintDurationMs(e.detail) });
+    add(e.machine, e.ts, 'maintenance', { trustedDurMs: _drMaintDurationMs(e.detail) });
   });
   Object.keys(RAW.sessions).forEach(function(machine) {
     (RAW.sessions[machine] || []).forEach(function(s) {
       if (s.t !== date) return;
       var isTally = s.m && s.m.indexOf('tally') === 0;
-      add(machine, s.ts, isTally
+      add(machine, s.ts, 'session', isTally
         ? { pieceType: s.p || null, qty: (s.g || 0) + (s.b || 0) }
         : { trustedDurMs: (s.s || 0) * 1000 });
     });
+  });
+  // Waiting button entries — owner request 2026-09-23: these were never
+  // part of the Run/Maintenance/Dwell/Down accounting before (it only ever
+  // inferred idle gaps from silence). Each logged Waiting entry is a real
+  // fact (its own duration), and now directly decides Dwell vs Down for the
+  // gap it falls in, at the same 15-min line the old silent-gap inference
+  // used — see _drMachineTimeBreakdown.
+  RAW.wait.forEach(function(e) {
+    if (e.t !== date) return;
+    add(e.machine, e.ts, 'waiting', { trustedDurMs: (e.dur || 0) * 1000 });
   });
   Object.keys(byMachine).forEach(function(m) { byMachine[m].sort(function(a, b) { return a.ts - b.ts; }); });
   return byMachine;
@@ -6500,7 +6553,9 @@ function _drFlagTimeHtml(d) {
 // at/after 8:00pm), End of Day (last flag of the day).
 function _drCheckpointsTableHtml(date) {
   var byMachine = _drFirstFlagsByMachine(date);
-  var machines = GROUP_MACHINES.standard.concat(GROUP_MACHINES.drinkware, ['Wallets']);
+  // Wallets dropped 2026-09-23 (owner request) — its shift pattern doesn't
+  // fit the Start/Lunch/Changeover/Dinner/End model the other machines use.
+  var machines = GROUP_MACHINES.standard.concat(GROUP_MACHINES.drinkware);
   var lunchAt = _drFlagThreshold(date, 12, 4);
   var changeoverAt = _drFlagThreshold(date, 15, 4);
   var dinnerAt = _drFlagThreshold(date, 20, 0);
@@ -6622,81 +6677,123 @@ function _drGroupIntoBursts(events) {
   return bursts;
 }
 
-// Owner request 2026-09-21, follow-up (two rounds): split each machine's day
-// into Run Time, Dwell Time (idle gaps up to 15 min), and Down Time (idle
-// gaps over 15 min, reported as one whole number, never a list of
-// instances). Run Time now covers tally-family production too, not just
-// measured stop/go — see the long comment above _drEventsByMachine for why
-// each tally save's own qty/target-PPH gives a real expected production
-// time, capped at +50% variance AND at the actual available gap (an
-// estimate, unlike a stop/go session's real totalSec or a maint entry's
-// real logged duration, which are trusted outright).
+// Owner request 2026-09-21, rebuilt 2026-09-23 to fold in a 4th trusted
+// signal (Waiting button entries) and split the picture into five buckets:
+//   - Run Time: production only (measured stop/go+continuous, or tally
+//     qty/target-PPH estimate, capped at +50% variance) — maintenance is no
+//     longer folded in here.
+//   - Maintenance Time (NEW): Operator Fix/Cleaning entries' own logged
+//     duration. Previously silently counted as "explained" (i.e. Run) time.
+//   - Dwell Time: a logged Waiting entry <= 15 min, OR an unlogged gap of
+//     DR_GRACE_MS or less (assumed a normal changeover pause, not something
+//     anyone would be expected to press the Waiting button for).
+//   - Down Time: a logged Waiting entry > 15 min.
+//   - Unreported Open Time (NEW): whatever's left over — a gap longer than
+//     the grace window with no session, maintenance, or Waiting entry
+//     explaining it at all. Previously this was silently guessed into Dwell
+//     or Down; now it's called out on its own so a machine that's idle
+//     without anyone logging why shows up distinctly, not indistinguishable
+//     from a properly-logged wait.
 //
-// By construction Run + Dwell + Down = the span from the first flag to the
-// last flag: the idle gap before each burst is shortened by however much of
-// it that burst's own work explains, and the very first burst's own
-// work/duration is excluded from Run Time — it's the "Start of Shift"
-// marker itself, the boundary the window starts at, not time spent within it.
-var DR_TALLY_VARIANCE = 1.5; // +50%
+// By construction Run + Maintenance + Dwell + Down + Unreported = the span
+// from the first flag to the last flag: the idle gap before each burst is
+// shortened by however much of it that burst's own work explains, and the
+// very first burst's own work/duration is excluded — it's the "Start of
+// Shift" marker itself, the boundary the window starts at, not time spent
+// within it.
+var DR_TALLY_VARIANCE = 1.5;              // +50%
+var DR_DWELL_DOWN_THRESHOLD_MS = 15 * 60 * 1000; // Waiting entry <=15min = Dwell, >15min = Down
+var DR_GRACE_MS = 3 * 60 * 1000;          // unlogged gap <=3min = assumed normal, folded into Dwell
 function _drMachineTimeBreakdown(date, machine) {
   var raw = (_drEventsByMachine(date))[machine] || [];
   var bursts = _drGroupIntoBursts(raw);
   var n = bursts.length;
   if (n < 2) return null;
-  var THRESHOLD_MS = 15 * 60 * 1000;
-  var runMs = 0, dwellMs = 0, downMs = 0;
-  var dwellSpans = [];
+  var runMs = 0, maintMs = 0, dwellMs = 0, downMs = 0, unreportedMs = 0;
+  var dwellSpans = [], unreportedSpans = [];
   for (var i = 0; i < n - 1; i++) {
     var rawGapMs = bursts[i + 1].ts - bursts[i].ts;
-    var trustedMs = 0, estimatedMs = 0;
+    var sessionTrustedMs = 0, tallyQtyEstMs = 0, maintTrustedMs = 0, waitingMsList = [];
     bursts[i + 1].members.forEach(function(e) {
-      if (e.trustedDurMs > 0) {
-        trustedMs += e.trustedDurMs;
+      if (e.kind === 'waiting') {
+        waitingMsList.push(e.trustedDurMs || 0);
+      } else if (e.kind === 'maintenance') {
+        maintTrustedMs += e.trustedDurMs || 0;
+      } else if (e.trustedDurMs > 0) {
+        sessionTrustedMs += e.trustedDurMs;
       } else if (e.pieceType && e.qty > 0) {
         var pph = _drTargetPphFor(e.pieceType, machine);
-        if (pph > 0) estimatedMs += (e.qty / pph) * 3600 * 1000;
+        if (pph > 0) tallyQtyEstMs += (e.qty / pph) * 3600 * 1000;
       }
     });
-    var explainedMs = Math.min(rawGapMs, trustedMs + estimatedMs * DR_TALLY_VARIANCE);
-    var idleMs = rawGapMs - explainedMs;
-    if (idleMs < 0) idleMs = 0;
-    runMs += explainedMs;
-    if (idleMs > THRESHOLD_MS) {
-      downMs += idleMs;
-    } else {
-      dwellMs += idleMs;
-      if (idleMs > 0) dwellSpans.push({ machine: machine, from: bursts[i].ts, to: new Date(bursts[i + 1].ts - explainedMs), mins: Math.round(idleMs / 60000) });
+    var waitingDwellMs = 0, waitingDownMs = 0;
+    waitingMsList.forEach(function(ms) {
+      if (ms > DR_DWELL_DOWN_THRESHOLD_MS) waitingDownMs += ms; else waitingDwellMs += ms;
+    });
+    // Trusted facts (session/maintenance/waiting) are never capped — they
+    // really happened. Only the tally estimate, being a guess, gets
+    // squeezed to whatever room is left in the raw gap.
+    var trustedTotalMs = sessionTrustedMs + maintTrustedMs + waitingDwellMs + waitingDownMs;
+    var remainingRoomMs = Math.max(0, rawGapMs - trustedTotalMs);
+    var estimatedRunMs = Math.min(remainingRoomMs, tallyQtyEstMs * DR_TALLY_VARIANCE);
+
+    runMs += sessionTrustedMs + estimatedRunMs;
+    maintMs += maintTrustedMs;
+    dwellMs += waitingDwellMs;
+    downMs += waitingDownMs;
+
+    var accountedMs = trustedTotalMs + estimatedRunMs;
+    var leftoverMs = rawGapMs - accountedMs;
+    if (leftoverMs < 0) leftoverMs = 0;
+    var leftoverFrom = bursts[i].ts;
+    var leftoverTo = new Date(bursts[i].ts.getTime() + leftoverMs);
+    if (leftoverMs > 0) {
+      if (leftoverMs <= DR_GRACE_MS) {
+        dwellMs += leftoverMs;
+        dwellSpans.push({ machine: machine, from: leftoverFrom, to: leftoverTo, mins: Math.round(leftoverMs / 60000), source: 'Unlogged (grace)' });
+      } else {
+        unreportedMs += leftoverMs;
+        unreportedSpans.push({ machine: machine, from: leftoverFrom, to: leftoverTo, mins: Math.round(leftoverMs / 60000) });
+      }
+    }
+    if (waitingDwellMs > 0) {
+      dwellSpans.push({ machine: machine, from: bursts[i].ts, to: bursts[i + 1].ts, mins: Math.round(waitingDwellMs / 60000), source: 'Waiting (reported)' });
     }
   }
   return {
     machine: machine, start: bursts[0].ts, end: bursts[n - 1].ts,
     totalMs: bursts[n - 1].ts - bursts[0].ts,
-    runMs: runMs, dwellMs: dwellMs, downMs: downMs, dwellSpans: dwellSpans
+    runMs: runMs, maintMs: maintMs, dwellMs: dwellMs, downMs: downMs, unreportedMs: unreportedMs,
+    dwellSpans: dwellSpans, unreportedSpans: unreportedSpans
   };
 }
 
-// Page-1 summary: Run / Dwell / Down time side by side per machine (their
-// sum equals the Total column, by construction — see _drMachineTimeBreakdown
-// above). Down time never gets a separate breakdown list anywhere, only this
-// one number, per owner request.
+// Page-1 summary: Run / Maintenance / Dwell / Down / Unreported time side by
+// side per machine (their sum equals the Total column, by construction —
+// see _drMachineTimeBreakdown above). Down time never gets a separate
+// breakdown list anywhere, only this one number, per owner request.
 function _drTimeAccountingTableHtml(date) {
   var machines = GROUP_MACHINES.standard.concat(GROUP_MACHINES.drinkware, ['Wallets']);
   var rows = machines.map(function(m) { return _drMachineTimeBreakdown(date, m); }).filter(Boolean);
   if (!rows.length) return '';
-  var h = '<div class="dr-section-head">Run / Dwell / Down Time by Machine</div>';
-  h += '<table class="dr-machine-table dr-time-accounting-table"><thead><tr><th>Machine</th><th>Run Time</th><th>Dwell Time</th><th>Down Time</th><th>Total (Start&ndash;End)</th></tr></thead><tbody>';
+  var h = '<div class="dr-section-head">Run / Maintenance / Dwell / Down / Unreported Time by Machine</div>';
+  h += '<table class="dr-machine-table dr-time-accounting-table"><thead><tr><th>Machine</th><th>Run Time</th><th>Maintenance</th><th>Dwell Time</th><th>Down Time</th><th>Unreported</th><th>Total (Start&ndash;End)</th></tr></thead><tbody>';
   rows.forEach(function(r) {
     h += '<tr><td>' + r.machine + '</td>'
        + '<td>' + _drDurationHtml(Math.round(r.runMs / 60000)) + '</td>'
+       + '<td>' + _drDurationHtml(Math.round(r.maintMs / 60000)) + '</td>'
        + '<td>' + _drDurationHtml(Math.round(r.dwellMs / 60000)) + '</td>'
        + '<td>' + _drDurationHtml(Math.round(r.downMs / 60000)) + '</td>'
+       + '<td>' + _drDurationHtml(Math.round(r.unreportedMs / 60000)) + '</td>'
        + '<td>' + _drDurationHtml(Math.round(r.totalMs / 60000)) + '</td></tr>';
   });
   h += '</tbody></table>';
   return h;
 }
 
-// Page-2 detailed list: every individual dwell span (idle gap up to 15 min).
+// Page-2 detailed list: every individual dwell span, either a reported
+// Waiting entry of 15 min or less, or an unlogged gap within the 3-min
+// grace window (see DR_GRACE_MS) — "Source" makes the difference visible.
 function _drDwellBreakdownTableHtml(date) {
   var machines = GROUP_MACHINES.standard.concat(GROUP_MACHINES.drinkware, ['Wallets']);
   var allSpans = [];
@@ -6706,7 +6803,30 @@ function _drDwellBreakdownTableHtml(date) {
   });
   if (!allSpans.length) return '';
   allSpans.sort(function(a, b) { return a.machine === b.machine ? a.from - b.from : a.machine.localeCompare(b.machine); });
-  var h = '<div class="dr-section-head">Dwell Time Breakdown (idle gaps up to 15 min)</div>';
+  var h = '<div class="dr-section-head">Dwell Time Breakdown (Waiting entries &le;15 min, or unlogged gaps &le;3 min)</div>';
+  h += '<table class="dr-machine-table dr-dwell-table"><thead><tr><th>Machine</th><th>From</th><th>To</th><th>Duration</th><th>Source</th></tr></thead><tbody>';
+  allSpans.forEach(function(r) {
+    h += '<tr><td>' + r.machine + '</td><td>' + _drFlagTimeHtml(r.from) + '</td><td>' + _drFlagTimeHtml(r.to) + '</td><td>' + _drDurationHtml(r.mins) + '</td><td>' + (r.source || '') + '</td></tr>';
+  });
+  h += '</tbody></table>';
+  return h;
+}
+
+// Page-2 detailed list: every gap longer than the 3-min grace window that
+// has NO session, maintenance, or Waiting entry explaining it at all —
+// owner request 2026-09-23, the whole point of splitting this out from Down
+// Time is to make silence visible and distinguishable from a properly
+// logged wait.
+function _drUnreportedBreakdownTableHtml(date) {
+  var machines = GROUP_MACHINES.standard.concat(GROUP_MACHINES.drinkware, ['Wallets']);
+  var allSpans = [];
+  machines.forEach(function(m) {
+    var bd = _drMachineTimeBreakdown(date, m);
+    if (bd) allSpans = allSpans.concat(bd.unreportedSpans);
+  });
+  if (!allSpans.length) return '';
+  allSpans.sort(function(a, b) { return a.machine === b.machine ? a.from - b.from : a.machine.localeCompare(b.machine); });
+  var h = '<div class="dr-section-head">Unreported Open Time Breakdown (no session, maintenance, or Waiting entry logged)</div>';
   h += '<table class="dr-machine-table dr-dwell-table"><thead><tr><th>Machine</th><th>From</th><th>To</th><th>Duration</th></tr></thead><tbody>';
   allSpans.forEach(function(r) {
     h += '<tr><td>' + r.machine + '</td><td>' + _drFlagTimeHtml(r.from) + '</td><td>' + _drFlagTimeHtml(r.to) + '</td><td>' + _drDurationHtml(r.mins) + '</td></tr>';
@@ -6777,6 +6897,7 @@ function _buildDailyRecapHtml(date) {
 
   h += '<div class="report-page-break"></div>';
   h += _drDwellBreakdownTableHtml(date);
+  h += _drUnreportedBreakdownTableHtml(date);
 
   h += '<div class="dr-footer">Printed ' + new Date().toLocaleString('en-US', {dateStyle:'medium', timeStyle:'short'}) + '</div>';
   return h;
@@ -6788,6 +6909,80 @@ function printDailyRecap() {
   document.body.classList.add('print-daily-recap');
   _printAs('EGStudio_DailyRecap_' + _mmddyy(date));
   setTimeout(function() { document.body.classList.remove('print-daily-recap'); }, 500);
+}
+
+// ── MANAGEMENT RECAP ────────────────────────────────────────────────────────
+// Owner request 2026-09-23: one report for daily sharing with upper
+// management, combining Daily Recap page 1 with the Shift Summary Report's
+// Plan/Actual/Hours/Operators/Open data — no manual date picking, always
+// the LAST WORKED date (not just yesterday: a Monday morning needs Friday's
+// or Saturday's data depending on the week's schedule, so this walks
+// backward through VALID_DATES — the same set every date's real production
+// gets added to on load — until it finds one with actual data).
+function _lastWorkedDate() {
+  var d = new Date();
+  for (var back = 1; back <= 21; back++) {
+    var day = new Date(d.getFullYear(), d.getMonth(), d.getDate() - back);
+    var dateStr = day.getFullYear() + '-' + String(day.getMonth() + 1).padStart(2, '0') + '-' + String(day.getDate()).padStart(2, '0');
+    if (VALID_DATES.has(dateStr)) return dateStr;
+  }
+  return null;
+}
+
+// Single-sided, 2 pages (owner request 2026-09-23, after trying and
+// dropping a condensed 1-page variant): page 1 = header/cards/Shift
+// Performance vs Plan; page 2 starts fresh at Machine Activity Checkpoints
+// and runs through Misprints/Time-Accounting/Dwell Breakdown.
+function _buildManagementRecapHtml() {
+  var date = _lastWorkedDate();
+  if (!date) return '<div class="empty">No production data found in the last 3 weeks.</div>';
+  render(date); // populate _dailyRenderCache (and RAW-derived globals) for this date
+  var cache = _dailyRenderCache;
+  var dateLabel = new Date(date + 'T12:00:00').toLocaleDateString('en-US', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+  var h = '';
+
+  h += '<div class="dr-header">';
+  h += '<div class="dr-eyebrow">Evergreen Studio &middot; Management Recap</div>';
+  h += '<div class="dr-title">' + dateLabel + '</div>';
+  h += '<div style="font-size:11px;color:var(--muted);margin-top:2px">Last worked date</div>';
+  h += '</div>';
+
+  h += '<div class="dr-cards">';
+  h += '<div class="dr-card"><div class="dr-card-label">Print Floor (30 + 30+ + H5)</div><div class="dr-card-num">' + cache.stdGood.toLocaleString() + '</div></div>';
+  h += '<div class="dr-card"><div class="dr-card-label">Drinkware (M1 + M2)</div><div class="dr-card-num">' + cache.dwGood.toLocaleString() + '</div></div>';
+  h += '<div class="dr-card"><div class="dr-card-label">Ship Confirm (Units)</div><div class="dr-card-num">' + ((SHIP_CONFIRM[date] && SHIP_CONFIRM[date].total) || 0).toLocaleString() + '</div></div>';
+  h += '</div>';
+
+  // Replaces Daily Recap's plain Shift Totals cards with the richer
+  // Plan/Actual/%-to-Plan + Hours/Operators/Open view from the Shift Summary
+  // Report — same numbers, scoped to this report's own date instead of a
+  // separately-pickable date, so nothing is shown twice between what used to
+  // be two separate reports.
+  h += '<div class="dr-section-head">Shift Performance vs Plan</div>';
+  var planHtml = _comboPlanShiftSectionHtml(date, 'day', '') + _comboPlanShiftSectionHtml(date, 'night', '');
+  h += planHtml || '<div class="dr-muted" style="font-size:12px">No plan committed for this date.</div>';
+
+  h += '<div class="report-page-break"></div>';
+  h += _drCheckpointsTableHtml(date);
+
+  h += _drMisprintsTableHtml(date);
+  h += _drTimeAccountingTableHtml(date);
+  // Unreported Open Time Breakdown dropped 2026-09-23 (owner request) to
+  // keep this report to 2 single-sided pages — the summary number still
+  // shows in the Run/Maintenance/Dwell/Down/Unreported table above, just
+  // not the itemized per-gap list (that stays in the plain Daily Recap).
+  h += _drDwellBreakdownTableHtml(date);
+
+  h += '<div class="dr-footer">Printed ' + new Date().toLocaleString('en-US', {dateStyle:'medium', timeStyle:'short'}) + '</div>';
+  return h;
+}
+
+function printManagementRecap() {
+  var date = _lastWorkedDate();
+  document.getElementById('management-recap-print').innerHTML = _buildManagementRecapHtml();
+  document.body.classList.add('print-management-recap');
+  _printAs('EGStudio_ManagementRecap_' + (date ? _mmddyy(date) : _mmddyy(new Date().toISOString().slice(0, 10))));
+  setTimeout(function() { document.body.classList.remove('print-management-recap'); }, 500);
 }
 
 // ── WEEKLY MACHINE RECAP: one machine, Mon-Sat columns x Day/Night rows ────
@@ -7177,41 +7372,48 @@ function _buildTotalsComboHtml() {
 
   // Section B — always TODAY's committed plan(s), regardless of the pickers above.
   var todayStr = new Date().toISOString().slice(0, 10);
-  var anyPlan = false;
   var secB = '';
-  ['day', 'night'].forEach(function(shift) {
-    // Prefer the midshift snapshot over the morning plan when both exist,
-    // so committing an updated snapshot mid-shift immediately refreshes
-    // this section instead of sticking with the stale morning numbers.
-    var todayOverride = {};
-    todayOverride['standard:' + shift]  = 'mid';
-    todayOverride['drinkware:' + shift] = 'mid';
-    var stdPlan = _resolvePlanForShiftGroup(todayStr, shift, 'standard', todayOverride);
-    var dwPlan  = _resolvePlanForShiftGroup(todayStr, shift, 'drinkware', todayOverride);
-    if (!stdPlan && !dwPlan) return;
-    anyPlan = true;
-    var shiftLabel = shift === 'night' ? '🌙 Night Shift' : '☀ Day Shift';
-    secB += '<div class="tc-section-head">' + shiftLabel + ' — Today\'s Plan</div>';
-
-    // Live actual production for today's shift, recomputed fresh every render
-    // (not the plan's own frozen machineActualToday snapshot).
-    var byM = _shiftScopedByMachine(todayStr, shift);
-
-    // Totals first: Print Floor combined, Drinkware combined.
-    secB += '<div class="tc-table-wrap"><table class="tc-table"><thead><tr><th>Total</th><th class="col-num">Hours</th><th class="col-num">Operators</th><th class="col-num">Plan</th><th class="col-num">Made</th><th class="col-num">% to Plan</th><th class="col-num">Open</th></tr></thead><tbody>';
-    if (stdPlan) secB += _comboPlanTotalRow('Print Floor (30 + 30+ + H5)', GROUP_MACHINES.standard, stdPlan, byM);
-    if (dwPlan)  secB += _comboPlanTotalRow('Drinkware (M1 + M2)', GROUP_MACHINES.drinkware, dwPlan, byM);
-    secB += '</tbody></table></div>';
-
-    // Then the per-machine breakdown.
-    secB += '<div class="tc-table-wrap"><table class="tc-table"><thead><tr><th>Machine</th><th class="col-num">Hours</th><th class="col-num">Operators</th><th class="col-num">Plan</th><th class="col-num">Made</th><th class="col-num">% to Plan</th><th class="col-num">Open</th></tr></thead><tbody>';
-    if (stdPlan) GROUP_MACHINES.standard.forEach(function(m) { secB += _comboPlanMachineRow(m, stdPlan, byM); });
-    if (dwPlan)  GROUP_MACHINES.drinkware.forEach(function(m) { secB += _comboPlanMachineRow(m, dwPlan, byM); });
-    secB += '</tbody></table></div>';
-  });
-  if (!anyPlan) secB = '<div style="color:var(--muted);font-size:12px;padding:0.5rem 0">No plan committed for today yet.</div>';
+  ['day', 'night'].forEach(function(shift) { secB += _comboPlanShiftSectionHtml(todayStr, shift, ' — Today\'s Plan'); });
+  if (!secB) secB = '<div style="color:var(--muted);font-size:12px;padding:0.5rem 0">No plan committed for today yet.</div>';
 
   h += secB;
+  return h;
+}
+
+// Hours/Operators/Plan/Made/%-to-Plan/Open for one date+shift — a group
+// total row (Print Floor, Drinkware) plus the per-machine breakdown. Shared
+// by the Shift Summary Report's "Today's Plan" section (extracted 2026-09-23,
+// was previously inlined only there) and the Management Recap, which calls
+// it for the last worked date instead of always literally today.
+// titleSuffix lets each caller adjust the section heading — e.g. "Today's
+// Plan" vs nothing — without duplicating the table-building logic.
+function _comboPlanShiftSectionHtml(date, shift, titleSuffix) {
+  // Prefer the midshift snapshot over the morning plan when both exist, so
+  // committing an updated snapshot mid-shift immediately refreshes this
+  // section instead of sticking with the stale morning numbers.
+  var override = {};
+  override['standard:' + shift]  = 'mid';
+  override['drinkware:' + shift] = 'mid';
+  var stdPlan = _resolvePlanForShiftGroup(date, shift, 'standard', override);
+  var dwPlan  = _resolvePlanForShiftGroup(date, shift, 'drinkware', override);
+  if (!stdPlan && !dwPlan) return '';
+  var shiftLabel = shift === 'night' ? '🌙 Night Shift' : '☀ Day Shift';
+  // Live actual production for this date/shift, recomputed fresh every
+  // render (not the plan's own frozen machineActualToday snapshot).
+  var byM = _shiftScopedByMachine(date, shift);
+  var h = '<div class="tc-section-head">' + shiftLabel + (titleSuffix || '') + '</div>';
+
+  // Totals first: Print Floor combined, Drinkware combined.
+  h += '<div class="tc-table-wrap"><table class="tc-table"><thead><tr><th>Total</th><th class="col-num">Hours</th><th class="col-num">Operators</th><th class="col-num">Plan</th><th class="col-num">Made</th><th class="col-num">% to Plan</th><th class="col-num">Open</th></tr></thead><tbody>';
+  if (stdPlan) h += _comboPlanTotalRow('Print Floor (30 + 30+ + H5)', GROUP_MACHINES.standard, stdPlan, byM);
+  if (dwPlan)  h += _comboPlanTotalRow('Drinkware (M1 + M2)', GROUP_MACHINES.drinkware, dwPlan, byM);
+  h += '</tbody></table></div>';
+
+  // Then the per-machine breakdown.
+  h += '<div class="tc-table-wrap"><table class="tc-table"><thead><tr><th>Machine</th><th class="col-num">Hours</th><th class="col-num">Operators</th><th class="col-num">Plan</th><th class="col-num">Made</th><th class="col-num">% to Plan</th><th class="col-num">Open</th></tr></thead><tbody>';
+  if (stdPlan) GROUP_MACHINES.standard.forEach(function(m) { h += _comboPlanMachineRow(m, stdPlan, byM); });
+  if (dwPlan)  GROUP_MACHINES.drinkware.forEach(function(m) { h += _comboPlanMachineRow(m, dwPlan, byM); });
+  h += '</tbody></table></div>';
   return h;
 }
 
@@ -8963,7 +9165,12 @@ function fetchFirebaseData() {
     newRAW.maint.sort(function(a,b){ return a.t<b.t?-1:a.t>b.t?1:0; });
     Object.keys(fbWaitLog).forEach(function(k) {
       var v = fbWaitLog[k]; if (!v) return;
-      newRAW.wait.push({ t: isoToLocalDate(v.time||v.t||v.ts||''), machine: v.machine||'',
+      var waitRawTs = v.time||v.t||v.ts||'';
+      // ts (raw timestamp) added 2026-09-23 so the Daily Recap's Run/
+      // Maintenance/Dwell/Down accounting can place a Waiting entry at its
+      // exact moment, the same way maintLog entries already do — see ts on
+      // newRAW.maint above.
+      newRAW.wait.push({ t: isoToLocalDate(waitRawTs), ts: waitRawTs, machine: v.machine||'',
         dur: v.duration!=null?v.duration:(v.dur!=null?v.dur:0), notes: v.notes||'', op: v.op||v.operator||'' });
     });
     newRAW.wait.sort(function(a,b){ return a.t<b.t?-1:a.t>b.t?1:0; });
@@ -9700,6 +9907,7 @@ function renderSettings() {
 <div id="saved-plan-print" style="display:none"></div>
 <div id="totals-combo-print" style="display:none"></div>
 <div id="daily-recap-print" style="display:none"></div>
+<div id="management-recap-print" style="display:none"></div>
 <div id="weekly-recap-print" style="display:none"></div>
 <div id="missing-files-print" style="display:none"></div>
 <script>
