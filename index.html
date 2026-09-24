@@ -69,6 +69,8 @@ input[type="date"]:focus { border-color: var(--green-dark); }
 .maf-chip-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .maf-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--green-light); border: 1px solid var(--green-win-border); border-radius: 20px; padding: 4px 6px 4px 12px; font-size: 12px; color: var(--green-dark); font-weight: 600; }
 .maf-chip button { background: none; border: none; color: var(--red); font-size: 14px; line-height: 1; cursor: pointer; padding: 2px 6px; }
+.pp-track-table tr.pp-dirty td { background: var(--amber-bg); }
+.pp-track-table td { vertical-align: top; }
 .maf-status-pill { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; white-space: nowrap; }
 .verdict-icon { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; flex-shrink: 0; margin-top: 1px; }
 .verdict-icon-pct { width: auto; min-width: 40px; height: 32px; border-radius: 16px; padding: 0 9px; font-size: 13px; }
@@ -2408,6 +2410,8 @@ function _ppStartLiveSync() {
 }
 
 function ppSetView(view) {
+  if (view !== _ppView && _ppPendingCount() && !confirm('You have unsaved changes on this list. Leave without saving?')) return;
+  if (view !== _ppView) _ppPending = {};
   _ppView = view;
   ['prebook', 'active', 'completed', 'amr'].forEach(function(v) {
     document.getElementById('pp-view-' + v + '-btn').classList.toggle('active', v === view);
@@ -2628,11 +2632,47 @@ function ppAddSelected() {
 }
 
 // ── In Progress / Completed tracking ──
-function _ppCheckCell(id, field, stamp) {
-  var on = !!stamp;
-  var h = '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap"><input type="checkbox"' + (on ? ' checked' : '') +
-    ' onchange="ppToggleCheck(\'' + id + '\', \'' + field + '\', this.checked)" style="width:16px;height:16px;cursor:pointer">' + (on ? '&#10003;' : '') + '</label>';
-  if (on) h += '<div style="font-size:10px;color:var(--muted);white-space:nowrap">' + escapeHtml(stamp.by || '') + ' ' + escapeHtml(stamp.at ? _ppStamp(stamp.at) : '') + '</div>';
+// Edits (checkboxes, quantities, notes) are held here until "Save Changes",
+// so rows don't jump or disappear while you're working down the list (owner
+// request 2026-09-24). { id: { field: value } } — a checkbox value is the
+// {by, at} stamp captured when it was clicked, or null when unchecked.
+var _ppPending = {};
+
+function _ppPendingCount() { return Object.keys(_ppPending).length; }
+function _ppVal(id, field) {
+  var p = _ppPending[id];
+  return p && Object.prototype.hasOwnProperty.call(p, field) ? p[field] : (_ppItems[id] || {})[field];
+}
+function _ppSetPending(id, field, value) {
+  var saved = (_ppItems[id] || {})[field];
+  var same = field === 'invDeducted' || field === 'inLocation' ? (!!saved === !!value) : (saved === value || (saved == null && value === ''));
+  if (!_ppPending[id]) _ppPending[id] = {};
+  if (same) delete _ppPending[id][field]; else _ppPending[id][field] = value;
+  if (!Object.keys(_ppPending[id]).length) delete _ppPending[id];
+  _ppUpdateSaveBar();
+  var row = document.getElementById('pp-row-' + id);
+  if (row) row.classList.toggle('pp-dirty', !!_ppPending[id]);
+}
+function _ppUpdateSaveBar() {
+  var bar = document.getElementById('pp-save-bar');
+  if (!bar) return;
+  var n = _ppPendingCount();
+  bar.style.display = n ? 'flex' : 'none';
+  var lbl = document.getElementById('pp-save-count');
+  if (lbl) lbl.textContent = n + ' item' + (n === 1 ? '' : 's') + ' changed — not saved yet';
+}
+window.addEventListener('beforeunload', function(e) {
+  if (_ppPendingCount()) { e.preventDefault(); e.returnValue = ''; }
+});
+
+function _ppCheckCell(id, field) {
+  var stamp = _ppVal(id, field), on = !!stamp;
+  var pending = _ppPending[id] && Object.prototype.hasOwnProperty.call(_ppPending[id], field);
+  var h = '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-size:12px;font-weight:600;color:var(--text)"><input type="checkbox"' + (on ? ' checked' : '') +
+    ' onchange="ppToggleCheck(\'' + id + '\', \'' + field + '\', this.checked)" style="width:17px;height:17px;cursor:pointer">' +
+    (field === 'invDeducted' ? 'Inventory Deducted' : 'In Location') + '</label>';
+  h += '<div id="pp-stamp-' + id + '-' + field + '" style="font-size:10px;color:var(--muted);white-space:nowrap;margin:1px 0 0 23px;min-height:13px">' +
+    (on ? escapeHtml(stamp.by || '') + ' ' + escapeHtml(stamp.at ? _ppStamp(stamp.at) : '') + (pending ? ' · not saved' : '') : '') + '</div>';
   return h;
 }
 function _ppRenderTracking(completed) {
@@ -2649,48 +2689,83 @@ function _ppRenderTracking(completed) {
   var h = '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">';
   h += _ppSelect('machine', machines, 'All Machines');
   h += '<span style="font-size:12px;color:var(--muted)">' + ids.length + (completed ? ' completed' : ' in progress') +
-    ' &middot; ' + (completed ? 'Inventory Deducted and In Location are both checked.' : 'An item moves to Completed once Inventory Deducted and In Location are both checked.') + '</span>';
+    ' &middot; ' + (completed ? 'Inventory Deducted and In Location are both checked.' : 'Check things off, then click Save Changes. Items with both boxes checked move to Completed.') + '</span>';
   h += '<button class="qbtn" onclick="ppExportTracking(' + completed + ')" style="margin-left:auto;padding:6px 14px">&#11015; Export to Excel</button>';
   h += '</div>';
+
+  // Save bar — sticks to the bottom of the screen while there are unsaved edits
+  h += '<div id="pp-save-bar" style="display:none;position:sticky;bottom:0;z-index:5;align-items:center;gap:12px;flex-wrap:wrap;background:var(--amber-bg);border:1px solid var(--amber-border);border-radius:var(--radius);padding:10px 14px;margin-bottom:10px;box-shadow:0 -2px 10px rgba(0,0,0,0.08)">';
+  h += '<span id="pp-save-count" style="font-size:13px;font-weight:700;color:var(--amber)"></span>';
+  h += '<button class="qbtn" onclick="ppDiscardPending()" style="margin-left:auto;padding:7px 14px">Discard</button>';
+  h += '<button class="qbtn" id="pp-save-btn" onclick="ppSavePending()" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark);padding:7px 18px">&#10003; Save Changes</button>';
+  h += '</div>';
+
   if (!ids.length) {
     return h + '<p style="color:var(--muted);font-size:14px;padding:20px 0">' +
       (completed ? 'Nothing completed yet.' : 'Nothing in progress &mdash; pick items on the Pre-Book Orders view to start.') + '</p>';
   }
-  h += '<div class="table-wrap" style="overflow-x:auto"><table class="settings-table"><thead><tr>';
-  h += '<th>Added</th><th>Raw</th><th>Piece Type</th><th>Machine</th><th>Item ID</th><th>Item Name</th><th style="text-align:right">QTY to Produce</th><th style="text-align:right">Qty Printed</th><th>Inventory Deducted</th><th>In Location</th><th>Notes</th><th></th>';
+  // Compact layout: item details stacked in one column so the table fits the
+  // screen width without scrolling sideways (owner request 2026-09-24).
+  h += '<div class="table-wrap"><table class="settings-table pp-track-table" style="table-layout:auto"><thead><tr>';
+  h += '<th>Item</th><th style="width:150px">Qty</th><th style="width:170px">Checkpoints</th><th style="width:22%">Notes</th><th style="width:36px"></th>';
   h += '</tr></thead><tbody>';
-  var numStyle = 'width:70px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:13px;font-family:inherit;text-align:right';
+  var numStyle = 'width:64px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;font-size:13px;font-family:inherit;text-align:right';
   ids.forEach(function(id) {
     var it = _ppItems[id];
-    var short = it.qtyPrinted > 0 && it.qtyPrinted < it.qtyToProduce;
-    h += '<tr>';
-    h += '<td style="white-space:nowrap">' + escapeHtml(it.dateAdded || '') + (it.source === 'workbook' ? '<div style="font-size:10px;color:var(--muted)">from workbook</div>' : '') + '</td>';
-    h += '<td style="white-space:nowrap">' + escapeHtml(it.raw || '') + '</td><td>' + escapeHtml(it.piece || '') + '</td><td>' + escapeHtml(it.machine || '') + '</td>';
-    h += '<td style="white-space:nowrap;font-weight:600">' + escapeHtml(it.item || '') + '</td><td style="min-width:220px">' + escapeHtml(it.name || '') + '</td>';
-    h += '<td style="text-align:right"><input type="number" min="0" value="' + _ppNum(it.qtyToProduce) + '" onchange="ppSetField(\'' + id + '\', \'qtyToProduce\', this.value)" style="' + numStyle + '"></td>';
-    h += '<td style="text-align:right"><input type="number" min="0" value="' + _ppNum(it.qtyPrinted) + '" onchange="ppSetField(\'' + id + '\', \'qtyPrinted\', this.value)" style="' + numStyle + (short ? ';border-color:var(--amber-border);background:var(--amber-bg)' : '') + '"></td>';
-    h += '<td>' + _ppCheckCell(id, 'invDeducted', it.invDeducted) + '</td>';
-    h += '<td>' + _ppCheckCell(id, 'inLocation', it.inLocation) + '</td>';
-    h += '<td><input type="text" value="' + escapeHtml(it.notes || '') + '" placeholder="Add a note…" onchange="ppSetField(\'' + id + '\', \'notes\', this.value)" style="width:170px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;font-family:inherit"></td>';
-    h += '<td><button class="qbtn" onclick="ppDeleteItem(\'' + id + '\')" title="Remove this item" style="color:var(--red)">&times;</button></td>';
+    var toMake = _ppNum(_ppVal(id, 'qtyToProduce')), printed = _ppNum(_ppVal(id, 'qtyPrinted'));
+    var short = printed > 0 && printed < toMake;
+    h += '<tr id="pp-row-' + id + '"' + (_ppPending[id] ? ' class="pp-dirty"' : '') + '>';
+    h += '<td style="min-width:0"><div style="font-weight:700;white-space:nowrap">' + escapeHtml(it.item || '') + '</div>';
+    h += '<div style="font-size:13px;line-height:1.35">' + escapeHtml(it.name || '') + '</div>';
+    h += '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + [it.machine, it.piece, it.raw].filter(Boolean).map(escapeHtml).join(' &middot; ') +
+      ' &middot; added ' + escapeHtml(it.dateAdded || '') + (it.source === 'workbook' ? ' (from workbook)' : '') + '</div></td>';
+    h += '<td><div style="display:grid;grid-template-columns:auto auto;gap:4px 8px;align-items:center;font-size:11px;color:var(--muted)">';
+    h += '<span>To make</span><input type="number" min="0" value="' + toMake + '" onchange="ppSetField(\'' + id + '\', \'qtyToProduce\', this.value)" style="' + numStyle + '">';
+    h += '<span>Printed</span><input type="number" min="0" value="' + printed + '" onchange="ppSetField(\'' + id + '\', \'qtyPrinted\', this.value)" style="' + numStyle + (short ? ';border-color:var(--amber-border);background:var(--amber-bg)' : '') + '">';
+    h += '</div></td>';
+    h += '<td>' + _ppCheckCell(id, 'invDeducted') + '<div style="height:4px"></div>' + _ppCheckCell(id, 'inLocation') + '</td>';
+    h += '<td><textarea rows="2" placeholder="Add a note…" onchange="ppSetField(\'' + id + '\', \'notes\', this.value)" style="width:100%;box-sizing:border-box;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;font-family:inherit;resize:vertical">' + escapeHtml(_ppVal(id, 'notes') || '') + '</textarea></td>';
+    h += '<td><button class="qbtn" onclick="ppDeleteItem(\'' + id + '\')" title="Remove this item" style="color:var(--red);padding:4px 8px">&times;</button></td>';
     h += '</tr>';
   });
   h += '</tbody></table></div>';
+  setTimeout(_ppUpdateSaveBar, 0);
   return h;
 }
 function ppSetField(id, field, value) {
-  var it = _ppItems[id];
-  if (!it) return;
+  if (!_ppItems[id]) return;
   var v = field === 'notes' ? String(value || '').trim() : Math.max(0, Math.round(_ppNum(value)));
-  var fields = {};
-  fields[field] = v;
-  _ppUpdateItem(id, fields).catch(function(err) { _ppSaveFailed(err, 'this change'); });
+  _ppSetPending(id, field, v);
 }
 function ppToggleCheck(id, field, on) {
-  var who = on ? _ppUserName() : '';
-  var fields = {};
-  fields[field] = on ? { by: who || '', at: new Date().toISOString() } : null;
-  _ppUpdateItem(id, fields).catch(function(err) { _ppSaveFailed(err, 'this checkmark'); });
+  var stamp = on ? { by: _ppUserName() || '', at: new Date().toISOString() } : null;
+  _ppSetPending(id, field, stamp);
+  var el = document.getElementById('pp-stamp-' + id + '-' + field);
+  if (el) el.textContent = on ? ((stamp.by || '') + ' ' + _ppStamp(stamp.at) + ' · not saved') : '';
+}
+function ppSavePending() {
+  var updates = {}, n = _ppPendingCount();
+  if (!n) return;
+  Object.keys(_ppPending).forEach(function(id) {
+    Object.keys(_ppPending[id]).forEach(function(field) { updates[id + '/' + field] = _ppPending[id][field]; });
+  });
+  var btn = document.getElementById('pp-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  _mafWithTimeout(firebase.database().ref('preProduction/items').update(updates), 10000).then(function() {
+    _ppPending = {};
+    renderPreProduction();
+  }).catch(function(err) {
+    // Keep the unsaved edits on screen so nothing is lost — just report it
+    console.error('Pre-Production save failed:', err);
+    if (btn) { btn.disabled = false; btn.innerHTML = '&#10003; Save Changes'; }
+    alert('✗ Save failed — your ' + n + ' changed item(s) were NOT saved: ' + (err && err.message ? err.message : err) +
+      '. They\'re still on screen; try Save Changes again.');
+  });
+}
+function ppDiscardPending() {
+  if (_ppPendingCount() && !confirm('Discard your unsaved changes?')) return;
+  _ppPending = {};
+  renderPreProduction();
 }
 function ppDeleteItem(id) {
   var it = _ppItems[id];
