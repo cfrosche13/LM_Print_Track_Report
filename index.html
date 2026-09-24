@@ -2326,6 +2326,8 @@ function printMissingFilesReport() {
 //   v inventory qty · q qty to produce
 var _ppPrebook   = {};     // { year: {rows, fileName, loadedAt, loadedBy, source} }
 var _ppItems     = {};     // { id: tracked item }
+var _ppOverrides = {};     // preProduction/stockOverrides: { key: {item, usedUp, by, at} } — "I know it's gone"
+var _ppAmrPending = {};    // unsaved Used Up checkbox changes on the AMR view: { itemId: stamp | null }
 var _ppLoaded    = { prebook: false, items: false };
 var _ppView      = 'prebook';
 var _ppSelected  = {};     // prebook rows ticked to add: { "year|itemId": true }
@@ -2402,6 +2404,10 @@ function _ppStartLiveSync() {
     _ppLoaded.prebook = true;
     rerenderIfOpen();
   }, onErr('preProduction/prebook'));
+  firebase.database().ref('preProduction/stockOverrides').on('value', function(snap) {
+    _ppOverrides = snap.val() || {};
+    rerenderIfOpen();
+  }, onErr('preProduction/stockOverrides'));
   firebase.database().ref('preProduction/items').on('value', function(snap) {
     _ppItems = snap.val() || {};
     _ppLoaded.items = true;
@@ -2411,7 +2417,7 @@ function _ppStartLiveSync() {
 
 function ppSetView(view) {
   if (view !== _ppView && _ppPendingCount() && !confirm('You have unsaved changes on this list. Leave without saving?')) return;
-  if (view !== _ppView) _ppPending = {};
+  if (view !== _ppView) { _ppPending = {}; _ppAmrPending = {}; }
   _ppView = view;
   ['prebook', 'active', 'completed', 'amr'].forEach(function(v) {
     document.getElementById('pp-view-' + v + '-btn').classList.toggle('active', v === view);
@@ -2638,7 +2644,7 @@ function ppAddSelected() {
 // {by, at} stamp captured when it was clicked, or null when unchecked.
 var _ppPending = {};
 
-function _ppPendingCount() { return Object.keys(_ppPending).length; }
+function _ppPendingCount() { return Object.keys(_ppPending).length + Object.keys(_ppAmrPending).length; }
 function _ppVal(id, field) {
   var p = _ppPending[id];
   return p && Object.prototype.hasOwnProperty.call(p, field) ? p[field] : (_ppItems[id] || {})[field];
@@ -2798,6 +2804,18 @@ function ppExportTracking(completed) {
 // printing, which removes them from the workload. Only items that are In
 // Location AND still show inventory in the latest pre-book export are copied;
 // if the stock turns out short, the picker sends the rest back as an ad-hoc task.
+// Firebase keys can't contain . # $ [ ] /
+function _ppOverrideKey(itemId) { return String(itemId).replace(/[.#$\[\]\/]/g, '_'); }
+// A "Used Up" mark: preflight knows the shelf is empty even though the export
+// still shows stock. It holds until it's unchecked, or until that item is put
+// In Location again after the mark was made (fresh stock clears it).
+function _ppUsedUpMark(itemId, lastLocated) {
+  var mark = Object.prototype.hasOwnProperty.call(_ppAmrPending, itemId) ? _ppAmrPending[itemId]
+    : (_ppOverrides[_ppOverrideKey(itemId)] || null);
+  if (!mark || !mark.usedUp) return null;
+  if (lastLocated && mark.at && lastLocated > mark.at) return null;
+  return mark;
+}
 function _ppAmrLists() {
   var inv = _ppInventoryLookup(), f = _ppFilters;
   var byItem = {};
@@ -2814,21 +2832,65 @@ function _ppAmrLists() {
   Object.keys(byItem).sort().forEach(function(k) {
     var e = byItem[k], s = inv[k];
     e.stock = s ? s.v : null;
-    if (!s) unknown.push(e); else if (s.v > 0) onHand.push(e); else gone.push(e);
+    e.mark = _ppUsedUpMark(k, e.lastLocated);
+    if (e.mark) gone.push(e);
+    else if (!s) unknown.push(e);
+    else if (s.v > 0) onHand.push(e);
+    else gone.push(e);
   });
   return { onHand: onHand, gone: gone, unknown: unknown };
 }
 function _ppAmrTable(list, dim) {
   if (!list.length) return '';
-  var h = '<div class="table-wrap" style="overflow-x:auto;margin-bottom:14px' + (dim ? ';opacity:0.65' : '') + '"><table class="settings-table"><thead><tr>';
-  h += '<th>Item ID</th><th>Item Name</th><th>Machine</th><th>Piece Type</th><th style="text-align:right">Pre-Produced</th><th style="text-align:right">On Hand Now</th><th>In Location Since</th></tr></thead><tbody>';
+  var h = '<div class="table-wrap" style="overflow-x:auto;margin-bottom:14px"><table class="settings-table pp-track-table"><thead><tr>';
+  h += '<th>Item ID</th><th>Item Name</th><th>Machine</th><th>Piece Type</th><th style="text-align:right">Pre-Produced</th><th style="text-align:right">On Hand Now</th><th>In Location Since</th><th>Used Up</th></tr></thead><tbody>';
   list.forEach(function(e) {
-    h += '<tr><td style="white-space:nowrap;font-weight:600">' + escapeHtml(e.item) + '</td><td>' + escapeHtml(e.name || '') + '</td><td>' + escapeHtml(e.machine || '') + '</td><td>' + escapeHtml(e.piece || '') + '</td>';
+    var pending = Object.prototype.hasOwnProperty.call(_ppAmrPending, e.item);
+    var fileZero = !e.mark && e.stock === 0;   // used up because the export says 0: nothing to uncheck
+    h += '<tr' + (pending ? ' class="pp-dirty"' : '') + (dim && !pending ? ' style="opacity:0.65"' : '') + '>';
+    h += '<td style="white-space:nowrap;font-weight:600">' + escapeHtml(e.item) + '</td><td>' + escapeHtml(e.name || '') + '</td><td>' + escapeHtml(e.machine || '') + '</td><td>' + escapeHtml(e.piece || '') + '</td>';
     h += '<td style="text-align:right">' + e.made.toLocaleString() + '</td>';
     h += '<td style="text-align:right;font-weight:700">' + (e.stock == null ? '<span style="color:var(--muted);font-weight:400">unknown</span>' : e.stock.toLocaleString()) + '</td>';
-    h += '<td style="white-space:nowrap">' + escapeHtml(_ppStamp(e.lastLocated)) + '</td></tr>';
+    h += '<td style="white-space:nowrap">' + escapeHtml(_ppStamp(e.lastLocated)) + '</td>';
+    if (fileZero) {
+      h += '<td style="font-size:11px;color:var(--muted);white-space:nowrap">0 in pre-book file</td>';
+    } else {
+      var on = !!e.mark;
+      h += '<td style="white-space:nowrap"><label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px"><input type="checkbox"' + (on ? ' checked' : '') +
+        ' data-item="' + escapeHtml(e.item) + '" onchange="ppAmrMarkUsedUp(this.dataset.item, this.checked)" style="width:16px;height:16px;cursor:pointer">' + (on ? 'Used up' : '') + '</label>';
+      if (on) h += '<div style="font-size:10px;color:var(--muted)">' + escapeHtml(e.mark.by || '') + ' ' + escapeHtml(_ppStamp(e.mark.at)) + (pending ? ' &middot; not saved' : '') + '</div>';
+      else if (pending) h += '<div style="font-size:10px;color:var(--muted)">restore &middot; not saved</div>';
+      h += '</td>';
+    }
+    h += '</tr>';
   });
   return h + '</tbody></table></div>';
+}
+function ppAmrMarkUsedUp(itemId, on) {
+  var saved = _ppOverrides[_ppOverrideKey(itemId)];
+  var savedOn = !!(saved && saved.usedUp);
+  if (on === savedOn) delete _ppAmrPending[itemId];
+  else _ppAmrPending[itemId] = on ? { item: itemId, usedUp: true, by: _ppUserName() || '', at: new Date().toISOString() } : null;
+  renderPreProduction();
+}
+function ppAmrSave() {
+  var updates = {}, n = Object.keys(_ppAmrPending).length;
+  if (!n) return;
+  Object.keys(_ppAmrPending).forEach(function(itemId) { updates[_ppOverrideKey(itemId)] = _ppAmrPending[itemId]; });
+  var btn = document.getElementById('pp-amr-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  _mafWithTimeout(firebase.database().ref('preProduction/stockOverrides').update(updates), 10000).then(function() {
+    _ppAmrPending = {};
+    renderPreProduction();
+  }).catch(function(err) {
+    console.error('Pre-Production used-up save failed:', err);
+    if (btn) { btn.disabled = false; btn.innerHTML = '&#10003; Save Changes'; }
+    alert('✗ Save failed — your ' + n + ' change(s) were NOT saved: ' + (err && err.message ? err.message : err) + '. They are still on screen; try Save Changes again.');
+  });
+}
+function ppAmrDiscard() {
+  _ppAmrPending = {};
+  renderPreProduction();
 }
 function _ppRenderAmr() {
   var located = Object.keys(_ppItems).map(function(id) { return _ppItems[id]; }).filter(function(it) { return it.inLocation; });
@@ -2848,6 +2910,14 @@ function _ppRenderAmr() {
   h += '<br>Stock comes from the latest pre-book file' + (newest ? ' (' + escapeHtml(_ppStamp(newest)) + ')' : '') + '. Items drop off once it shows 0 on hand. If stock runs short, the picker sends the rest back as an ad-hoc task.</div>';
   h += '</div>';
 
+  var nPend = Object.keys(_ppAmrPending).length;
+  if (nPend) {
+    h += '<div style="display:flex;position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:400;width:min(640px,calc(100% - 32px));align-items:center;gap:12px;flex-wrap:wrap;background:var(--amber-bg);border:2px solid var(--amber-border);border-radius:8px;padding:12px 16px;box-shadow:0 6px 24px rgba(0,0,0,0.18)">';
+    h += '<span style="font-size:13px;font-weight:700;color:var(--amber)">' + nPend + ' item' + (nPend === 1 ? '' : 's') + ' changed &mdash; not saved yet</span>';
+    h += '<button class="qbtn" onclick="ppAmrDiscard()" style="margin-left:auto;padding:7px 14px">Discard</button>';
+    h += '<button class="qbtn" id="pp-amr-save-btn" onclick="ppAmrSave()" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark);padding:7px 18px">&#10003; Save Changes</button></div>';
+  }
+  h += '<div style="font-size:12px;color:var(--muted);margin:-4px 0 10px">Know something is actually gone? Check <b>Used Up</b> and save &mdash; it stays off the list until you uncheck it or put that item In Location again.</div>';
   h += '<div class="section-head">On Hand &mdash; copied (' + L.onHand.length + ')</div>';
   h += L.onHand.length ? _ppAmrTable(L.onHand) : '<p style="color:var(--muted);font-size:14px;padding:4px 0 16px">No pre-produced items with stock on hand right now.</p>';
   if (L.unknown.length) {
@@ -2857,10 +2927,10 @@ function _ppRenderAmr() {
     h += _ppAmrTable(L.unknown, !_ppFilters.amrUnknown);
   }
   if (L.gone.length) {
-    h += '<div class="section-head" style="margin-top:6px">Used up &mdash; 0 on hand, not copied (' + L.gone.length + ')</div>';
+    h += '<div class="section-head" style="margin-top:6px">Used up &mdash; not copied (' + L.gone.length + ')</div>';
     h += _ppAmrTable(L.gone, true);
   }
-  return h;
+  return h + (nPend ? '<div style="height:80px"></div>' : '');
 }
 function ppCopyAmrList() {
   var L = _ppAmrLists();
