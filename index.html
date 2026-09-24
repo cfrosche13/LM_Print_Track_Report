@@ -2693,8 +2693,9 @@ function _ppRenderTracking(completed) {
   h += '<button class="qbtn" onclick="ppExportTracking(' + completed + ')" style="margin-left:auto;padding:6px 14px">&#11015; Export to Excel</button>';
   h += '</div>';
 
-  // Save bar — sticks to the bottom of the screen while there are unsaved edits
-  h += '<div id="pp-save-bar" style="display:none;position:sticky;bottom:0;z-index:5;align-items:center;gap:12px;flex-wrap:wrap;background:var(--amber-bg);border:1px solid var(--amber-border);border-radius:var(--radius);padding:10px 14px;margin-bottom:10px;box-shadow:0 -2px 10px rgba(0,0,0,0.08)">';
+  // Save bar — floats at the bottom of the screen (always visible, however far down
+  // the list you've scrolled) while there are unsaved edits
+  h += '<div id="pp-save-bar" style="display:none;position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:400;width:min(640px,calc(100% - 32px));align-items:center;gap:12px;flex-wrap:wrap;background:var(--amber-bg);border:2px solid var(--amber-border);border-radius:8px;padding:12px 16px;box-shadow:0 6px 24px rgba(0,0,0,0.18)">';
   h += '<span id="pp-save-count" style="font-size:13px;font-weight:700;color:var(--amber)"></span>';
   h += '<button class="qbtn" onclick="ppDiscardPending()" style="margin-left:auto;padding:7px 14px">Discard</button>';
   h += '<button class="qbtn" id="pp-save-btn" onclick="ppSavePending()" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark);padding:7px 18px">&#10003; Save Changes</button>';
@@ -2728,7 +2729,7 @@ function _ppRenderTracking(completed) {
     h += '<td><button class="qbtn" onclick="ppDeleteItem(\'' + id + '\')" title="Remove this item" style="color:var(--red);padding:4px 8px">&times;</button></td>';
     h += '</tr>';
   });
-  h += '</tbody></table></div>';
+  h += '</tbody></table></div><div style="height:80px"></div>';
   setTimeout(_ppUpdateSaveBar, 0);
   return h;
 }
