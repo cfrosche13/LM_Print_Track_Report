@@ -658,6 +658,7 @@ input[type="date"]:focus { border-color: var(--green-dark); }
   <div class="subnav-item" id="tab-settings" onclick="showTab('settings')">&#9881; Targets &amp; Rules</div>
   <div class="subnav-item" id="tab-report"   onclick="showTab('report')">&#128203; Plan vs. Actual</div>
   <div class="subnav-item" id="tab-missing"  onclick="showTab('missing')">&#128196; Missing Files</div>
+  <div class="subnav-item" id="tab-preprod"  onclick="showTab('preprod')">&#127981; Pre-Production</div>
 </div>
 
 <div class="main">
@@ -1078,6 +1079,35 @@ input[type="date"]:focus { border-color: var(--green-dark); }
   <div id="maf-table-wrap"></div>
 
   <div class="footer">EG Studio &nbsp;&middot;&nbsp; Print Track &nbsp;&middot;&nbsp; Missing Art Files</div>
+</div>
+</div>
+
+<div id="page-preprod" style="display:none">
+<div class="main">
+  <div class="page-head">
+    <h1>Pre-Production</h1>
+    <p>Pick pre-booked items to make ahead, track them from print to location, and copy the AMR exclusion list for Tempo.</p>
+  </div>
+
+  <div class="report-controls">
+    <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;flex-wrap:wrap">
+      <button class="maf-view-tab active" id="pp-view-prebook-btn"   onclick="ppSetView('prebook')">Pre-Book Orders</button>
+      <button class="maf-view-tab"        id="pp-view-active-btn"    onclick="ppSetView('active')">In Progress</button>
+      <button class="maf-view-tab"        id="pp-view-completed-btn" onclick="ppSetView('completed')">Completed</button>
+      <button class="maf-view-tab"        id="pp-view-amr-btn"       onclick="ppSetView('amr')">AMR Exclusion List</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
+      <label for="pp-user-name">Your name</label>
+      <input type="text" id="pp-user-name" placeholder="Who's checking things off?" onchange="ppSaveUserName(this.value)"
+        style="padding:5px 9px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;width:190px">
+    </div>
+  </div>
+
+  <div id="pp-error" style="display:none;margin-bottom:1rem;padding:10px 14px;background:var(--red-bg);border:1px solid var(--red-border);border-radius:var(--radius);color:var(--red);font-size:13px;font-weight:600"></div>
+  <div id="pp-body"></div>
+  <input type="file" id="pp-file-input" accept=".xlsx,.xls" multiple style="display:none" onchange="ppLoadPrebookFiles(this)">
+
+  <div class="footer">EG Studio &nbsp;&middot;&nbsp; Print Track &nbsp;&middot;&nbsp; Pre-Production</div>
 </div>
 </div>
 
@@ -2278,12 +2308,500 @@ function printMissingFilesReport() {
 
 
 // ─── TAB SWITCHING ───────────────────────────────────────
+// ─── PRE-PRODUCTION ───────────────────────────────────────
+// Replaces the owner's "2026 PreProduction Workbook.xlsx" (added 2026-09-24).
+// One Firebase path, "preProduction", so a single rules block covers it:
+//   preProduction/prebook/{year} — the latest Power BI "Known Prebook Open Items"
+//       export for that year: {rows, fileName, loadedAt, loadedBy, source}.
+//       Loaded by hand here for now (source "manual"); a sync script is meant
+//       to take over later and write this SAME shape (source "sync"), the way
+//       Open Orders went from a dropped spreadsheet to the LMContainers sync.
+//   preProduction/items/{id} — each item picked to pre-produce, tracked from
+//       print → Inventory Deducted → In Location.
+// Rows are stored with short keys to keep the ~2,000-row exports small:
+//   r raw material · p piece type (RM Short Name) · m machine · i item id
+//   n item name · o total open · a/b/c open next 30 / 31-60 / 61-90 days
+//   v inventory qty · q qty to produce
+var _ppPrebook   = {};     // { year: {rows, fileName, loadedAt, loadedBy, source} }
+var _ppItems     = {};     // { id: tracked item }
+var _ppLoaded    = { prebook: false, items: false };
+var _ppView      = 'prebook';
+var _ppSelected  = {};     // prebook rows ticked to add: { "year|itemId": true }
+var _ppFilters   = { year: '', machine: '', piece: '', search: '', needsOnly: true, amrMachine: '', amrPiece: '', amrUnknown: false };
+var PP_PREBOOK_SHOW_MAX = 300;
+
+function _ppUserName() {
+  var el = document.getElementById('pp-user-name');
+  var name = (el && el.value || '').trim();
+  if (!name) {
+    name = (prompt('Your name (saved on this computer, shown next to what you check off):') || '').trim();
+    if (name) ppSaveUserName(name);
+  }
+  return name;
+}
+function ppSaveUserName(v) {
+  v = (v || '').trim();
+  try { localStorage.setItem('ppUserName', v); } catch (e) {}
+  var el = document.getElementById('pp-user-name');
+  if (el && el.value !== v) el.value = v;
+}
+function _ppShowError(msg) {
+  var el = document.getElementById('pp-error');
+  if (!el) return;
+  el.style.display = msg ? '' : 'none';
+  el.textContent = msg || '';
+}
+function _ppTodayStr() {
+  var d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function _ppStamp(iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+function _ppNum(v) { var n = Number(v); return isFinite(n) ? n : 0; }
+// Done = both checkpoints ticked (In Location implies the run was printed).
+function _ppIsDone(it) { return !!(it.invDeducted && it.inLocation); }
+
+// Targeted writes (never .set() the whole items object) — same reason as Missing
+// Files: a whole-object write can clobber another device's newer change.
+function _ppUpdateItem(id, fields) {
+  var updates = {};
+  Object.keys(fields).forEach(function(k) { updates[id + '/' + k] = fields[k]; });
+  return _mafWithTimeout(firebase.database().ref('preProduction/items').update(updates), 10000);
+}
+function _ppSaveFailed(err, what) {
+  console.error('Pre-Production save failed:', err);
+  alert('✗ Save failed — ' + what + ' was NOT saved: ' + (err && err.message ? err.message : err) +
+    '. Check Firebase permissions for the "preProduction" path.');
+  renderPreProduction();
+}
+
+var _ppLiveStarted = false;
+function _ppStartLiveSync() {
+  if (_ppLiveStarted) return;
+  _ppLiveStarted = true;
+  try { ppSaveUserName(localStorage.getItem('ppUserName') || ''); } catch (e) {}
+  function rerenderIfOpen() {
+    var panel = document.getElementById('page-preprod');
+    if (panel && panel.style.display !== 'none') renderPreProduction();
+  }
+  function onErr(path) {
+    return function(err) {
+      console.error(path + ' live sync error:', err);
+      _ppShowError('Can\'t read "' + path + '" from Firebase: ' + (err && err.message ? err.message : err) +
+        '. If this says permission denied, the "preProduction" rules block still needs to be added in the Firebase console.');
+    };
+  }
+  firebase.database().ref('preProduction/prebook').on('value', function(snap) {
+    _ppPrebook = snap.val() || {};
+    _ppLoaded.prebook = true;
+    rerenderIfOpen();
+  }, onErr('preProduction/prebook'));
+  firebase.database().ref('preProduction/items').on('value', function(snap) {
+    _ppItems = snap.val() || {};
+    _ppLoaded.items = true;
+    rerenderIfOpen();
+  }, onErr('preProduction/items'));
+}
+
+function ppSetView(view) {
+  _ppView = view;
+  ['prebook', 'active', 'completed', 'amr'].forEach(function(v) {
+    document.getElementById('pp-view-' + v + '-btn').classList.toggle('active', v === view);
+  });
+  renderPreProduction();
+}
+function ppSetFilter(key, value) {
+  _ppFilters[key] = value;
+  renderPreProduction();
+}
+
+// ── Loading the Power BI export(s) ──
+// Columns are matched by header name, not position, so a reordered export
+// still loads. The trailing "Total" row (its QTY to Produce is wrongly 0 —
+// Power BI subtracts total inventory from total open) and the "Applied
+// filters:" row are skipped; the year only appears in that filters text.
+var PP_HEADERS = {
+  r: 'primary raw material item id', p: 'rm short name', m: 'machine', i: 'item id', n: 'item name',
+  o: 'total open qty', a: 'open next 30 days', b: 'open next 31 - 60 days', c: 'open next 61 - 90 days',
+  v: 'inventory qty', q: 'qty to produce'
+};
+function _ppParseExport(wb, fileName) {
+  var ws = wb.Sheets['Export'] || wb.Sheets[wb.SheetNames[0]];
+  var grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+  var hIdx = -1, col = {};
+  for (var r = 0; r < Math.min(grid.length, 10); r++) {
+    var norm = (grid[r] || []).map(function(h) { return String(h == null ? '' : h).trim().toLowerCase().replace(/\s+/g, ' '); });
+    if (norm.indexOf('item id') !== -1 && norm.indexOf('qty to produce') !== -1) {
+      hIdx = r;
+      Object.keys(PP_HEADERS).forEach(function(k) { col[k] = norm.indexOf(PP_HEADERS[k]); });
+      break;
+    }
+  }
+  if (hIdx === -1) throw new Error(fileName + ': couldn\'t find the "Item ID" / "QTY to Produce" header row — is this a Known Prebook Open Items export?');
+  var missing = Object.keys(PP_HEADERS).filter(function(k) { return col[k] === -1; }).map(function(k) { return PP_HEADERS[k]; });
+  if (missing.length) throw new Error(fileName + ': missing column(s): ' + missing.join(', '));
+
+  var rows = [], year = null;
+  for (var i = hIdx + 1; i < grid.length; i++) {
+    var g = grid[i] || [];
+    var first = String(g[0] == null ? '' : g[0]);
+    var ym = first.match(/Year is (\d{4})/i);
+    if (ym) year = ym[1];
+    var item = g[col.i], machine = g[col.m];
+    if (!item || !machine) continue;                    // Total row, filters row, blanks
+    rows.push({
+      r: String(g[col.r] || '').trim(), p: String(g[col.p] || '').trim(), m: String(machine).trim(),
+      i: String(item).trim(), n: String(g[col.n] || '').trim(),
+      o: _ppNum(g[col.o]), a: _ppNum(g[col.a]), b: _ppNum(g[col.b]), c: _ppNum(g[col.c]),
+      v: _ppNum(g[col.v]), q: _ppNum(g[col.q])
+    });
+  }
+  if (!year) { var fy = fileName.match(/(20\d\d)/); if (fy) year = fy[1]; }
+  if (!year) year = (prompt(fileName + ': which year is this export for?') || '').trim();
+  if (!/^20\d\d$/.test(year || '')) throw new Error(fileName + ': couldn\'t tell which year this export is for.');
+  return { year: year, rows: rows };
+}
+function ppLoadPrebookFiles(input) {
+  var files = Array.prototype.slice.call(input.files || []);
+  input.value = '';
+  if (!files.length) return;
+  var who = _ppUserName();
+  var done = 0, msgs = [];
+  files.forEach(function(file) {
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var parsed;
+      try {
+        parsed = _ppParseExport(XLSX.read(new Uint8Array(e.target.result), { type: 'array' }), file.name);
+      } catch (err) {
+        msgs.push('✗ ' + err.message);
+        if (++done === files.length) alert(msgs.join('\n'));
+        return;
+      }
+      var payload = { rows: parsed.rows, fileName: file.name, loadedAt: new Date().toISOString(), loadedBy: who || '', source: 'manual', year: parsed.year };
+      _mafWithTimeout(firebase.database().ref('preProduction/prebook/' + parsed.year).set(payload), 20000).then(function() {
+        msgs.push('✓ ' + parsed.year + ': ' + parsed.rows.length.toLocaleString() + ' items loaded from ' + file.name);
+      }).catch(function(err) {
+        msgs.push('✗ ' + file.name + ' was NOT saved: ' + (err && err.message ? err.message : err));
+      }).then(function() {
+        if (++done === files.length) { alert(msgs.join('\n')); renderPreProduction(); }
+      });
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+// Latest known on-hand qty for an item, from whichever loaded export was
+// loaded most recently and contains it. null = not in any loaded export.
+function _ppInventoryLookup() {
+  var map = {};
+  Object.keys(_ppPrebook).map(function(y) { return _ppPrebook[y]; })
+    .sort(function(a, b) { return (a.loadedAt || '') < (b.loadedAt || '') ? -1 : 1; })   // newest wins
+    .forEach(function(f) {
+      (f.rows || []).forEach(function(row) { map[row.i] = { v: row.v, loadedAt: f.loadedAt, year: f.year }; });
+    });
+  return map;
+}
+function _ppTrackedActiveByItem() {
+  var m = {};
+  Object.keys(_ppItems).forEach(function(id) { var it = _ppItems[id]; if (!_ppIsDone(it)) m[it.item] = true; });
+  return m;
+}
+
+function _ppOptions(values, current, allLabel) {
+  return '<option value="">' + allLabel + '</option>' + values.map(function(v) {
+    return '<option value="' + escapeHtml(v) + '"' + (v === current ? ' selected' : '') + '>' + escapeHtml(v) + '</option>';
+  }).join('');
+}
+function _ppSelect(key, values, allLabel) {
+  return '<select onchange="ppSetFilter(\'' + key + '\', this.value)" style="padding:5px 9px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit">' +
+    _ppOptions(values, _ppFilters[key], allLabel) + '</select>';
+}
+function _ppUniq(arr) { return arr.filter(function(v, i) { return v && arr.indexOf(v) === i; }).sort(); }
+
+function renderPreProduction() {
+  var body = document.getElementById('pp-body');
+  if (!body) return;
+  if (!_ppLoaded.prebook || !_ppLoaded.items) {
+    body.innerHTML = '<p style="color:var(--muted);font-size:14px">Loading&hellip;</p>';
+    return;
+  }
+  if (_ppView === 'prebook') body.innerHTML = _ppRenderPrebook();
+  else if (_ppView === 'amr') body.innerHTML = _ppRenderAmr();
+  else body.innerHTML = _ppRenderTracking(_ppView === 'completed');
+}
+
+// ── Pre-Book Orders (pick list) ──
+function _ppRenderPrebook() {
+  var years = Object.keys(_ppPrebook).sort();
+  var h = '<div class="section" style="margin-bottom:12px">';
+  h += '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">';
+  h += '<button class="qbtn" onclick="document.getElementById(\'pp-file-input\').click()" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark);padding:7px 14px">&#11014; Load Pre-Book File(s)</button>';
+  h += '<span style="font-size:12px;color:var(--muted)">Power BI &ldquo;Known Prebook Open Items&rdquo; export &mdash; you can pick the 2026 and 2027 files together.</span>';
+  h += '</div>';
+  if (years.length) {
+    h += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--muted)">';
+    years.forEach(function(y) {
+      var f = _ppPrebook[y];
+      h += '<span><b style="color:var(--text)">' + escapeHtml(y) + ':</b> ' + (f.rows || []).length.toLocaleString() + ' items &middot; ' +
+        (f.source === 'sync' ? '&#9729; auto-synced' : 'loaded' + (f.loadedBy ? ' by ' + escapeHtml(f.loadedBy) : '')) + ' ' + escapeHtml(_ppStamp(f.loadedAt)) +
+        (f.fileName ? ' &middot; ' + escapeHtml(f.fileName) : '') + '</span>';
+    });
+    h += '</div>';
+  }
+  h += '</div>';
+  if (!years.length) return h + '<p style="color:var(--muted);font-size:14px;padding:20px 0">No pre-book data yet &mdash; load a Power BI export to get started.</p>';
+
+  var all = [];
+  years.forEach(function(y) { (_ppPrebook[y].rows || []).forEach(function(row) { all.push({ y: y, row: row }); }); });
+  var f = _ppFilters, search = f.search.trim().toLowerCase();
+  var rows = all.filter(function(x) {
+    var r = x.row;
+    if (f.year && x.y !== f.year) return false;
+    if (f.machine && r.m !== f.machine) return false;
+    if (f.piece && r.p !== f.piece) return false;
+    if (f.needsOnly && !(r.q > 0)) return false;
+    if (search && (r.i + ' ' + r.n).toLowerCase().indexOf(search) === -1) return false;
+    return true;
+  }).sort(function(a, b) { return b.row.q - a.row.q || b.row.o - a.row.o; });
+
+  var machines = _ppUniq(all.map(function(x) { return x.row.m; }));
+  var pieces = _ppUniq(all.filter(function(x) { return !f.machine || x.row.m === f.machine; }).map(function(x) { return x.row.p; }));
+  var selCount = Object.keys(_ppSelected).length;
+  var tracked = _ppTrackedActiveByItem();
+
+  h += '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">';
+  h += _ppSelect('year', years, 'All Years') + _ppSelect('machine', machines, 'All Machines') + _ppSelect('piece', pieces, 'All Piece Types');
+  h += '<input type="text" placeholder="Search item ID or name…" value="' + escapeHtml(f.search) + '" onchange="ppSetFilter(\'search\', this.value)" style="padding:5px 9px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;width:200px">';
+  h += '<label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:5px"><input type="checkbox"' + (f.needsOnly ? ' checked' : '') + ' onchange="ppSetFilter(\'needsOnly\', this.checked)"> Only items that need producing</label>';
+  h += '<button class="qbtn" onclick="ppAddSelected()"' + (selCount ? ' style="background:var(--green-dark);color:#fff;border-color:var(--green-dark);padding:6px 14px;margin-left:auto"' : ' disabled style="padding:6px 14px;margin-left:auto;opacity:0.5"') + '>+ Add ' + selCount + ' to Pre-Production</button>';
+  h += '</div>';
+  h += '<div style="font-size:12px;color:var(--muted);margin-bottom:6px">' + rows.length.toLocaleString() + ' items' +
+    (rows.length > PP_PREBOOK_SHOW_MAX ? ' &mdash; showing the top ' + PP_PREBOOK_SHOW_MAX + ' by QTY to Produce (filter to narrow down)' : '') +
+    ' &middot; Total to produce: <b>' + rows.reduce(function(s, x) { return s + x.row.q; }, 0).toLocaleString() + '</b></div>';
+
+  h += '<div class="table-wrap" style="overflow-x:auto"><table class="settings-table"><thead><tr>';
+  h += '<th></th><th>Year</th><th>Machine</th><th>Piece Type</th><th>Item ID</th><th>Item Name</th><th style="text-align:right">Open</th><th style="text-align:right">Next 30</th><th style="text-align:right">31&ndash;60</th><th style="text-align:right">61&ndash;90</th><th style="text-align:right">Inventory</th><th style="text-align:right">To Produce</th>';
+  h += '</tr></thead><tbody>';
+  rows.slice(0, PP_PREBOOK_SHOW_MAX).forEach(function(x) {
+    var r = x.row, key = x.y + '|' + r.i;
+    h += '<tr>';
+    h += '<td><input type="checkbox"' + (_ppSelected[key] ? ' checked' : '') + ' data-key="' + escapeHtml(key) + '" onchange="ppToggleSelect(this.dataset.key, this.checked)"></td>';
+    h += '<td>' + escapeHtml(x.y) + '</td><td>' + escapeHtml(r.m) + '</td><td>' + escapeHtml(r.p) + '</td>';
+    h += '<td style="white-space:nowrap;font-weight:600">' + escapeHtml(r.i) + (tracked[r.i] ? ' <span class="maf-status-pill" style="background:var(--green-light);color:var(--green-dark)">in progress</span>' : '') + '</td>';
+    h += '<td>' + escapeHtml(r.n) + '</td>';
+    ['o', 'a', 'b', 'c', 'v'].forEach(function(k) { h += '<td style="text-align:right">' + (r[k] ? r[k].toLocaleString() : '<span style="color:var(--muted)">&ndash;</span>') + '</td>'; });
+    h += '<td style="text-align:right;font-weight:700">' + (r.q || 0).toLocaleString() + '</td>';
+    h += '</tr>';
+  });
+  h += '</tbody></table></div>';
+  return h;
+}
+function ppToggleSelect(key, on) {
+  if (on) _ppSelected[key] = true; else delete _ppSelected[key];
+  renderPreProduction();
+}
+function ppAddSelected() {
+  var keys = Object.keys(_ppSelected);
+  if (!keys.length) return;
+  var who = _ppUserName();
+  var updates = {}, now = new Date().toISOString(), today = _ppTodayStr();
+  keys.forEach(function(key) {
+    var y = key.split('|')[0], itemId = key.slice(y.length + 1);
+    var row = ((_ppPrebook[y] || {}).rows || []).filter(function(r) { return r.i === itemId; })[0];
+    if (!row) return;
+    var id = firebase.database().ref('preProduction/items').push().key;
+    updates[id] = {
+      raw: row.r, piece: row.p, machine: row.m, item: row.i, name: row.n,
+      qtyToProduce: row.q, qtyPrinted: 0, notes: '', prebookYear: y,
+      dateAdded: today, addedAt: now, addedBy: who || '', source: 'prebook'
+    };
+  });
+  _mafWithTimeout(firebase.database().ref('preProduction/items').update(updates), 10000).then(function() {
+    _ppSelected = {};
+    ppSetView('active');
+  }).catch(function(err) { _ppSaveFailed(err, 'adding these items'); });
+}
+
+// ── In Progress / Completed tracking ──
+function _ppCheckCell(id, field, stamp) {
+  var on = !!stamp;
+  var h = '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap"><input type="checkbox"' + (on ? ' checked' : '') +
+    ' onchange="ppToggleCheck(\'' + id + '\', \'' + field + '\', this.checked)" style="width:16px;height:16px;cursor:pointer">' + (on ? '&#10003;' : '') + '</label>';
+  if (on) h += '<div style="font-size:10px;color:var(--muted);white-space:nowrap">' + escapeHtml(stamp.by || '') + ' ' + escapeHtml(stamp.at ? _ppStamp(stamp.at) : '') + '</div>';
+  return h;
+}
+function _ppRenderTracking(completed) {
+  var f = _ppFilters;
+  var ids = Object.keys(_ppItems).filter(function(id) { return _ppIsDone(_ppItems[id]) === completed; });
+  var machines = _ppUniq(ids.map(function(id) { return _ppItems[id].machine; }));
+  if (f.machine && machines.indexOf(f.machine) === -1) machines.push(f.machine);
+  ids = ids.filter(function(id) { return !f.machine || _ppItems[id].machine === f.machine; });
+  ids.sort(function(a, b) {
+    var x = _ppItems[a], y = _ppItems[b];
+    return (y.dateAdded || '').localeCompare(x.dateAdded || '') || (x.machine || '').localeCompare(y.machine || '') || (x.piece || '').localeCompare(y.piece || '');
+  });
+
+  var h = '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">';
+  h += _ppSelect('machine', machines, 'All Machines');
+  h += '<span style="font-size:12px;color:var(--muted)">' + ids.length + (completed ? ' completed' : ' in progress') +
+    ' &middot; ' + (completed ? 'Inventory Deducted and In Location are both checked.' : 'An item moves to Completed once Inventory Deducted and In Location are both checked.') + '</span>';
+  h += '<button class="qbtn" onclick="ppExportTracking(' + completed + ')" style="margin-left:auto;padding:6px 14px">&#11015; Export to Excel</button>';
+  h += '</div>';
+  if (!ids.length) {
+    return h + '<p style="color:var(--muted);font-size:14px;padding:20px 0">' +
+      (completed ? 'Nothing completed yet.' : 'Nothing in progress &mdash; pick items on the Pre-Book Orders view to start.') + '</p>';
+  }
+  h += '<div class="table-wrap" style="overflow-x:auto"><table class="settings-table"><thead><tr>';
+  h += '<th>Added</th><th>Raw</th><th>Piece Type</th><th>Machine</th><th>Item ID</th><th>Item Name</th><th style="text-align:right">QTY to Produce</th><th style="text-align:right">Qty Printed</th><th>Inventory Deducted</th><th>In Location</th><th>Notes</th><th></th>';
+  h += '</tr></thead><tbody>';
+  var numStyle = 'width:70px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:13px;font-family:inherit;text-align:right';
+  ids.forEach(function(id) {
+    var it = _ppItems[id];
+    var short = it.qtyPrinted > 0 && it.qtyPrinted < it.qtyToProduce;
+    h += '<tr>';
+    h += '<td style="white-space:nowrap">' + escapeHtml(it.dateAdded || '') + (it.source === 'workbook' ? '<div style="font-size:10px;color:var(--muted)">from workbook</div>' : '') + '</td>';
+    h += '<td style="white-space:nowrap">' + escapeHtml(it.raw || '') + '</td><td>' + escapeHtml(it.piece || '') + '</td><td>' + escapeHtml(it.machine || '') + '</td>';
+    h += '<td style="white-space:nowrap;font-weight:600">' + escapeHtml(it.item || '') + '</td><td style="min-width:220px">' + escapeHtml(it.name || '') + '</td>';
+    h += '<td style="text-align:right"><input type="number" min="0" value="' + _ppNum(it.qtyToProduce) + '" onchange="ppSetField(\'' + id + '\', \'qtyToProduce\', this.value)" style="' + numStyle + '"></td>';
+    h += '<td style="text-align:right"><input type="number" min="0" value="' + _ppNum(it.qtyPrinted) + '" onchange="ppSetField(\'' + id + '\', \'qtyPrinted\', this.value)" style="' + numStyle + (short ? ';border-color:var(--amber-border);background:var(--amber-bg)' : '') + '"></td>';
+    h += '<td>' + _ppCheckCell(id, 'invDeducted', it.invDeducted) + '</td>';
+    h += '<td>' + _ppCheckCell(id, 'inLocation', it.inLocation) + '</td>';
+    h += '<td><input type="text" value="' + escapeHtml(it.notes || '') + '" placeholder="Add a note…" onchange="ppSetField(\'' + id + '\', \'notes\', this.value)" style="width:170px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;font-family:inherit"></td>';
+    h += '<td><button class="qbtn" onclick="ppDeleteItem(\'' + id + '\')" title="Remove this item" style="color:var(--red)">&times;</button></td>';
+    h += '</tr>';
+  });
+  h += '</tbody></table></div>';
+  return h;
+}
+function ppSetField(id, field, value) {
+  var it = _ppItems[id];
+  if (!it) return;
+  var v = field === 'notes' ? String(value || '').trim() : Math.max(0, Math.round(_ppNum(value)));
+  var fields = {};
+  fields[field] = v;
+  _ppUpdateItem(id, fields).catch(function(err) { _ppSaveFailed(err, 'this change'); });
+}
+function ppToggleCheck(id, field, on) {
+  var who = on ? _ppUserName() : '';
+  var fields = {};
+  fields[field] = on ? { by: who || '', at: new Date().toISOString() } : null;
+  _ppUpdateItem(id, fields).catch(function(err) { _ppSaveFailed(err, 'this checkmark'); });
+}
+function ppDeleteItem(id) {
+  var it = _ppItems[id];
+  if (!it || !confirm('Remove ' + (it.item || 'this item') + ' from Pre-Production? This can\'t be undone.')) return;
+  _mafWithTimeout(firebase.database().ref('preProduction/items/' + id).remove(), 10000)
+    .catch(function(err) { _ppSaveFailed(err, 'removing this item'); });
+}
+function ppExportTracking(completed) {
+  var ids = Object.keys(_ppItems).filter(function(id) { return _ppIsDone(_ppItems[id]) === completed; })
+    .filter(function(id) { return !_ppFilters.machine || _ppItems[id].machine === _ppFilters.machine; });
+  var data = [['Added', 'Primary Raw', 'RM Short Name', 'Machine', 'Item ID', 'Item Name', 'QTY to Produce', 'Qty Printed',
+               'Inventory Deducted', 'Deducted By / When', 'In Location', 'Located By / When', 'Notes']];
+  ids.forEach(function(id) {
+    var it = _ppItems[id];
+    var s = function(st) { return st ? ((st.by || '') + ' ' + _ppStamp(st.at)).trim() : ''; };
+    data.push([it.dateAdded || '', it.raw || '', it.piece || '', it.machine || '', it.item || '', it.name || '',
+      _ppNum(it.qtyToProduce), _ppNum(it.qtyPrinted), it.invDeducted ? 'Y' : 'N', s(it.invDeducted),
+      it.inLocation ? 'Y' : 'N', s(it.inLocation), it.notes || '']);
+  });
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(data), completed ? 'Completed' : 'In Progress');
+  XLSX.writeFile(wb, 'Pre-Production ' + (completed ? 'Completed' : 'In Progress') + ' ' + _ppTodayStr() + '.xlsx');
+}
+
+// ── AMR Exclusion List ──
+// AMR orders can't see pickable stock in Tempo, so they always arrive as
+// production tasks. Preflight bulk-searches these Item IDs in Tempo's Demand
+// Pool (AMR → Bulk → Field: Item, Match: Exact) and nests them without
+// printing, which removes them from the workload. Only items that are In
+// Location AND still show inventory in the latest pre-book export are copied;
+// if the stock turns out short, the picker sends the rest back as an ad-hoc task.
+function _ppAmrLists() {
+  var inv = _ppInventoryLookup(), f = _ppFilters;
+  var byItem = {};
+  Object.keys(_ppItems).forEach(function(id) {
+    var it = _ppItems[id];
+    if (!it.inLocation || !it.item) return;
+    if (f.amrMachine && it.machine !== f.amrMachine) return;
+    if (f.amrPiece && it.piece !== f.amrPiece) return;
+    var e = byItem[it.item] || (byItem[it.item] = { item: it.item, name: it.name, machine: it.machine, piece: it.piece, made: 0, lastLocated: '' });
+    e.made += _ppNum(it.qtyPrinted) || _ppNum(it.qtyToProduce);
+    if ((it.inLocation.at || '') > e.lastLocated) e.lastLocated = it.inLocation.at || '';
+  });
+  var onHand = [], gone = [], unknown = [];
+  Object.keys(byItem).sort().forEach(function(k) {
+    var e = byItem[k], s = inv[k];
+    e.stock = s ? s.v : null;
+    if (!s) unknown.push(e); else if (s.v > 0) onHand.push(e); else gone.push(e);
+  });
+  return { onHand: onHand, gone: gone, unknown: unknown };
+}
+function _ppAmrTable(list, dim) {
+  if (!list.length) return '';
+  var h = '<div class="table-wrap" style="overflow-x:auto;margin-bottom:14px' + (dim ? ';opacity:0.65' : '') + '"><table class="settings-table"><thead><tr>';
+  h += '<th>Item ID</th><th>Item Name</th><th>Machine</th><th>Piece Type</th><th style="text-align:right">Pre-Produced</th><th style="text-align:right">On Hand Now</th><th>In Location Since</th></tr></thead><tbody>';
+  list.forEach(function(e) {
+    h += '<tr><td style="white-space:nowrap;font-weight:600">' + escapeHtml(e.item) + '</td><td>' + escapeHtml(e.name || '') + '</td><td>' + escapeHtml(e.machine || '') + '</td><td>' + escapeHtml(e.piece || '') + '</td>';
+    h += '<td style="text-align:right">' + e.made.toLocaleString() + '</td>';
+    h += '<td style="text-align:right;font-weight:700">' + (e.stock == null ? '<span style="color:var(--muted);font-weight:400">unknown</span>' : e.stock.toLocaleString()) + '</td>';
+    h += '<td style="white-space:nowrap">' + escapeHtml(_ppStamp(e.lastLocated)) + '</td></tr>';
+  });
+  return h + '</tbody></table></div>';
+}
+function _ppRenderAmr() {
+  var located = Object.keys(_ppItems).map(function(id) { return _ppItems[id]; }).filter(function(it) { return it.inLocation; });
+  var machines = _ppUniq(located.map(function(it) { return it.machine; }));
+  var pieces = _ppUniq(located.filter(function(it) { return !_ppFilters.amrMachine || it.machine === _ppFilters.amrMachine; }).map(function(it) { return it.piece; }));
+  var L = _ppAmrLists();
+  var copyCount = L.onHand.length + (_ppFilters.amrUnknown ? L.unknown.length : 0);
+  var newest = Object.keys(_ppPrebook).map(function(y) { return _ppPrebook[y].loadedAt || ''; }).sort().pop();
+
+  var h = '<div class="section" style="margin-bottom:12px">';
+  h += '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">';
+  h += _ppSelect('amrMachine', machines, 'All Machines') + _ppSelect('amrPiece', pieces, 'All Piece Types');
+  h += '<button class="qbtn" id="pp-amr-copy-btn" onclick="ppCopyAmrList()"' + (copyCount ? '' : ' disabled') +
+    ' style="margin-left:auto;background:var(--green-dark);color:#fff;border-color:var(--green-dark);padding:7px 16px">&#128203; Copy Exclusion List (' + copyCount + ')</button>';
+  h += '</div>';
+  h += '<div style="font-size:12px;color:var(--muted);margin-top:10px;line-height:1.6">In Tempo: <b style="color:var(--text)">Demand Pool &rarr; AMR &rarr; Bulk</b> &rarr; paste &rarr; <b style="color:var(--text)">Field: Item, Match: Exact</b> &rarr; Apply, then nest the results without sending to print.';
+  h += '<br>Stock comes from the latest pre-book file' + (newest ? ' (' + escapeHtml(_ppStamp(newest)) + ')' : '') + '. Items drop off once it shows 0 on hand. If stock runs short, the picker sends the rest back as an ad-hoc task.</div>';
+  h += '</div>';
+
+  h += '<div class="section-head">On Hand &mdash; copied (' + L.onHand.length + ')</div>';
+  h += L.onHand.length ? _ppAmrTable(L.onHand) : '<p style="color:var(--muted);font-size:14px;padding:4px 0 16px">No pre-produced items with stock on hand right now.</p>';
+  if (L.unknown.length) {
+    h += '<div class="section-head" style="margin-top:6px">Not in the latest pre-book file &mdash; stock unknown (' + L.unknown.length + ')</div>';
+    h += '<label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;margin-bottom:8px"><input type="checkbox"' + (_ppFilters.amrUnknown ? ' checked' : '') +
+      ' onchange="ppSetFilter(\'amrUnknown\', this.checked)"> Include these in the copied list too</label>';
+    h += _ppAmrTable(L.unknown, !_ppFilters.amrUnknown);
+  }
+  if (L.gone.length) {
+    h += '<div class="section-head" style="margin-top:6px">Used up &mdash; 0 on hand, not copied (' + L.gone.length + ')</div>';
+    h += _ppAmrTable(L.gone, true);
+  }
+  return h;
+}
+function ppCopyAmrList() {
+  var L = _ppAmrLists();
+  var list = L.onHand.concat(_ppFilters.amrUnknown ? L.unknown : []).map(function(e) { return e.item; });
+  if (!list.length) return;
+  var btn = document.getElementById('pp-amr-copy-btn');
+  var flash = function(txt) { if (!btn) return; var orig = btn.innerHTML; btn.textContent = txt; setTimeout(function() { btn.innerHTML = orig; }, 2000); };
+  navigator.clipboard.writeText(list.join('\n')).then(function() { flash('✓ Copied ' + list.length); }).catch(function() { flash('✗ Copy failed'); });
+}
+
 function showTab(tab) {
   document.getElementById('page-totals').style.display   = tab === 'totals'   ? 'block' : 'none';
   document.getElementById('page-planner').style.display  = tab === 'planner'  ? 'block' : 'none';
   document.getElementById('page-settings').style.display = tab === 'settings' ? 'block' : 'none';
   document.getElementById('page-report').style.display   = tab === 'report'   ? 'block' : 'none';
   document.getElementById('page-missing').style.display  = tab === 'missing'  ? 'block' : 'none';
+  document.getElementById('page-preprod').style.display  = tab === 'preprod'  ? 'block' : 'none';
   document.querySelector('.main').style.display = tab === 'daily' ? 'block' : 'none';
   document.getElementById('tab-daily').classList.toggle('active',    tab === 'daily');
   document.getElementById('tab-totals').classList.toggle('active',   tab === 'totals');
@@ -2291,6 +2809,7 @@ function showTab(tab) {
   document.getElementById('tab-settings').classList.toggle('active', tab === 'settings');
   document.getElementById('tab-report').classList.toggle('active',   tab === 'report');
   document.getElementById('tab-missing').classList.toggle('active',  tab === 'missing');
+  document.getElementById('tab-preprod').classList.toggle('active',  tab === 'preprod');
   if (tab === 'totals') {
     renderCalendar();
     _initTotalsComboDefaults();
@@ -2309,6 +2828,7 @@ function showTab(tab) {
     if (!rdp.value) rdp.value = new Date().toISOString().slice(0, 10);
   }
   if (tab === 'missing') { renderMissingFiles(); }
+  if (tab === 'preprod') { renderPreProduction(); }
 }
 
 // ─── TOTALS DATA ──────────────────────────────────────────
@@ -9005,6 +9525,10 @@ function startReportApp() {
       hideLoginScreen();
       fetchFirebaseData();
       _mafStartLiveSync();
+      _ppStartLiveSync();
+      // Deep link, e.g. EGPrint's Pre-Production button opens ?tab=preprod
+      var _linkTab = new URLSearchParams(location.search).get('tab');
+      if (_linkTab && document.getElementById('page-' + _linkTab)) showTab(_linkTab);
       // Sync committed plans from Firebase so they appear on any device
       fbSyncPlans(function(added, errMsg) {
         if (added > 0) _renderSavedPlansList();
