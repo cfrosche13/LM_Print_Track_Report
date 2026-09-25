@@ -2333,6 +2333,7 @@ function printMissingFilesReport() {
 //       so rack stock is invisible to it and orders become production tasks.
 var _ppPrebook   = {};     // { year: {rows, fileName, loadedAt, loadedBy, source} }
 var _ppItems     = {};     // { id: tracked item }
+var _ppCoirColors = null;  // preProduction/coirColor: { updatedAt, items: { key: 'FC'|'OC' } } — from Y: art files, via flag_stock_sync.py
 var _ppFlag      = null;   // preProduction/flagStock: { updatedAt, itemCount, items: { key: {i, r, a, l} } }
 var _ppOverrides = {};     // preProduction/stockOverrides: { key: {item, usedUp, by, at} } — "I know it's gone"
 var _ppAmrPending = {};    // unsaved Used Up checkbox changes on the AMR view: { itemId: stamp | null }
@@ -2412,6 +2413,10 @@ function _ppStartLiveSync() {
     _ppLoaded.prebook = true;
     rerenderIfOpen();
   }, onErr('preProduction/prebook'));
+  firebase.database().ref('preProduction/coirColor').on('value', function(snap) {
+    _ppCoirColors = snap.val();
+    rerenderIfOpen();
+  }, onErr('preProduction/coirColor'));
   firebase.database().ref('preProduction/flagStock').on('value', function(snap) {
     _ppFlag = snap.val();
     rerenderIfOpen();
@@ -2534,6 +2539,35 @@ function _ppTrackedActiveByItem() {
   return m;
 }
 
+// ── Machine assignment ──
+// Power BI puts ALL plain coir on machine 30. Full Color coir belongs on 30+
+// (owner, 2026-09-25), so it's re-routed here. Color comes from, in order:
+// the synced Y: art-file index (preProduction/coirColor, same for everyone),
+// this browser's own Planning-tab coir index, then the item name
+// ("Full Color"/"4 Color"/FC vs "One Color"/"1 Color"/"1C"/OC). Unresolved
+// stays on 30. Machines can still be changed per item on In Progress.
+var PP_MACHINES = ['30', '30+', 'H5', 'Colex'];
+function _ppIsPlainCoir(piece) { return /^coir\b/i.test(String(piece || '').trim()); }
+function _ppCoirColor(itemId, name) {
+  var synced = _ppCoirColors && (_ppCoirColors.items || {})[_ppOverrideKey(itemId)];
+  if (synced) return synced;
+  var local = typeof _lookupCoirColor === 'function' ? _lookupCoirColor(itemId) : null;
+  if (local) return local;
+  var u = String(name || '').toUpperCase();
+  if (/FULL COLOR|4 COLOR|\bFC\b/.test(u)) return 'FC';
+  if (/ONE COLOR|1 COLOR|\b1C\b|\bOC\b/.test(u)) return 'OC';
+  return null;
+}
+function _ppMachineFor(row) {
+  if (row.m === '30' && _ppIsPlainCoir(row.p) && _ppCoirColor(row.i, row.n) === 'FC') return '30+';
+  return row.m;
+}
+function _ppPieceLabel(row) {
+  if (!_ppIsPlainCoir(row.p)) return row.p;
+  var c = _ppCoirColor(row.i, row.n);
+  return c ? row.p + ' ' + c : row.p;
+}
+
 // Live FLAG stock for one item: {r, a, l} (zeros when FLAG shows none), or
 // null when the FLAG sync hasn't run yet.
 function _ppFlagStock(itemId) {
@@ -2606,15 +2640,15 @@ function _ppRenderPrebook() {
   var rows = all.filter(function(x) {
     var r = x.row;
     if (f.year && x.y !== f.year) return false;
-    if (f.machine && r.m !== f.machine) return false;
+    if (f.machine && _ppMachineFor(r) !== f.machine) return false;
     if (f.piece && r.p !== f.piece) return false;
     if (f.needsOnly && !(r.q > 0)) return false;
     if (search && (r.i + ' ' + r.n).toLowerCase().indexOf(search) === -1) return false;
     return true;
   }).sort(function(a, b) { return b.row.q - a.row.q || b.row.o - a.row.o; });
 
-  var machines = _ppUniq(all.map(function(x) { return x.row.m; }));
-  var pieces = _ppUniq(all.filter(function(x) { return !f.machine || x.row.m === f.machine; }).map(function(x) { return x.row.p; }));
+  var machines = _ppUniq(all.map(function(x) { return _ppMachineFor(x.row); }));
+  var pieces = _ppUniq(all.filter(function(x) { return !f.machine || _ppMachineFor(x.row) === f.machine; }).map(function(x) { return x.row.p; }));
   var selCount = Object.keys(_ppSelected).length;
   var tracked = _ppTrackedActiveByItem();
 
@@ -2635,7 +2669,8 @@ function _ppRenderPrebook() {
     var r = x.row, key = x.y + '|' + r.i;
     h += '<tr>';
     h += '<td><input type="checkbox"' + (_ppSelected[key] ? ' checked' : '') + ' data-key="' + escapeHtml(key) + '" onchange="ppToggleSelect(this.dataset.key, this.checked)"></td>';
-    h += '<td>' + escapeHtml(x.y) + '</td><td>' + escapeHtml(r.m) + '</td><td>' + escapeHtml(r.p) + '</td>';
+    var mach = _ppMachineFor(r);
+    h += '<td>' + escapeHtml(x.y) + '</td><td' + (mach !== r.m ? ' title="Full Color coir — moved from ' + escapeHtml(r.m) + '"' : '') + '>' + escapeHtml(mach) + '</td><td style="white-space:nowrap">' + escapeHtml(_ppPieceLabel(r)) + '</td>';
     h += '<td style="white-space:nowrap;font-weight:600">' + escapeHtml(r.i) + (tracked[r.i] ? ' <span class="maf-status-pill" style="background:var(--green-light);color:var(--green-dark)">in progress</span>' : '') + '</td>';
     h += '<td>' + escapeHtml(r.n) + '</td>';
     ['o', 'a', 'v'].forEach(function(k) { h += '<td style="text-align:right">' + (r[k] ? r[k].toLocaleString() : '<span style="color:var(--muted)">&ndash;</span>') + '</td>'; });
@@ -2661,7 +2696,7 @@ function ppAddSelected() {
     if (!row) return;
     var id = firebase.database().ref('preProduction/items').push().key;
     updates[id] = {
-      raw: row.r, piece: row.p, machine: row.m, item: row.i, name: row.n,
+      raw: row.r, piece: _ppPieceLabel(row), machine: _ppMachineFor(row), item: row.i, name: row.n,
       qtyToProduce: row.q, qtyPrinted: 0, notes: '', prebookYear: y,
       dateAdded: today, addedAt: now, addedBy: who || '', source: 'prebook'
     };
@@ -2759,7 +2794,11 @@ function _ppRenderTracking(completed) {
     h += '<tr id="pp-row-' + id + '"' + (_ppPending[id] ? ' class="pp-dirty"' : '') + '>';
     h += '<td style="min-width:0"><div style="font-weight:700;white-space:nowrap">' + escapeHtml(it.item || '') + '</div>';
     h += '<div style="font-size:13px;line-height:1.35">' + escapeHtml(it.name || '') + '</div>';
-    h += '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + [it.machine, it.piece, it.raw].filter(Boolean).map(escapeHtml).join(' &middot; ') +
+    var curMach = _ppVal(id, 'machine') || '';
+    var opts = PP_MACHINES.indexOf(curMach) === -1 && curMach ? PP_MACHINES.concat([curMach]) : PP_MACHINES;
+    h += '<div style="font-size:11px;color:var(--muted);margin-top:2px"><select title="Machine — change it to shift this work" onchange="ppSetField(\'' + id + '\', \'machine\', this.value)" style="font-size:11px;padding:1px 3px;border:1px solid var(--border);border-radius:4px;font-family:inherit;margin-right:4px">' +
+      opts.map(function(m) { return '<option' + (m === curMach ? ' selected' : '') + '>' + escapeHtml(m) + '</option>'; }).join('') + '</select>' +
+      [it.piece, it.raw].filter(Boolean).map(escapeHtml).join(' &middot; ') +
       ' &middot; added ' + escapeHtml(it.dateAdded || '') + (it.source === 'workbook' ? ' (from workbook)' : '') + '</div></td>';
     h += '<td><div style="display:grid;grid-template-columns:auto auto;gap:4px 8px;align-items:center;font-size:11px;color:var(--muted)">';
     h += '<span>To make</span><input type="number" min="0" value="' + toMake + '" onchange="ppSetField(\'' + id + '\', \'qtyToProduce\', this.value)" style="' + numStyle + '">';
@@ -2776,7 +2815,7 @@ function _ppRenderTracking(completed) {
 }
 function ppSetField(id, field, value) {
   if (!_ppItems[id]) return;
-  var v = field === 'notes' ? String(value || '').trim() : Math.max(0, Math.round(_ppNum(value)));
+  var v = field === 'notes' || field === 'machine' ? String(value || '').trim() : Math.max(0, Math.round(_ppNum(value)));
   _ppSetPending(id, field, v);
 }
 function ppToggleCheck(id, field, on) {
