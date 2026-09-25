@@ -2340,7 +2340,7 @@ var _ppAmrPending = {};    // unsaved Used Up checkbox changes on the AMR view: 
 var _ppLoaded    = { prebook: false, items: false };
 var _ppView      = 'prebook';
 var _ppSelected  = {};     // prebook rows ticked to add: { "year|itemId": true }
-var _ppFilters   = { year: '', machine: '', piece: '', search: '', needsOnly: true, amrMachine: '', amrPiece: '', amrUnknown: false };
+var _ppFilters   = { year: '', machine: '', piece: '', search: '', needsOnly: true, amrMachine: '', amrPiece: '', amrUnknown: false, month: '' };
 var PP_PREBOOK_SHOW_MAX = 300;
 
 function _ppUserName() {
@@ -2751,9 +2751,29 @@ function _ppCheckCell(id, field) {
     (on ? escapeHtml(stamp.by || '') + ' ' + escapeHtml(stamp.at ? _ppStamp(stamp.at) : '') + (pending ? ' · not saved' : '') : '') + '</div>';
   return h;
 }
+// Completed can be narrowed to one month (owner handles pre-pro monthly,
+// 2026-09-25). Month = the month the item was added ("2026-09"), matching
+// how the old workbook grouped its monthly sheets.
+function _ppMonthOf(it) { return String(it.dateAdded || '').slice(0, 7); }
+function _ppMonthLabel(ym) {
+  var d = new Date(ym + '-01T12:00:00');
+  return isNaN(d.getTime()) ? ym : d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+function _ppTrackingIds(completed) {
+  var f = _ppFilters;
+  return Object.keys(_ppItems).filter(function(id) {
+    var it = _ppItems[id];
+    if (_ppIsDone(it) !== completed) return false;
+    if (f.machine && it.machine !== f.machine) return false;
+    if (completed && f.month && _ppMonthOf(it) !== f.month) return false;
+    return true;
+  });
+}
 function _ppRenderTracking(completed) {
   var f = _ppFilters;
   var ids = Object.keys(_ppItems).filter(function(id) { return _ppIsDone(_ppItems[id]) === completed; });
+  var months = _ppUniq(ids.map(function(id) { return _ppMonthOf(_ppItems[id]); })).reverse();   // newest first
+  if (completed && f.month) ids = ids.filter(function(id) { return _ppMonthOf(_ppItems[id]) === f.month; });
   var machines = _ppUniq(ids.map(function(id) { return _ppItems[id].machine; }));
   if (f.machine && machines.indexOf(f.machine) === -1) machines.push(f.machine);
   ids = ids.filter(function(id) { return !f.machine || _ppItems[id].machine === f.machine; });
@@ -2763,6 +2783,12 @@ function _ppRenderTracking(completed) {
   });
 
   var h = '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">';
+  if (completed) {
+    h += '<select onchange="ppSetFilter(\'month\', this.value)" style="padding:5px 9px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit">' +
+      '<option value="">All Time</option>' + months.map(function(m) {
+        return '<option value="' + escapeHtml(m) + '"' + (m === f.month ? ' selected' : '') + '>' + escapeHtml(_ppMonthLabel(m)) + '</option>';
+      }).join('') + '</select>';
+  }
   h += _ppSelect('machine', machines, 'All Machines');
   h += '<span style="font-size:12px;color:var(--muted)">' + ids.length + (completed ? ' completed' : ' in progress') +
     ' &middot; ' + (completed ? 'Inventory Deducted and In Location are both checked.' : 'Check things off, then click Save Changes. Items with both boxes checked move to Completed.') + '</span>';
@@ -2855,8 +2881,7 @@ function ppDeleteItem(id) {
     .catch(function(err) { _ppSaveFailed(err, 'removing this item'); });
 }
 function ppExportTracking(completed) {
-  var ids = Object.keys(_ppItems).filter(function(id) { return _ppIsDone(_ppItems[id]) === completed; })
-    .filter(function(id) { return !_ppFilters.machine || _ppItems[id].machine === _ppFilters.machine; });
+  var ids = _ppTrackingIds(completed);
   var data = [['Added', 'Primary Raw', 'RM Short Name', 'Machine', 'Item ID', 'Item Name', 'QTY to Produce', 'Qty Printed',
                'Nested', 'Nested By / When', 'Inventory Deducted', 'Deducted By / When', 'In Location', 'Located By / When', 'Notes']];
   ids.forEach(function(id) {
@@ -2868,7 +2893,7 @@ function ppExportTracking(completed) {
   });
   var wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(data), completed ? 'Completed' : 'In Progress');
-  XLSX.writeFile(wb, 'Pre-Production ' + (completed ? 'Completed' : 'In Progress') + ' ' + _ppTodayStr() + '.xlsx');
+  XLSX.writeFile(wb, 'Pre-Production ' + (completed ? 'Completed' + (_ppFilters.month ? ' ' + _ppMonthLabel(_ppFilters.month) : '') : 'In Progress') + ' ' + _ppTodayStr() + '.xlsx');
 }
 
 // ── AMR Exclusion List ──
