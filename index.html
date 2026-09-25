@@ -2324,8 +2324,15 @@ function printMissingFilesReport() {
 //   r raw material · p piece type (RM Short Name) · m machine · i item id
 //   n item name · o total open · a/b/c open next 30 / 31-60 / 61-90 days
 //   v inventory qty · q qty to produce
+//   (b/c are still stored but no longer shown — owner dropped them 2026-09-25)
+//   preProduction/flagStock — live on-hand from FLAG, written hourly by
+//       ShipConfirmSynclag_stock_sync.py (read-only SELECTs). Per item:
+//       r = pieces on the LM piece-picking racks (warehouse 101), a = pieces in
+//       the virtual MID-AMR-BIN, l = rack locations. AMR only counts the bin,
+//       so rack stock is invisible to it and orders become production tasks.
 var _ppPrebook   = {};     // { year: {rows, fileName, loadedAt, loadedBy, source} }
 var _ppItems     = {};     // { id: tracked item }
+var _ppFlag      = null;   // preProduction/flagStock: { updatedAt, itemCount, items: { key: {i, r, a, l} } }
 var _ppOverrides = {};     // preProduction/stockOverrides: { key: {item, usedUp, by, at} } — "I know it's gone"
 var _ppAmrPending = {};    // unsaved Used Up checkbox changes on the AMR view: { itemId: stamp | null }
 var _ppLoaded    = { prebook: false, items: false };
@@ -2404,6 +2411,10 @@ function _ppStartLiveSync() {
     _ppLoaded.prebook = true;
     rerenderIfOpen();
   }, onErr('preProduction/prebook'));
+  firebase.database().ref('preProduction/flagStock').on('value', function(snap) {
+    _ppFlag = snap.val();
+    rerenderIfOpen();
+  }, onErr('preProduction/flagStock'));
   firebase.database().ref('preProduction/stockOverrides').on('value', function(snap) {
     _ppOverrides = snap.val() || {};
     rerenderIfOpen();
@@ -2522,6 +2533,27 @@ function _ppTrackedActiveByItem() {
   return m;
 }
 
+// Live FLAG stock for one item: {r, a, l} (zeros when FLAG shows none), or
+// null when the FLAG sync hasn't run yet.
+function _ppFlagStock(itemId) {
+  if (!_ppFlag) return null;
+  return ((_ppFlag.items || {})[_ppOverrideKey(itemId)]) || { r: 0, a: 0, l: '' };
+}
+// Rack / AMR-bin cells. Rack stock is amber when the AMR bin can't cover the
+// next 30 days' orders on its own — that's stock AMR won't see.
+function _ppFlagCells(itemId, need30) {
+  var fs = _ppFlagStock(itemId);
+  if (!fs) return '<td style="text-align:right;color:var(--muted)">&ndash;</td><td style="text-align:right;color:var(--muted)">&ndash;</td>';
+  var hidden = fs.r > 0 && fs.a < (need30 || 0);
+  return '<td style="text-align:right' + (hidden ? ';background:var(--amber-bg);color:var(--amber);font-weight:700' : '') + '"' +
+      (fs.l ? ' title="' + escapeHtml(fs.l) + '"' : '') + '>' + (fs.r ? fs.r.toLocaleString() : '<span style="color:var(--muted)">&ndash;</span>') + '</td>' +
+    '<td style="text-align:right">' + (fs.a ? fs.a.toLocaleString() : '<span style="color:var(--muted)">&ndash;</span>') + '</td>';
+}
+function _ppFlagNote() {
+  if (!_ppFlag || !_ppFlag.updatedAt) return '<span style="color:var(--amber)">FLAG stock not synced yet</span>';
+  return 'FLAG stock ' + escapeHtml(_ppStamp(_ppFlag.updatedAt));
+}
+
 function _ppOptions(values, current, allLabel) {
   return '<option value="">' + allLabel + '</option>' + values.map(function(v) {
     return '<option value="' + escapeHtml(v) + '"' + (v === current ? ' selected' : '') + '>' + escapeHtml(v) + '</option>';
@@ -2555,6 +2587,7 @@ function _ppRenderPrebook() {
   h += '</div>';
   if (years.length) {
     h += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--muted)">';
+    h += '<span><b style="color:var(--text)">Racks / AMR Bin:</b> ' + _ppFlagNote() + '</span>';
     years.forEach(function(y) {
       var f = _ppPrebook[y];
       h += '<span><b style="color:var(--text)">' + escapeHtml(y) + ':</b> ' + (f.rows || []).length.toLocaleString() + ' items &middot; ' +
@@ -2595,7 +2628,7 @@ function _ppRenderPrebook() {
     ' &middot; Total to produce: <b>' + rows.reduce(function(s, x) { return s + x.row.q; }, 0).toLocaleString() + '</b></div>';
 
   h += '<div class="table-wrap" style="overflow-x:auto"><table class="settings-table"><thead><tr>';
-  h += '<th></th><th>Year</th><th>Machine</th><th>Piece Type</th><th>Item ID</th><th>Item Name</th><th style="text-align:right">Open</th><th style="text-align:right">Next 30</th><th style="text-align:right">31&ndash;60</th><th style="text-align:right">61&ndash;90</th><th style="text-align:right">Inventory</th><th style="text-align:right">To Produce</th>';
+  h += '<th></th><th>Year</th><th>Machine</th><th>Piece Type</th><th>Item ID</th><th>Item Name</th><th style="text-align:right">Open</th><th style="text-align:right">Next 30</th><th style="text-align:right" title="Power BI Inventory QTY — refreshes less often than FLAG">Power BI Inv.</th><th style="text-align:right" title="Live from FLAG: pieces on the LM piece-picking racks (warehouse 101). AMR does not see these. Amber = the AMR bin does not cover the next 30 days on its own.">On LM Racks</th><th style="text-align:right" title="Live from FLAG: pieces in MID-AMR-BIN, the only stock AMR counts">In AMR Bin</th><th style="text-align:right">To Produce</th>';
   h += '</tr></thead><tbody>';
   rows.slice(0, PP_PREBOOK_SHOW_MAX).forEach(function(x) {
     var r = x.row, key = x.y + '|' + r.i;
@@ -2604,7 +2637,8 @@ function _ppRenderPrebook() {
     h += '<td>' + escapeHtml(x.y) + '</td><td>' + escapeHtml(r.m) + '</td><td>' + escapeHtml(r.p) + '</td>';
     h += '<td style="white-space:nowrap;font-weight:600">' + escapeHtml(r.i) + (tracked[r.i] ? ' <span class="maf-status-pill" style="background:var(--green-light);color:var(--green-dark)">in progress</span>' : '') + '</td>';
     h += '<td>' + escapeHtml(r.n) + '</td>';
-    ['o', 'a', 'b', 'c', 'v'].forEach(function(k) { h += '<td style="text-align:right">' + (r[k] ? r[k].toLocaleString() : '<span style="color:var(--muted)">&ndash;</span>') + '</td>'; });
+    ['o', 'a', 'v'].forEach(function(k) { h += '<td style="text-align:right">' + (r[k] ? r[k].toLocaleString() : '<span style="color:var(--muted)">&ndash;</span>') + '</td>'; });
+    h += _ppFlagCells(r.i, r.a);
     h += '<td style="text-align:right;font-weight:700">' + (r.q || 0).toLocaleString() + '</td>';
     h += '</tr>';
   });
@@ -2843,7 +2877,7 @@ function _ppAmrLists() {
 function _ppAmrTable(list, dim) {
   if (!list.length) return '';
   var h = '<div class="table-wrap" style="overflow-x:auto;margin-bottom:14px"><table class="settings-table pp-track-table"><thead><tr>';
-  h += '<th>Item ID</th><th>Item Name</th><th>Machine</th><th>Piece Type</th><th style="text-align:right">Pre-Produced</th><th style="text-align:right">On Hand Now</th><th>In Location Since</th><th>Used Up</th></tr></thead><tbody>';
+  h += '<th>Item ID</th><th>Item Name</th><th>Machine</th><th>Piece Type</th><th style="text-align:right">Pre-Produced</th><th style="text-align:right">On Hand Now</th><th style="text-align:right" title="Live from FLAG">On LM Racks</th><th style="text-align:right" title="Live from FLAG">In AMR Bin</th><th>In Location Since</th><th>Used Up</th></tr></thead><tbody>';
   list.forEach(function(e) {
     var pending = Object.prototype.hasOwnProperty.call(_ppAmrPending, e.item);
     var fileZero = !e.mark && e.stock === 0;   // used up because the export says 0: nothing to uncheck
@@ -2851,6 +2885,7 @@ function _ppAmrTable(list, dim) {
     h += '<td style="white-space:nowrap;font-weight:600">' + escapeHtml(e.item) + '</td><td>' + escapeHtml(e.name || '') + '</td><td>' + escapeHtml(e.machine || '') + '</td><td>' + escapeHtml(e.piece || '') + '</td>';
     h += '<td style="text-align:right">' + e.made.toLocaleString() + '</td>';
     h += '<td style="text-align:right;font-weight:700">' + (e.stock == null ? '<span style="color:var(--muted);font-weight:400">unknown</span>' : e.stock.toLocaleString()) + '</td>';
+    h += _ppFlagCells(e.item, 0);
     h += '<td style="white-space:nowrap">' + escapeHtml(_ppStamp(e.lastLocated)) + '</td>';
     if (fileZero) {
       h += '<td style="font-size:11px;color:var(--muted);white-space:nowrap">0 in pre-book file</td>';
@@ -2907,7 +2942,8 @@ function _ppRenderAmr() {
     ' style="margin-left:auto;background:var(--green-dark);color:#fff;border-color:var(--green-dark);padding:7px 16px">&#128203; Copy Exclusion List (' + copyCount + ')</button>';
   h += '</div>';
   h += '<div style="font-size:12px;color:var(--muted);margin-top:10px;line-height:1.6">In Tempo: <b style="color:var(--text)">Demand Pool &rarr; AMR &rarr; Bulk</b> &rarr; paste &rarr; <b style="color:var(--text)">Field: Item, Match: Exact</b> &rarr; Apply, then nest the results without sending to print.';
-  h += '<br>Stock comes from the latest pre-book file' + (newest ? ' (' + escapeHtml(_ppStamp(newest)) + ')' : '') + '. Items drop off once it shows 0 on hand. If stock runs short, the picker sends the rest back as an ad-hoc task.</div>';
+  h += '<br>Stock comes from the latest pre-book file' + (newest ? ' (' + escapeHtml(_ppStamp(newest)) + ')' : '') + '. Items drop off once it shows 0 on hand. If stock runs short, the picker sends the rest back as an ad-hoc task.';
+  h += '<br>On LM Racks / In AMR Bin: ' + _ppFlagNote() + ' &mdash; hover a rack number to see its locations.</div>';
   h += '</div>';
 
   var nPend = Object.keys(_ppAmrPending).length;
