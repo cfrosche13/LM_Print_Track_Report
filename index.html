@@ -2319,7 +2319,8 @@ function printMissingFilesReport() {
 //       to take over later and write this SAME shape (source "sync"), the way
 //       Open Orders went from a dropped spreadsheet to the LMContainers sync.
 //   preProduction/items/{id} — each item picked to pre-produce, tracked from
-//       print → Inventory Deducted → In Location.
+//       Nested (sent to the operators; added 2026-09-25, replaced typing
+//       "nested" in Notes) → print → Inventory Deducted → In Location.
 // Rows are stored with short keys to keep the ~2,000-row exports small:
 //   r raw material · p piece type (RM Short Name) · m machine · i item id
 //   n item name · o total open · a/b/c open next 30 / 31-60 / 61-90 days
@@ -2685,7 +2686,7 @@ function _ppVal(id, field) {
 }
 function _ppSetPending(id, field, value) {
   var saved = (_ppItems[id] || {})[field];
-  var same = field === 'invDeducted' || field === 'inLocation' ? (!!saved === !!value) : (saved === value || (saved == null && value === ''));
+  var same = field === 'nested' || field === 'invDeducted' || field === 'inLocation' ? (!!saved === !!value) : (saved === value || (saved == null && value === ''));
   if (!_ppPending[id]) _ppPending[id] = {};
   if (same) delete _ppPending[id][field]; else _ppPending[id][field] = value;
   if (!Object.keys(_ppPending[id]).length) delete _ppPending[id];
@@ -2710,8 +2711,8 @@ function _ppCheckCell(id, field) {
   var pending = _ppPending[id] && Object.prototype.hasOwnProperty.call(_ppPending[id], field);
   var h = '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-size:12px;font-weight:600;color:var(--text)"><input type="checkbox"' + (on ? ' checked' : '') +
     ' onchange="ppToggleCheck(\'' + id + '\', \'' + field + '\', this.checked)" style="width:17px;height:17px;cursor:pointer">' +
-    (field === 'invDeducted' ? 'Inventory Deducted' : 'In Location') + '</label>';
-  h += '<div id="pp-stamp-' + id + '-' + field + '" style="font-size:10px;color:var(--muted);white-space:nowrap;margin:1px 0 0 23px;min-height:13px">' +
+    ({ nested: 'Nested', invDeducted: 'Inventory Deducted', inLocation: 'In Location' })[field] + '</label>';
+  h += '<div id="pp-stamp-' + id + '-' + field + '" style="font-size:10px;color:var(--muted);white-space:nowrap;margin:0 0 2px 23px;min-height:12px;line-height:12px">' +
     (on ? escapeHtml(stamp.by || '') + ' ' + escapeHtml(stamp.at ? _ppStamp(stamp.at) : '') + (pending ? ' · not saved' : '') : '') + '</div>';
   return h;
 }
@@ -2764,7 +2765,7 @@ function _ppRenderTracking(completed) {
     h += '<span>To make</span><input type="number" min="0" value="' + toMake + '" onchange="ppSetField(\'' + id + '\', \'qtyToProduce\', this.value)" style="' + numStyle + '">';
     h += '<span>Printed</span><input type="number" min="0" value="' + printed + '" onchange="ppSetField(\'' + id + '\', \'qtyPrinted\', this.value)" style="' + numStyle + (short ? ';border-color:var(--amber-border);background:var(--amber-bg)' : '') + '">';
     h += '</div></td>';
-    h += '<td>' + _ppCheckCell(id, 'invDeducted') + '<div style="height:4px"></div>' + _ppCheckCell(id, 'inLocation') + '</td>';
+    h += '<td>' + _ppCheckCell(id, 'nested') + _ppCheckCell(id, 'invDeducted') + _ppCheckCell(id, 'inLocation') + '</td>';
     h += '<td><textarea rows="2" placeholder="Add a note…" onchange="ppSetField(\'' + id + '\', \'notes\', this.value)" style="width:100%;box-sizing:border-box;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;font-family:inherit;resize:vertical">' + escapeHtml(_ppVal(id, 'notes') || '') + '</textarea></td>';
     h += '<td><button class="qbtn" onclick="ppDeleteItem(\'' + id + '\')" title="Remove this item" style="color:var(--red);padding:4px 8px">&times;</button></td>';
     h += '</tr>';
@@ -2818,12 +2819,12 @@ function ppExportTracking(completed) {
   var ids = Object.keys(_ppItems).filter(function(id) { return _ppIsDone(_ppItems[id]) === completed; })
     .filter(function(id) { return !_ppFilters.machine || _ppItems[id].machine === _ppFilters.machine; });
   var data = [['Added', 'Primary Raw', 'RM Short Name', 'Machine', 'Item ID', 'Item Name', 'QTY to Produce', 'Qty Printed',
-               'Inventory Deducted', 'Deducted By / When', 'In Location', 'Located By / When', 'Notes']];
+               'Nested', 'Nested By / When', 'Inventory Deducted', 'Deducted By / When', 'In Location', 'Located By / When', 'Notes']];
   ids.forEach(function(id) {
     var it = _ppItems[id];
     var s = function(st) { return st ? ((st.by || '') + ' ' + _ppStamp(st.at)).trim() : ''; };
     data.push([it.dateAdded || '', it.raw || '', it.piece || '', it.machine || '', it.item || '', it.name || '',
-      _ppNum(it.qtyToProduce), _ppNum(it.qtyPrinted), it.invDeducted ? 'Y' : 'N', s(it.invDeducted),
+      _ppNum(it.qtyToProduce), _ppNum(it.qtyPrinted), it.nested ? 'Y' : 'N', s(it.nested), it.invDeducted ? 'Y' : 'N', s(it.invDeducted),
       it.inLocation ? 'Y' : 'N', s(it.inLocation), it.notes || '']);
   });
   var wb = XLSX.utils.book_new();
