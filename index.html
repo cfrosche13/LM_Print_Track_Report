@@ -2564,10 +2564,18 @@ function _ppMachineFor(row) {
   if (row.m === '30' && _ppIsPlainCoir(row.p) && _ppCoirColor(row.i, row.n) === 'FC') return '30+';
   return row.m;
 }
+// Power BI leaves RM Short Name blank for some raws — found 2026-09-28 that
+// every stemless wine glass (raw WGTJBEGSC) came through with no piece type,
+// so they were missing from the Piece Type filter. Fill blanks by raw ID.
+var PP_PIECE_BY_RAW = { 'WGTJBEGSC': 'Stemless Wine Glass' };
+function _ppPiece(row) {
+  return row.p || PP_PIECE_BY_RAW[row.r] || '';
+}
 function _ppPieceLabel(row) {
-  if (!_ppIsPlainCoir(row.p)) return row.p;
+  var p = _ppPiece(row);
+  if (!_ppIsPlainCoir(p)) return p;
   var c = _ppCoirColor(row.i, row.n);
-  return c ? row.p + ' ' + c : row.p;
+  return c ? p + ' ' + c : p;
 }
 
 // Live FLAG stock for one item: {r, a, l} (zeros when FLAG shows none), or
@@ -2643,14 +2651,14 @@ function _ppRenderPrebook() {
     var r = x.row;
     if (f.year && x.y !== f.year) return false;
     if (f.machine && _ppMachineFor(r) !== f.machine) return false;
-    if (f.piece && r.p !== f.piece) return false;
+    if (f.piece && _ppPiece(r) !== f.piece) return false;
     if (f.needsOnly && !(r.q > 0)) return false;
     if (search && (r.i + ' ' + r.n).toLowerCase().indexOf(search) === -1) return false;
     return true;
   }).sort(function(a, b) { return b.row.q - a.row.q || b.row.o - a.row.o; });
 
   var machines = _ppUniq(all.map(function(x) { return _ppMachineFor(x.row); }));
-  var pieces = _ppUniq(all.filter(function(x) { return !f.machine || _ppMachineFor(x.row) === f.machine; }).map(function(x) { return x.row.p; }));
+  var pieces = _ppUniq(all.filter(function(x) { return !f.machine || _ppMachineFor(x.row) === f.machine; }).map(function(x) { return _ppPiece(x.row); }));
   var selCount = Object.keys(_ppSelected).length;
   var tracked = _ppTrackedActiveByItem();
 
