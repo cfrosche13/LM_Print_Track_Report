@@ -3373,8 +3373,13 @@ function _machineIdKey(m) {
 // Escapes a string for safe embedding inside a single-quoted onclick/ondragstart
 // attribute string (piece-type names and manual notes are free text and may
 // contain apostrophes).
+// Every caller drops the result inside a double-quoted onclick="..." attribute,
+// so a raw " (e.g. the inch mark in "18\" Circle") would end the attribute
+// early and break the handler — encode it (and &) as HTML entities, which the
+// browser decodes back before the JS runs.
 function _jsEsc(s) {
-  return String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  return String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+    .replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 }
 
 // Builds an object keyed by each machine in `machines`, value from valueFn(machine).
