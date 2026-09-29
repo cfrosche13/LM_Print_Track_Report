@@ -126,6 +126,9 @@ input[type="date"]:focus { border-color: var(--green-dark); }
 .oee-note { font-size: 12px; color: var(--muted); margin-bottom: 0.75rem; font-style: italic; }
 .amber-note { color: var(--amber); background: var(--amber-bg); border: 1px solid var(--amber-border); border-radius: var(--radius); padding: 0.6rem 1rem; font-style: normal; }
 .table-wrap { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+/* Long tables (Missing Files, Pre-Production) scroll inside their own box so the column labels stay pinned at the top */
+.sticky-head-scroll { overflow: auto; max-height: calc(100vh - 140px); }
+.sticky-head-scroll thead th { position: sticky; top: 0; z-index: 2; }
 .pph-table { width: 100%; border-collapse: collapse; }
 .pph-table th { font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 10px 14px; background: var(--green-light); border-bottom: 1px solid var(--border); }
 .pph-table td { padding: 9px 14px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text); vertical-align: middle; }
@@ -1805,8 +1808,11 @@ function escapeHtml(s) {
   });
 }
 
-var MAF_STATUSES = ['Missing', 'Email Sent', 'Follow Up', 'Resolved', 'Cancelled'];
-var MAF_ARCHIVED_STATUSES = ['Resolved', 'Cancelled'];
+var MAF_STATUSES = ['Missing', 'Email Sent', 'Follow Up', 'Resolved', 'Shipped', 'Cancelled'];
+// "Shipped" = the container was ship-confirmed in LMContainers, so the file
+// is assumed no longer needed — set hourly by ship_confirm_sync.py (stamps
+// shippedAt). Archived like Resolved, but pre-flight never confirmed it.
+var MAF_ARCHIVED_STATUSES = ['Resolved', 'Shipped', 'Cancelled'];
 var MAF_DEPARTMENTS_DEFAULT = ['Inline Personalized Plock', 'Inline Files', 'Personalization Drop Ship', 'Sports', 'Drinkware'];
 var MAF_CONTACTS_DEFAULT = ['Suzanne Karzoun', 'Creative Team', 'Cathleen Alleyne', 'Brigitte Crowder', 'EGStudio-Ops'];
 
@@ -1897,6 +1903,19 @@ function _mafNotifiedAtHtml(e) {
   return '<div style="font-size:10px;color:var(--muted);margin-top:2px;white-space:nowrap">sent ' + escapeHtml(stamp) + '</div>';
 }
 
+// Under a "Shipped" pill: makes clear this was closed because the container
+// shipped, not because pre-flight confirmed the file was fixed.
+function _mafShippedNoteHtml(e) {
+  if (e.status !== 'Shipped') return '';
+  var when = '';
+  if (e.shippedAt) {
+    var d = new Date(e.shippedAt);
+    if (!isNaN(d.getTime())) when = ' ' + (d.getMonth() + 1) + '/' + d.getDate();
+  }
+  return '<div style="font-size:10px;color:var(--muted);margin-top:2px;max-width:160px">container shipped' + escapeHtml(when) +
+    ' &middot; <b>not confirmed by pre-flight</b></div>';
+}
+
 function mafSetView(view) {
   _mafView = view;
   document.getElementById('maf-view-active-btn').classList.toggle('active', view === 'active');
@@ -1911,6 +1930,7 @@ function mafToggleManage() {
 
 function _mafStatusColor(status) {
   if (status === 'Resolved')   return { bg: '#e3f5ea', fg: 'var(--green-dark)' };
+  if (status === 'Shipped')    return { bg: '#efe7f8', fg: '#6b3fa0' };
   if (status === 'Cancelled')  return { bg: '#f0f0f0', fg: 'var(--muted)' };
   if (status === 'Follow Up')  return { bg: '#fff3d6', fg: '#a8760a' };
   if (status === 'Email Sent') return { bg: '#e4eefc', fg: '#2a5ea8' };
@@ -1990,7 +2010,7 @@ function renderMissingFiles() {
     return;
   }
 
-  var h = '<div class="table-wrap"><table class="settings-table"><thead><tr>';
+  var h = '<div class="table-wrap sticky-head-scroll"><table class="settings-table"><thead><tr>';
   h += '<th>Department</th><th>Company</th><th>Order ID</th><th>Item Id</th><th>Container #</th><th>Issue</th><th>Size / Media</th><th>Contact</th><th>Status</th><th>Reported</th>';
   if (_mafView === 'archive') h += '<th>Resolved</th>';
   h += '<th></th></tr></thead><tbody>';
@@ -2007,7 +2027,7 @@ function renderMissingFiles() {
     h += '<td>' + escapeHtml(e.issue || '—') + '</td>';
     h += '<td>' + escapeHtml(e.sizeMedia || '—') + '</td>';
     h += '<td>' + escapeHtml(_mafContactsDisplay(e)) + '</td>';
-    h += '<td><span class="maf-status-pill" style="background:' + sc.bg + ';color:' + sc.fg + '">' + escapeHtml(e.status || 'Missing') + '</span>' + _mafNotifiedAtHtml(e) + '</td>';
+    h += '<td><span class="maf-status-pill" style="background:' + sc.bg + ';color:' + sc.fg + '">' + escapeHtml(e.status || 'Missing') + '</span>' + _mafNotifiedAtHtml(e) + _mafShippedNoteHtml(e) + '</td>';
     var ac = _mafAgeColor(e.dateReported);
     h += '<td>' + (ac ? '<span class="maf-status-pill" style="background:' + ac.bg + ';color:' + ac.fg + '">' + escapeHtml(e.dateReported) + '</span>' : '—') + '</td>';
     if (_mafView === 'archive') h += '<td>' + escapeHtml(e.dateResolved || '—') + '</td>';
@@ -2283,7 +2303,7 @@ function _buildMissingFilesPrintHtml(fromDate, toDate) {
     h += '<td>' + escapeHtml(e.issue || '—') + '</td>';
     h += '<td>' + escapeHtml(e.sizeMedia || '—') + '</td>';
     h += '<td>' + escapeHtml(_mafContactsDisplay(e)) + '</td>';
-    h += '<td>' + escapeHtml(e.status || 'Missing') + _mafNotifiedAtHtml(e) + '</td>';
+    h += '<td>' + escapeHtml(e.status || 'Missing') + _mafNotifiedAtHtml(e) + _mafShippedNoteHtml(e) + '</td>';
     var pac = _mafAgeColor(e.dateReported);
     h += '<td style="white-space:nowrap">' + (pac ? '<span style="display:inline-block;white-space:nowrap;background:' + pac.bg + ';color:' + pac.fg + ';padding:2px 8px;border-radius:20px;font-weight:700;print-color-adjust:exact;-webkit-print-color-adjust:exact">' + escapeHtml(e.dateReported) + '</span>' : '—') + '</td>';
     if (_mafView === 'archive') h += '<td>' + escapeHtml(e.dateResolved || '—') + '</td>';
@@ -2672,7 +2692,7 @@ function _ppRenderPrebook() {
     (rows.length > PP_PREBOOK_SHOW_MAX ? ' &mdash; showing the top ' + PP_PREBOOK_SHOW_MAX + ' by QTY to Produce (filter to narrow down)' : '') +
     ' &middot; Total to produce: <b>' + rows.reduce(function(s, x) { return s + x.row.q; }, 0).toLocaleString() + '</b></div>';
 
-  h += '<div class="table-wrap" style="overflow-x:auto"><table class="settings-table"><thead><tr>';
+  h += '<div class="table-wrap sticky-head-scroll"><table class="settings-table"><thead><tr>';
   h += '<th></th><th>Year</th><th>Machine</th><th>Piece Type</th><th>Item ID</th><th>Item Name</th><th style="text-align:right">Open</th><th style="text-align:right">Next 30</th><th style="text-align:right" title="Power BI Inventory QTY — refreshes less often than FLAG">Power BI Inv.</th><th style="text-align:right" title="Live from FLAG: pieces on the LM piece-picking racks (warehouse 101). AMR does not see these. Amber = the AMR bin does not cover the next 30 days on its own.">On LM Racks</th><th style="text-align:right" title="Live from FLAG: pieces in MID-AMR-BIN, the only stock AMR counts">In AMR Bin</th><th style="text-align:right">To Produce</th>';
   h += '</tr></thead><tbody>';
   rows.slice(0, PP_PREBOOK_SHOW_MAX).forEach(function(x) {
@@ -2819,7 +2839,7 @@ function _ppRenderTracking(completed) {
   }
   // Compact layout: item details stacked in one column so the table fits the
   // screen width without scrolling sideways (owner request 2026-09-24).
-  h += '<div class="table-wrap"><table class="settings-table pp-track-table" style="table-layout:auto"><thead><tr>';
+  h += '<div class="table-wrap sticky-head-scroll"><table class="settings-table pp-track-table" style="table-layout:auto"><thead><tr>';
   h += '<th>Item</th><th style="width:150px">Qty</th><th style="width:170px">Checkpoints</th><th style="width:22%">Notes</th><th style="width:36px"></th>';
   h += '</tr></thead><tbody>';
   var numStyle = 'width:64px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;font-size:13px;font-family:inherit;text-align:right';
@@ -2951,7 +2971,7 @@ function _ppAmrLists() {
 }
 function _ppAmrTable(list, dim) {
   if (!list.length) return '';
-  var h = '<div class="table-wrap" style="overflow-x:auto;margin-bottom:14px"><table class="settings-table pp-track-table"><thead><tr>';
+  var h = '<div class="table-wrap sticky-head-scroll" style="margin-bottom:14px"><table class="settings-table pp-track-table"><thead><tr>';
   h += '<th>Item ID</th><th>Item Name</th><th>Machine</th><th>Piece Type</th><th style="text-align:right">Pre-Produced</th><th style="text-align:right">On Hand Now</th><th style="text-align:right" title="Live from FLAG">On LM Racks</th><th style="text-align:right" title="Live from FLAG">In AMR Bin</th><th>In Location Since</th><th>Used Up</th></tr></thead><tbody>';
   list.forEach(function(e) {
     var pending = Object.prototype.hasOwnProperty.call(_ppAmrPending, e.item);
@@ -3368,6 +3388,10 @@ function togglePlanMachineLock(m) {
   if (_lockedMachines[m]) delete _lockedMachines[m];
   else _lockedMachines[m] = true;
   if (window._planOrders) runPlan(window._planOrders);
+  // No orders loaded yet (e.g. right after "Load for editing" on a fresh
+  // page) — nothing to recalculate against, but still redraw so the
+  // button reflects the new lock state instead of looking stuck.
+  else if (window._livePlanRows) _rerenderPlanAfterMove();
 }
 (function() {
   try { var g = localStorage.getItem('planGroup'); if (g === 'drinkware' || g === 'standard') PLAN_GROUP = g; } catch(e) {}
