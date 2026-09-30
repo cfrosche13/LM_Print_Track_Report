@@ -2808,6 +2808,15 @@ function _ppTrackingIds(completed) {
     return true;
   });
 }
+// Raw material for an item added without one (e.g. imported from the old
+// workbook) — looked up from the loaded pre-book files.
+function _ppRawFor(itemId) {
+  var found = '';
+  Object.keys(_ppPrebook).forEach(function(y) {
+    (_ppPrebook[y].rows || []).forEach(function(r) { if (!found && r.i === itemId && r.r) found = r.r; });
+  });
+  return found;
+}
 function _ppRenderTracking(completed) {
   var f = _ppFilters;
   var ids = Object.keys(_ppItems).filter(function(id) { return _ppIsDone(_ppItems[id]) === completed; });
@@ -2859,11 +2868,13 @@ function _ppRenderTracking(completed) {
     h += '<tr id="pp-row-' + id + '"' + (_ppPending[id] ? ' class="pp-dirty"' : '') + '>';
     h += '<td style="min-width:0"><div style="font-weight:700;white-space:nowrap">' + escapeHtml(it.item || '') + '</div>';
     h += '<div style="font-size:13px;line-height:1.35">' + escapeHtml(it.name || '') + '</div>';
+    var raw = it.raw || _ppRawFor(it.item);
+    if (raw) h += '<div style="font-size:12px;margin-top:2px"><span style="color:var(--muted)">Raw material:</span> <b>' + escapeHtml(raw) + '</b></div>';
     var curMach = _ppVal(id, 'machine') || '';
     var opts = PP_MACHINES.indexOf(curMach) === -1 && curMach ? PP_MACHINES.concat([curMach]) : PP_MACHINES;
     h += '<div style="font-size:11px;color:var(--muted);margin-top:2px"><select title="Machine — change it to shift this work" onchange="ppSetField(\'' + id + '\', \'machine\', this.value)" style="font-size:11px;padding:1px 3px;border:1px solid var(--border);border-radius:4px;font-family:inherit;margin-right:4px">' +
       opts.map(function(m) { return '<option' + (m === curMach ? ' selected' : '') + '>' + escapeHtml(m) + '</option>'; }).join('') + '</select>' +
-      [it.piece, it.raw].filter(Boolean).map(escapeHtml).join(' &middot; ') +
+      escapeHtml(it.piece || '') +
       ' &middot; added ' + escapeHtml(it.dateAdded || '') + (it.source === 'workbook' ? ' (from workbook)' : '') + '</div></td>';
     h += '<td><div style="display:grid;grid-template-columns:auto auto;gap:4px 8px;align-items:center;font-size:11px;color:var(--muted)">';
     h += '<span>To make</span><input type="number" min="0" value="' + toMake + '" onchange="ppSetField(\'' + id + '\', \'qtyToProduce\', this.value)" style="' + numStyle + '">';
