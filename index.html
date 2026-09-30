@@ -2686,7 +2686,7 @@ function _ppRenderPrebook() {
   h += _ppSelect('year', years, 'All Years') + _ppSelect('machine', machines, 'All Machines') + _ppSelect('piece', pieces, 'All Piece Types');
   h += '<input type="text" placeholder="Search item ID or name…" value="' + escapeHtml(f.search) + '" onchange="ppSetFilter(\'search\', this.value)" style="padding:5px 9px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;width:200px">';
   h += '<label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:5px"><input type="checkbox"' + (f.needsOnly ? ' checked' : '') + ' onchange="ppSetFilter(\'needsOnly\', this.checked)"> Only items that need producing</label>';
-  h += '<button class="qbtn" onclick="ppAddSelected()"' + (selCount ? ' style="background:var(--green-dark);color:#fff;border-color:var(--green-dark);padding:6px 14px;margin-left:auto"' : ' disabled style="padding:6px 14px;margin-left:auto;opacity:0.5"') + '>+ Add ' + selCount + ' to Pre-Production</button>';
+  h += '<button class="qbtn" id="pp-add-btn" onclick="ppAddSelected()"' + (selCount ? ' style="' + PP_ADD_BTN_ON + '"' : ' disabled style="' + PP_ADD_BTN_OFF + '"') + '>+ Add ' + selCount + ' to Pre-Production</button>';
   h += '</div>';
   h += '<div style="font-size:12px;color:var(--muted);margin-bottom:6px">' + rows.length.toLocaleString() + ' items' +
     (rows.length > PP_PREBOOK_SHOW_MAX ? ' &mdash; showing the top ' + PP_PREBOOK_SHOW_MAX + ' by QTY to Produce (filter to narrow down)' : '') +
@@ -2711,9 +2711,18 @@ function _ppRenderPrebook() {
   h += '</tbody></table></div>';
   return h;
 }
+var PP_ADD_BTN_ON  = 'background:var(--green-dark);color:#fff;border-color:var(--green-dark);padding:6px 14px;margin-left:auto';
+var PP_ADD_BTN_OFF = 'padding:6px 14px;margin-left:auto;opacity:0.5';
+// Only the Add button changes — re-rendering the whole table here threw the
+// page back to the top on every tick (owner report 2026-09-30).
 function ppToggleSelect(key, on) {
   if (on) _ppSelected[key] = true; else delete _ppSelected[key];
-  renderPreProduction();
+  var btn = document.getElementById('pp-add-btn');
+  if (!btn) return renderPreProduction();
+  var n = Object.keys(_ppSelected).length;
+  btn.disabled = !n;
+  btn.style.cssText = n ? PP_ADD_BTN_ON : PP_ADD_BTN_OFF;
+  btn.textContent = '+ Add ' + n + ' to Pre-Production';
 }
 function ppAddSelected() {
   var keys = Object.keys(_ppSelected);
