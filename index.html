@@ -2614,6 +2614,21 @@ function _ppFlagCells(itemId, need30) {
       (fs.l ? ' title="' + escapeHtml(fs.l) + '"' : '') + '>' + (fs.r ? fs.r.toLocaleString() : '<span style="color:var(--muted)">&ndash;</span>') + '</td>' +
     '<td style="text-align:right">' + (fs.a ? fs.a.toLocaleString() : '<span style="color:var(--muted)">&ndash;</span>') + '</td>';
 }
+// QTY to Produce from live FLAG stock (racks + AMR bin) instead of Power BI's
+// stale Inventory QTY (owner report 2026-10-01: 70 pieces put away on the
+// racks but the pick list still said make 72). An item can be open in both
+// the 2026 and 2027 files, so stock goes to the earlier year first and is
+// never counted twice. Falls back to Power BI's number until FLAG has synced.
+function _ppToProduce(year, row) {
+  var fs = _ppFlagStock(row.i);
+  if (!fs) return row.q || 0;
+  var stock = (fs.r || 0) + (fs.a || 0);
+  Object.keys(_ppPrebook).sort().forEach(function(y) {
+    if (y >= year) return;
+    (_ppPrebook[y].rows || []).forEach(function(r) { if (r.i === row.i) stock -= Math.min(stock, r.o || 0); });
+  });
+  return Math.max(0, (row.o || 0) - Math.max(0, stock));
+}
 function _ppFlagNote() {
   if (!_ppFlag || !_ppFlag.updatedAt) return '<span style="color:var(--amber)">FLAG stock not synced yet</span>';
   return 'FLAG stock ' + escapeHtml(_ppStamp(_ppFlag.updatedAt));
@@ -2665,17 +2680,17 @@ function _ppRenderPrebook() {
   if (!years.length) return h + '<p style="color:var(--muted);font-size:14px;padding:20px 0">No pre-book data yet &mdash; load a Power BI export to get started.</p>';
 
   var all = [];
-  years.forEach(function(y) { (_ppPrebook[y].rows || []).forEach(function(row) { all.push({ y: y, row: row }); }); });
+  years.forEach(function(y) { (_ppPrebook[y].rows || []).forEach(function(row) { all.push({ y: y, row: row, q: _ppToProduce(y, row) }); }); });
   var f = _ppFilters, search = f.search.trim().toLowerCase();
   var rows = all.filter(function(x) {
     var r = x.row;
     if (f.year && x.y !== f.year) return false;
     if (f.machine && _ppMachineFor(r) !== f.machine) return false;
     if (f.piece && _ppPiece(r) !== f.piece) return false;
-    if (f.needsOnly && !(r.q > 0)) return false;
+    if (f.needsOnly && !(x.q > 0)) return false;
     if (search && (r.i + ' ' + r.n).toLowerCase().indexOf(search) === -1) return false;
     return true;
-  }).sort(function(a, b) { return b.row.q - a.row.q || b.row.o - a.row.o; });
+  }).sort(function(a, b) { return b.q - a.q || b.row.o - a.row.o; });
 
   var machines = _ppUniq(all.map(function(x) { return _ppMachineFor(x.row); }));
   var pieces = _ppUniq(all.filter(function(x) { return !f.machine || _ppMachineFor(x.row) === f.machine; }).map(function(x) { return _ppPiece(x.row); }));
@@ -2690,10 +2705,10 @@ function _ppRenderPrebook() {
   h += '</div>';
   h += '<div style="font-size:12px;color:var(--muted);margin-bottom:6px">' + rows.length.toLocaleString() + ' items' +
     (rows.length > PP_PREBOOK_SHOW_MAX ? ' &mdash; showing the top ' + PP_PREBOOK_SHOW_MAX + ' by QTY to Produce (filter to narrow down)' : '') +
-    ' &middot; Total to produce: <b>' + rows.reduce(function(s, x) { return s + x.row.q; }, 0).toLocaleString() + '</b></div>';
+    ' &middot; Total to produce: <b>' + rows.reduce(function(s, x) { return s + x.q; }, 0).toLocaleString() + '</b></div>';
 
   h += '<div class="table-wrap sticky-head-scroll"><table class="settings-table"><thead><tr>';
-  h += '<th></th><th>Year</th><th>Machine</th><th>Piece Type</th><th>Item ID</th><th>Item Name</th><th style="text-align:right">Open</th><th style="text-align:right">Next 30</th><th style="text-align:right" title="Power BI Inventory QTY — refreshes less often than FLAG">Power BI Inv.</th><th style="text-align:right" title="Live from FLAG: pieces on the LM piece-picking racks (warehouse 101). AMR does not see these. Amber = the AMR bin does not cover the next 30 days on its own.">On LM Racks</th><th style="text-align:right" title="Live from FLAG: pieces in MID-AMR-BIN, the only stock AMR counts">In AMR Bin</th><th style="text-align:right">To Produce</th>';
+  h += '<th></th><th>Year</th><th>Machine</th><th>Piece Type</th><th>Item ID</th><th>Item Name</th><th style="text-align:right">Open</th><th style="text-align:right">Next 30</th><th style="text-align:right" title="Power BI Inventory QTY — refreshes less often than FLAG">Power BI Inv.</th><th style="text-align:right" title="Live from FLAG: pieces on the LM piece-picking racks (warehouse 101). AMR does not see these. Amber = the AMR bin does not cover the next 30 days on its own.">On LM Racks</th><th style="text-align:right" title="Live from FLAG: pieces in MID-AMR-BIN, the only stock AMR counts">In AMR Bin</th><th style="text-align:right" title="Open minus live stock (On LM Racks + In AMR Bin). Stock covers the earlier year first. Falls back to the Power BI number until FLAG syncs.">To Produce</th>';
   h += '</tr></thead><tbody>';
   rows.slice(0, PP_PREBOOK_SHOW_MAX).forEach(function(x) {
     var r = x.row, key = x.y + '|' + r.i;
@@ -2705,7 +2720,7 @@ function _ppRenderPrebook() {
     h += '<td>' + escapeHtml(r.n) + '</td>';
     ['o', 'a', 'v'].forEach(function(k) { h += '<td style="text-align:right">' + (r[k] ? r[k].toLocaleString() : '<span style="color:var(--muted)">&ndash;</span>') + '</td>'; });
     h += _ppFlagCells(r.i, r.a);
-    h += '<td style="text-align:right;font-weight:700">' + (r.q || 0).toLocaleString() + '</td>';
+    h += '<td style="text-align:right;font-weight:700"' + (x.q !== (r.q || 0) ? ' title="Power BI said ' + (r.q || 0).toLocaleString() + ' — this uses live rack + AMR bin stock"' : '') + '>' + x.q.toLocaleString() + '</td>';
     h += '</tr>';
   });
   h += '</tbody></table></div>';
@@ -2736,7 +2751,7 @@ function ppAddSelected() {
     var id = firebase.database().ref('preProduction/items').push().key;
     updates[id] = {
       raw: row.r, piece: _ppPieceLabel(row), machine: _ppMachineFor(row), item: row.i, name: row.n,
-      qtyToProduce: row.q, qtyPrinted: 0, notes: '', prebookYear: y,
+      qtyToProduce: _ppToProduce(y, row), qtyPrinted: 0, notes: '', prebookYear: y,
       dateAdded: today, addedAt: now, addedBy: who || '', source: 'prebook'
     };
   });
