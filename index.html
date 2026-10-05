@@ -3010,8 +3010,31 @@ var RPR_IMPORT_COLS = {
   notes:     ['notes', 'note', 'comments', 'comment', 'taskstatus'],
   pjNumber:  ['pj', 'pj#', 'pjnumber', 'pjno'],
   reason:    ['reason'],
-  requestedBy: ['requestedby', 'requester']
+  requestedBy: ['requestedby', 'requester'],
+  // Read only to decide whether a row is relevant (not saved):
+  machine:   ['machine'],
+  itemName:  ['itemname', 'description'],
+  confirmDate: ['confirmdate'],
+  needsFile: ['needsprintfile', 'needsperfile']
 };
+// Which rows of a team list are actually reprints (owner, 2026-10-05: "if it
+// is not relevant to what is needed, we skip that portion of the list").
+// Built from the 10/5 list: "Allocated…, no PJ" and "…missing" rows are
+// reprints; "PJ-xxxxx assigned/allocated" rows already have a print job.
+// Returns a skip reason, or '' to keep the row. Skipped rows can still be
+// ticked back on in the preview.
+function _rprImpSkipReason(r, inLookup) {
+  if (/wallet|chime/i.test([r.machine, r.sizeMedia, r.itemName].join(' '))) return 'Wallets / Windchimes';
+  if (r.confirmDate) return 'already ship-confirmed';
+  var n = String(r.notes || '').toLowerCase();
+  if (/\bfound\b|confirmed|cancel/.test(n)) return 'resolved (' + (n.match(/found|confirmed|cancel\w*/) || [''])[0] + ')';
+  // A blank note on a list that HAS a notes column = nobody flagged it.
+  if (r.notes === '') return 'no note — nothing flagged';
+  var wanted = /no pj|miss|reprint|re-print|damag|misprint|\blost\b|unproduced|flagged/.test(n);
+  if (!wanted && /pj-?\s?\d|assigned|pack ready/.test(n)) return 'already has a PJ / in progress';
+  if (r.containerNumber && !inLookup) return 'not open in LMContainers (probably shipped)';
+  return '';
+}
 var _rprImport = null; // { fileName, sheets: [{name, rows, use}], rows: [preview rows] }
 
 function rprOpenImport() {
@@ -3059,20 +3082,20 @@ function _rprImpParseSheet(name, ws) {
     Object.keys(RPR_IMPORT_COLS).forEach(function(f) {
       for (var c = 0; c < header.length; c++) {
         if (RPR_IMPORT_COLS[f].indexOf(_rprImpKey(header[c])) !== -1) {
-          if (f === 'notes') { (map.notes = map.notes || []).push(c); continue; }
+          if (f === 'notes' || f === 'needsFile') { (map[f] = map[f] || []).push(c); continue; }
           if (map[f] == null) map[f] = c;
         }
       }
     });
-    var found = Object.keys(map);
+    var found = Object.keys(map).filter(function(f) { return ['machine', 'itemName', 'confirmDate', 'needsFile'].indexOf(f) === -1; });
     if (found.length < 2 || (map.containerNumber == null && map.orderId == null && map.item == null)) continue;
     var rows = [];
     for (var r = hr + 1; r < grid.length; r++) {
       var line = grid[r] || [];
       var row = {};
       Object.keys(map).forEach(function(f) {
-        if (f === 'notes') {
-          row.notes = map.notes.map(function(c) { return _rprImpCell(line[c]); }).filter(Boolean).join(' · ');
+        if (f === 'notes' || f === 'needsFile') {
+          row[f] = map[f].map(function(c) { return _rprImpCell(line[c]); }).filter(Boolean).join(' · ');
         } else if (f === 'waveDate') {
           row.waveDate = _rprImpDate(line[map[f]]);
         } else {
@@ -3133,6 +3156,17 @@ function rprImportRead() {
   }
 }
 
+function rprImportToggleSkipped() {
+  if (!_rprImport) return;
+  _rprImport.showSkipped = !_rprImport.showSkipped;
+  _rprImportRenderPreview();
+}
+function rprImportForce(idx, on) {
+  var r = _rprImport && _rprImport.rows[idx];
+  if (!r) return;
+  r._force = on;
+  _rprImportClassify(_rprImport.rows);
+}
 function rprImportToggleSheet(i, on) {
   if (!_rprImport) return;
   _rprImport.sheets[i].use = on;
@@ -3169,6 +3203,7 @@ function rprImportBuildPreview() {
     })).then(function() { return lookup; });
   }).then(function(lookup) {
     rows.forEach(function(r) {
+      r._inLookup = !!(lookup[r.containerNumber] && lookup[r.containerNumber].length);
       var items = lookup[r.containerNumber] || [];
       var it = null;
       if (r.item) it = items.filter(function(x) { return String(x.i).toUpperCase() === r.item; })[0] || null;
@@ -3189,13 +3224,29 @@ function _rprImportClassify(rows) {
   var reasonAll = document.getElementById('rpr-import-reason').value;
   var by = _rprUserName();
   var seen = {};
+  // The same container+item often sits on several tabs with different notes
+  // (10/5 list: "missing" on one tab, "found"/"Confirmed" on another). A
+  // resolved note on any copy wins; otherwise a copy we'd keep goes first.
+  var groups = {};
+  rows.forEach(function(r) {
+    r._skip = r._force ? '' : _rprImpSkipReason(r, r._inLookup);
+    var key = [r.orderId, r.item, r.containerNumber].join('|');
+    (groups[key] = groups[key] || []).push(r);
+  });
+  Object.keys(groups).forEach(function(key) {
+    var g = groups[key];
+    var resolved = g.filter(function(r) { return /^resolved/.test(r._skip || ''); })[0];
+    if (resolved) g.forEach(function(r) { if (!r._force) r._skip = resolved._skip; });
+  });
+  rows.sort(function(a, b) { return (a._skip ? 1 : 0) - (b._skip ? 1 : 0); });
   rows.forEach(function(r) {
     if (!r.reason && reasonAll) { r.reason = reasonAll; r._reasonFromAll = true; }
     if (!r.requestedBy && by) r.requestedBy = by;
     if (!r.qty) r.qty = '1';
     var key = [r.orderId, r.item, r.containerNumber].join('|');
     var dup = _rprDupCheck(r.orderId, r.item, r.containerNumber, null);
-    if (dup.block) { r._result = 'dup'; r._dupOf = dup.block.e; }
+    if (r._skip) { r._result = 'skip'; }
+    else if (dup.block) { r._result = 'dup'; r._dupOf = dup.block.e; }
     else if (seen[key]) { r._result = 'repeat'; }
     else {
       seen[key] = 1;
@@ -3219,25 +3270,31 @@ function _rprImportRenderPreview() {
     });
     h += '</div></div>';
   }
-  var n = { 'new': 0, needs: 0, dup: 0, repeat: 0 };
+  var n = { 'new': 0, needs: 0, dup: 0, repeat: 0, skip: 0 };
   imp.rows.forEach(function(r) { n[r._result]++; });
   h += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;font-size:12px">' +
     '<span class="maf-status-pill" style="background:#e3f5ea;color:var(--green-dark)">' + n['new'] + ' ready</span>' +
     '<span class="maf-status-pill" style="background:#fde8e8;color:var(--red)">' + n.needs + ' Needs Info</span>' +
     '<span class="maf-status-pill" style="background:#f0f0f0;color:var(--muted)">' + n.dup + ' already requested &middot; skipped</span>' +
-    '<span class="maf-status-pill" style="background:#f0f0f0;color:var(--muted)">' + n.repeat + ' repeated in list &middot; skipped</span></div>';
+    '<span class="maf-status-pill" style="background:#f0f0f0;color:var(--muted)">' + n.repeat + ' repeated in list &middot; skipped</span>' +
+    '<span class="maf-status-pill" style="background:#f0f0f0;color:var(--muted)">' + n.skip + ' not a reprint &middot; skipped</span>' +
+    (n.skip ? ' <button class="qbtn" style="padding:2px 8px;font-size:11px" onclick="rprImportToggleSkipped()">' + (imp.showSkipped ? 'Hide' : 'Show') + ' skipped rows</button>' : '') + '</div>';
   if (!imp.rows.length) {
     h += '<p style="font-size:13px;color:var(--muted)">No rows selected.</p>';
   } else {
     h += '<div style="max-height:340px;overflow:auto;border:1px solid var(--border);border-radius:6px"><table class="settings-table" style="font-size:12px"><thead><tr>' +
       '<th>Result</th><th>Container</th><th>Order</th><th>Item</th><th>Size / Media</th><th>Qty</th><th>Waved</th><th>Reason</th><th>Notes</th></tr></thead><tbody>';
-    imp.rows.forEach(function(r) {
+    imp.rows.forEach(function(r, idx) {
+      if (r._result === 'skip' && !imp.showSkipped) return;
       var res;
-      if (r._result === 'new') res = '<span style="color:var(--green-dark);font-weight:700">Ready</span>';
+      if (r._result === 'skip') res = '<span style="color:var(--muted)">Skipped</span><div style="font-size:10px;color:var(--muted)">' + escapeHtml(r._skip) +
+        '</div><label style="font-size:10px;cursor:pointer"><input type="checkbox" onchange="rprImportForce(' + idx + ',this.checked)"> import anyway</label>';
+      else if (r._result === 'new') res = '<span style="color:var(--green-dark);font-weight:700">Ready</span>';
       else if (r._result === 'needs') res = '<span style="color:var(--red);font-weight:700">Needs Info</span><div style="font-size:10px;color:var(--red)">missing: ' + escapeHtml(r._missing.join(', ')) + '</div>';
       else if (r._result === 'dup') res = '<span style="color:var(--muted)">Already requested</span><div style="font-size:10px;color:var(--muted)">' + escapeHtml(r._dupOf.status || '') + (r._dupOf.requestedBy ? ' &middot; ' + escapeHtml(r._dupOf.requestedBy) : '') + '</div>';
       else res = '<span style="color:var(--muted)">Repeated in list</span>';
-      var dim = (r._result === 'dup' || r._result === 'repeat') ? ' style="opacity:0.55"' : '';
+      if (r._force && r._result !== 'skip') res += '<div style="font-size:10px"><label style="cursor:pointer"><input type="checkbox" checked onchange="rprImportForce(' + idx + ',this.checked)"> import anyway</label></div>';
+      var dim = (r._result === 'dup' || r._result === 'repeat' || r._result === 'skip') ? ' style="opacity:0.55"' : '';
       h += '<tr' + dim + '><td style="white-space:nowrap">' + res + '</td><td>' + escapeHtml(r.containerNumber || '—') + '</td><td>' + escapeHtml(r.orderId || '—') +
         '</td><td>' + escapeHtml(r.item || '—') + '</td><td>' + escapeHtml(r.sizeMedia || '—') + '</td><td>' + escapeHtml(r.qty || '') +
         '</td><td>' + escapeHtml(_rprMD(r.waveDate) || '—') + '</td><td>' + escapeHtml(r.reason || '—') + '</td><td style="max-width:180px">' + escapeHtml(r.notes || '') + '</td></tr>';
