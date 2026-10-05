@@ -1988,6 +1988,16 @@ function _mafNotifiedAtHtml(e) {
   return '<div style="font-size:10px;color:var(--muted);margin-top:2px;white-space:nowrap">sent ' + escapeHtml(stamp) + '</div>';
 }
 
+// Entries added from the Reprints tab arrive with no contact, and the hourly
+// notifier holds them until one is picked (then emails on its next run).
+function _mafAwaitingContactHtml(e) {
+  if (e.source !== 'Reprints' || e.notifiedAt || MAF_ARCHIVED_STATUSES.indexOf(e.status) !== -1) return '';
+  var has = (e.contacts && e.contacts.length) || (e.additionalEmail || '').trim();
+  var by = e.addedBy ? ' by ' + escapeHtml(e.addedBy) : '';
+  if (has) return '<div style="font-size:10px;color:var(--muted);margin-top:2px;max-width:170px">from Reprints' + by + ' &middot; email goes out on the next hourly check</div>';
+  return '<div style="font-size:10px;color:#b85c00;font-weight:700;margin-top:2px;max-width:170px">&#9888; from Reprints' + by + ' &middot; pick a department &amp; contact to send the email</div>';
+}
+
 // Under a "Shipped" pill: makes clear this was closed because the container
 // shipped, not because pre-flight confirmed the file was fixed.
 function _mafShippedNoteHtml(e) {
@@ -2112,7 +2122,7 @@ function renderMissingFiles() {
     h += '<td>' + escapeHtml(e.issue || '—') + '</td>';
     h += '<td>' + escapeHtml(e.sizeMedia || '—') + '</td>';
     h += '<td>' + escapeHtml(_mafContactsDisplay(e)) + '</td>';
-    h += '<td><span class="maf-status-pill" style="background:' + sc.bg + ';color:' + sc.fg + '">' + escapeHtml(e.status || 'Missing') + '</span>' + _mafNotifiedAtHtml(e) + _mafShippedNoteHtml(e) + _mafReprintBadgeHtml(e) + '</td>';
+    h += '<td><span class="maf-status-pill" style="background:' + sc.bg + ';color:' + sc.fg + '">' + escapeHtml(e.status || 'Missing') + '</span>' + _mafNotifiedAtHtml(e) + _mafShippedNoteHtml(e) + _mafReprintBadgeHtml(e) + _mafAwaitingContactHtml(e) + '</td>';
     var ac = _mafAgeColor(e.dateReported);
     h += '<td>' + (ac ? '<span class="maf-status-pill" style="background:' + ac.bg + ';color:' + ac.fg + '">' + escapeHtml(e.dateReported) + '</span>' : '—') + '</td>';
     if (_mafView === 'archive') h += '<td>' + escapeHtml(e.dateResolved || '—') + '</td>';
@@ -2777,12 +2787,10 @@ function rprOpenModal(id) {
   h += '</div>';
   h += '<datalist id="rpr-name-list">' + Object.keys(names).sort().map(function(n) { return '<option value="' + escapeHtml(n) + '">'; }).join('') + '</datalist>';
   h += row('Notes', '<textarea id="rpr-f-notes" rows="2" placeholder="e.g. flagged 10 hours, sorted 7 days…" style="' + fs + ';resize:vertical">' + escapeHtml(e.notes || '') + '</textarea>');
-  var issueGuess = (String(e.notes || '').match(RPR_FILE_MISSING_RE) ? e.notes : '') || 'Missing file';
   h += '<div id="rpr-maf-box" style="font-size:12px;border-top:1px solid var(--border);padding-top:10px">' +
     '<div id="rpr-maf-linked" style="display:none"></div>' +
     '<div id="rpr-maf-offer" style="display:none"><label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">' +
-    '<input type="checkbox" id="rpr-maf-create" onchange="rprToggleMafFields(this.checked)"> &#128196; The file is missing &mdash; also log it in Missing Files</label>' +
-    '<div id="rpr-maf-fields" style="display:none">' + _rprMafFieldsHtml('rpr-maf', issueGuess) + '</div></div></div>';
+    '<input type="checkbox" id="rpr-maf-create"> &#128196; File missing &mdash; add to Missing Files</label></div></div>';
 
   document.getElementById('rpr-modal-body').innerHTML = h;
   document.getElementById('rpr-modal').style.display = 'block';
@@ -2948,10 +2956,9 @@ function rprSaveFromModal() {
   var mafCb = document.getElementById('rpr-maf-create');
   var offerEl = document.getElementById('rpr-maf-offer');
   if (mafCb && mafCb.checked && offerEl && offerEl.style.display !== 'none') {
-    var mf = _rprReadMafFields('rpr-maf');
-    if (!mf) return;
-    var by = _rprUserName() || data.requestedBy;
-    rootUpdates['missingArtFiles/entries/' + firebase.database().ref('missingArtFiles/entries').push().key] = _rprNewMafEntry(data, mf, by);
+    var issue = RPR_FILE_MISSING_RE.test(data.notes || '') ? data.notes : '';
+    rootUpdates['missingArtFiles/entries/' + firebase.database().ref('missingArtFiles/entries').push().key] =
+      _rprNewMafEntry(data, issue, _rprUserName() || data.requestedBy);
   }
   var saveBtn = document.getElementById('rpr-save-btn');
   var errEl = document.getElementById('rpr-modal-error');
@@ -3331,13 +3338,10 @@ function _rprImportRenderPreview() {
   }
   var mafRows = imp.rows.filter(function(r) { return (r._result === 'new' || r._result === 'needs') && r._fileMissing && !r._mafLink; });
   if (mafRows.length) {
-    var keepOn = imp.mafOn ? ' checked' : '';
     h += '<div style="margin-top:10px;padding:10px 12px;border:1px solid var(--red-border,#f0c8c8);border-radius:6px;background:#fff8f8;font-size:12px">' +
-      '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600"><input type="checkbox" id="rpr-imp-maf-create"' + keepOn +
-      ' onchange="_rprImport.mafOn=this.checked;document.getElementById(\'rpr-imp-maf-fields\').style.display=this.checked?\'\':\'none\'"> &#128196; ' + mafRows.length +
-      ' row' + (mafRows.length === 1 ? ' says' : 's say') + ' the file is missing and ' + (mafRows.length === 1 ? 'isn\'t' : 'aren\'t') + ' in Missing Files &mdash; also log ' + (mafRows.length === 1 ? 'it' : 'them') + ' there</label>' +
-      '<div id="rpr-imp-maf-fields" style="display:' + (imp.mafOn ? '' : 'none') + '">' + _rprMafFieldsHtml('rpr-imp-maf', null) +
-      '<div style="color:var(--muted);margin-top:4px">Issue = each row\'s note. You can change department/contact per entry in Missing Files afterward.</div></div></div>';
+      '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600"><input type="checkbox" id="rpr-imp-maf-create"' + (imp.mafOn ? ' checked' : '') +
+      ' onchange="_rprImport.mafOn=this.checked"> &#128196; ' + mafRows.length + ' row' + (mafRows.length === 1 ? ' says' : 's say') +
+      ' the file is missing &mdash; add ' + (mafRows.length === 1 ? 'it' : 'them') + ' to Missing Files</label></div>';
   }
   prev.innerHTML = h;
   var go = document.getElementById('rpr-import-go');
@@ -3362,12 +3366,8 @@ function rprImportSave() {
   if (!by) { alert('Type your name in the "Your name" box at the top of the tab first — it goes on every imported request.'); return; }
   var todo = _rprImport.rows.filter(function(r) { return r._result === 'new' || r._result === 'needs'; });
   if (!todo.length) return;
-  var mafFields = null;
   var mafCb = document.getElementById('rpr-imp-maf-create');
-  if (mafCb && mafCb.checked) {
-    mafFields = _rprReadMafFields('rpr-imp-maf');
-    if (!mafFields) return;
-  }
+  var addMaf = !!(mafCb && mafCb.checked);
   var nowIso = new Date().toISOString();
   var today = nowIso.slice(0, 10);
   var ref = firebase.database().ref('reprintRequests/entries');
@@ -3383,9 +3383,8 @@ function rprImportSave() {
       stamps: { Requested: { by: by, at: nowIso } }
     };
     updates['reprintRequests/entries/' + ref.push().key] = e;
-    if (mafFields && r._fileMissing && !r._mafLink) {
-      updates['missingArtFiles/entries/' + firebase.database().ref('missingArtFiles/entries').push().key] =
-        _rprNewMafEntry(r, { department: mafFields.department, contacts: mafFields.contacts, issue: r._fileIssue }, by);
+    if (addMaf && r._fileMissing && !r._mafLink) {
+      updates['missingArtFiles/entries/' + firebase.database().ref('missingArtFiles/entries').push().key] = _rprNewMafEntry(r, r._fileIssue, by);
     }
   });
   var go = document.getElementById('rpr-import-go');
@@ -3494,35 +3493,19 @@ function rprFileReceived(rid) {
   });
 }
 
-// Department + contact checkboxes for creating a Missing Files entry from
-// this tab (prefix keeps the modal's and the import's inputs apart).
-function _rprMafFieldsHtml(prefix, issue) {
-  var fs = 'padding:6px 9px;border:1px solid var(--border);border-radius:6px;font-size:12px;width:100%;font-family:inherit;box-sizing:border-box';
-  var h = '<div style="display:grid;grid-template-columns:1fr 1.4fr;gap:10px;margin-top:8px">';
-  h += '<div><label style="display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:3px">Department</label><select id="' + prefix + '-dept" style="' + fs + '">' + _mafSelectOptions(_mafDepartments, '') + '</select></div>';
-  if (issue != null) h += '<div><label style="display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:3px">Issue</label><input type="text" id="' + prefix + '-issue" value="' + escapeHtml(issue) + '" style="' + fs + '"></div>';
-  h += '</div><div style="margin-top:8px"><label style="display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:3px">Point of Contact (they get the usual Missing Files email)</label><div style="display:flex;flex-wrap:wrap;gap:4px 14px">';
-  _mafContacts.forEach(function(c) {
-    h += '<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;white-space:nowrap"><input type="checkbox" class="' + prefix + '-contact" value="' + escapeHtml(c) + '"> ' + escapeHtml(c) + '</label>';
-  });
-  return h + '</div></div>';
-}
-function _rprReadMafFields(prefix) {
-  var dept = (document.getElementById(prefix + '-dept') || {}).value || '';
-  var issueEl = document.getElementById(prefix + '-issue');
-  var contacts = Array.prototype.slice.call(document.querySelectorAll('.' + prefix + '-contact:checked')).map(function(cb) { return cb.value; });
-  if (!dept) { alert('Pick a Department for the Missing Files entry.'); return null; }
-  if (!contacts.length) { alert('Pick at least one Point of Contact for the Missing Files entry — they\'re who gets emailed.'); return null; }
-  return { department: dept, contacts: contacts, issue: issueEl ? issueEl.value.trim() : '' };
-}
-function _rprNewMafEntry(r, fields, by) {
+// A Missing Files entry created from this tab (checkbox in the modal or the
+// import). Owner, 2026-10-05: no department/contact/email prompt over here —
+// it lands on Missing Files with source "Reprints" and no contact, and
+// missing_files_notify.py HOLDS it (no email) until someone on Missing Files
+// picks a contact; the next hourly run then sends it as usual.
+function _rprNewMafEntry(r, issue, by) {
   var now = new Date();
   var today = now.getFullYear() + '-' + ('0' + (now.getMonth() + 1)).slice(-2) + '-' + ('0' + now.getDate()).slice(-2);
   return {
-    department: fields.department, contacts: fields.contacts, additionalEmail: '', company: '',
+    department: '', contacts: [], additionalEmail: '', company: '',
     orderId: r.orderId || '', item: r.item || '', containerNumber: r.containerNumber || '', design: '',
-    issue: fields.issue || r._fileIssue || 'Missing file', sizeMedia: r.sizeMedia || '', status: 'Missing',
-    dateReported: today, dateResolved: '', notes: 'Logged from Reprints by ' + by
+    issue: issue || 'Missing file', sizeMedia: r.sizeMedia || '', status: 'Missing',
+    dateReported: today, dateResolved: '', notes: '', source: 'Reprints', addedBy: by || ''
   };
 }
 
@@ -3548,9 +3531,6 @@ function rprRefreshMafBox() {
     linked.style.display = 'none';
     offer.style.display = '';
   }
-}
-function rprToggleMafFields(on) {
-  document.getElementById('rpr-maf-fields').style.display = on ? '' : 'none';
 }
 
 var _rprLiveStarted = false;
