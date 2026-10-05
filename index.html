@@ -665,6 +665,7 @@ input[type="date"]:focus { border-color: var(--green-dark); }
   <div class="subnav-item" id="tab-settings" onclick="showTab('settings')">&#9881; Targets &amp; Rules</div>
   <div class="subnav-item" id="tab-report"   onclick="showTab('report')">&#128203; Plan vs. Actual</div>
   <div class="subnav-item" id="tab-missing"  onclick="showTab('missing')">&#128196; Missing Files</div>
+  <div class="subnav-item" id="tab-reprints" onclick="showTab('reprints')">&#128257; Reprints</div>
   <div class="subnav-item" id="tab-preprod"  onclick="showTab('preprod')">&#127981; Pre-Production</div>
 </div>
 
@@ -1089,6 +1090,44 @@ input[type="date"]:focus { border-color: var(--green-dark); }
 </div>
 </div>
 
+<!-- REPRINT REQUESTS PAGE -->
+<div id="page-reprints" style="display:none">
+<div class="main">
+  <div class="page-head">
+    <h1>Reprint Requests</h1>
+    <p>Log a reprint once — the tab checks for duplicates, tracks it Requested &rarr; Nested &rarr; Printed, and archives it when the container ship-confirms.</p>
+  </div>
+
+  <div class="report-controls">
+    <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden">
+      <button class="maf-view-tab active" id="rpr-view-active-btn" onclick="rprSetView('active')">Active</button>
+      <button class="maf-view-tab" id="rpr-view-archive-btn" onclick="rprSetView('archive')">Archive</button>
+    </div>
+    <button class="qbtn" onclick="rprOpenModal(null)" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark);align-self:flex-end">+ Add Reprint Request</button>
+    <button class="qbtn" onclick="printReprintsReport()" style="align-self:flex-end">&#128424; Print / Export</button>
+    <button class="qbtn" onclick="rprToggleManage()" style="align-self:flex-end">&#9881; Manage Reasons</button>
+    <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
+      <label for="rpr-user-name">Your name</label>
+      <input type="text" id="rpr-user-name" placeholder="Who's updating?" onchange="rprSaveUserName(this.value)"
+        style="padding:5px 9px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;width:170px">
+    </div>
+  </div>
+
+  <div id="rpr-error" style="display:none;margin-bottom:1rem;padding:10px 14px;background:var(--red-bg);border:1px solid var(--red-border);border-radius:var(--radius);color:var(--red);font-size:13px;font-weight:600"></div>
+  <div id="rpr-manage-panel" style="display:none"></div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
+    <div id="rpr-status-chips" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+    <input type="search" id="rpr-search" placeholder="Search container, order, item, PJ…" oninput="rprOnSearch(this.value)"
+      style="margin-left:auto;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;width:250px">
+  </div>
+
+  <div id="rpr-table-wrap"></div>
+
+  <div class="footer">EG Studio &nbsp;&middot;&nbsp; Print Track &nbsp;&middot;&nbsp; Reprint Requests &nbsp;&middot;&nbsp; Age = days since the order was waved: 0&ndash;2 green, 3&ndash;4 yellow, 5&ndash;6 orange, 7+ red</div>
+</div>
+</div>
+
 <div id="page-preprod" style="display:none">
 <div class="main">
   <div class="page-head">
@@ -1132,6 +1171,24 @@ input[type="date"]:focus { border-color: var(--green-dark); }
       <div style="flex:1"></div>
       <button onclick="mafCloseModal()" style="background:none;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 16px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;font-family:inherit">Cancel</button>
       <button id="maf-save-btn" onclick="mafSaveFromModal()" style="background:var(--green-dark);color:#fff;border:none;border-radius:var(--radius-sm);padding:8px 20px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Reprint Request modal -->
+<div id="rpr-modal" onclick="if(event.target===this)rprCloseModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:500;overflow-y:auto;padding:2rem 1rem">
+  <div style="max-width:600px;margin:0 auto;background:var(--white);border-radius:var(--radius);box-shadow:0 8px 32px rgba(0,0,0,0.18);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);background:var(--green-light)">
+      <span id="rpr-modal-title" style="font-size:14px;font-weight:700;color:var(--green-dark)"></span>
+      <button onclick="rprCloseModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted);line-height:1">&#x2715;</button>
+    </div>
+    <div id="rpr-modal-body" style="padding:18px;display:flex;flex-direction:column;gap:12px"></div>
+    <div id="rpr-modal-error" style="display:none;margin:0 18px 12px;padding:8px 12px;background:var(--red-bg,#fdf0f0);border:1px solid var(--red-border,#f0c8c8);border-radius:var(--radius-sm);color:var(--red);font-size:12px;font-weight:600;"></div>
+    <div style="display:flex;justify-content:space-between;gap:8px;padding:0 18px 18px">
+      <button id="rpr-delete-btn" onclick="rprDeleteEntry()" style="display:none;background:none;border:1px solid var(--red-border);border-radius:var(--radius-sm);padding:8px 16px;font-size:13px;font-weight:600;color:var(--red);cursor:pointer;font-family:inherit">&#128465; Delete</button>
+      <div style="flex:1"></div>
+      <button onclick="rprCloseModal()" style="background:none;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 16px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;font-family:inherit">Cancel</button>
+      <button id="rpr-save-btn" onclick="rprSaveFromModal()" style="background:var(--green-dark);color:#fff;border:none;border-radius:var(--radius-sm);padding:8px 20px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Save</button>
     </div>
   </div>
 </div>
@@ -2331,6 +2388,593 @@ function printMissingFilesReport() {
 }
 
 
+// ─── REPRINT REQUESTS ─────────────────────────────────────
+// Added 2026-10-05: replaces the reprint lists the team passed around in Excel
+// (e.g. "0930.xlsx"). Its main job is stopping duplicate requests. One Firebase
+// path, "reprintRequests", so one rules block covers all of it:
+//   reprintRequests/entries/{id}      one request (shape in rprOpenModal)
+//   reprintRequests/reasons           editable Reason dropdown list
+//   reprintRequests/lookup/{container} written hourly by ship_confirm_sync.py
+//       from the newest LMContainers report (unconfirmed containers only):
+//       {items: [{o order, i item, p piece/blank, q qty, w waveDate}]}
+//   reprintRequests/orders/{orderId}  the containers on that order
+// The page reads one lookup node at a time (when someone types a container or
+// order), never the whole lookup. ship_confirm_sync.py also moves a request
+// to "Shipped" (archive) once its container is ship-confirmed.
+var RPR_STATUSES = ['Requested', 'Nested', 'Printed', 'Shipped', 'Cancelled'];
+var RPR_ARCHIVED_STATUSES = ['Shipped', 'Cancelled'];
+var RPR_STEPS = ['Requested', 'Nested', 'Printed']; // the steps the team clicks through
+var RPR_REASONS_DEFAULT = ['Missing', 'Damaged', 'Misprint', 'Wrong Item', 'Lost'];
+
+var _rprEntries = {};
+var _rprReasons = RPR_REASONS_DEFAULT.slice();
+var _rprLoaded  = false;
+var _rprView    = 'active';  // 'active' | 'archive'
+var _rprStatusFilter = '';   // '' = all active statuses
+var _rprSearch  = '';
+var _rprEditId  = null;
+var _rprManageOpen = false;
+var _rprLookupItems = [];    // items found for the container typed in the modal
+var _rprError   = '';
+
+function _rprWriteEntry(id, data) {
+  var updates = {};
+  updates[id] = data;
+  return firebase.database().ref('reprintRequests/entries').update(updates);
+}
+function _rprUserName() {
+  var el = document.getElementById('rpr-user-name');
+  return el ? el.value.trim() : '';
+}
+function rprSaveUserName(v) {
+  // Shared with the Pre-Production tab's "Your name" box.
+  try { localStorage.setItem('ppUserName', v || ''); } catch (e) {}
+  var a = document.getElementById('rpr-user-name'); if (a && a.value !== v) a.value = v || '';
+  var b = document.getElementById('pp-user-name');  if (b && b.value !== v) b.value = v || '';
+}
+
+function _rprIsArchived(e) { return RPR_ARCHIVED_STATUSES.indexOf(e.status) !== -1; }
+
+function _rprStatusColor(status) {
+  if (status === 'Printed')   return { bg: '#e3f5ea', fg: 'var(--green-dark)' };
+  if (status === 'Nested')    return { bg: '#e4eefc', fg: '#2a5ea8' };
+  if (status === 'Shipped')   return { bg: '#efe7f8', fg: '#6b3fa0' };
+  if (status === 'Cancelled') return { bg: '#f0f0f0', fg: 'var(--muted)' };
+  return { bg: '#fff3d6', fg: '#a8760a' }; // Requested
+}
+
+function _rprShortStamp(iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+function _rprMD(dateStr) {
+  if (!dateStr) return '';
+  var p = dateStr.split('-');
+  return p.length === 3 ? (+p[1]) + '/' + (+p[2]) : dateStr;
+}
+
+// Aging counts from the WAVE date (owner choice 2026-10-05: how long the
+// customer's order has been sitting), same tiers as Missing Files: 0-2 days
+// green, 3-4 yellow, 5-6 orange, 7+ red. Falls back to the request date when
+// the container wasn't in the LMContainers report.
+function _rprAgeBase(e) { return e.waveDate || e.dateRequested || ''; }
+function _rprAgeHtml(e, forPrint) {
+  var base = _rprAgeBase(e);
+  var c = _mafAgeColor(base);
+  if (!c) return '—';
+  var days = _mafDaysSince(base);
+  var label = _rprMD(base) + ' &middot; ' + days + 'd';
+  var note = e.waveDate ? '' : '<div style="font-size:10px;color:var(--muted);margin-top:2px">no wave date &middot; from request</div>';
+  var style = 'background:' + c.bg + ';color:' + c.fg;
+  if (forPrint) style += ';display:inline-block;white-space:nowrap;padding:2px 8px;border-radius:20px;font-weight:700;print-color-adjust:exact;-webkit-print-color-adjust:exact';
+  return '<span class="maf-status-pill" style="' + style + '">' + label + '</span>' + note;
+}
+
+// Who/when each step was reached, e.g. "Nested · Ana 10/5 2:14 PM".
+function _rprStampsHtml(e) {
+  var st = e.stamps || {};
+  var lines = [];
+  RPR_STEPS.forEach(function(s) {
+    if (st[s] && s !== 'Requested') lines.push(s + ' &middot; ' + escapeHtml(st[s].by || '?') + ' ' + escapeHtml(_rprShortStamp(st[s].at)));
+  });
+  if (e.status === 'Shipped' && e.shippedAt) {
+    lines.push('container shipped ' + escapeHtml(_rprShortStamp(e.shippedAt)));
+  }
+  if (!lines.length) return '';
+  return '<div style="font-size:10px;color:var(--muted);margin-top:2px;line-height:1.35">' + lines.join('<br>') + '</div>';
+}
+
+// Duplicate rules (owner choice 2026-10-05), checked against OPEN requests:
+//   BLOCK  same order + same item + same container (or either container blank)
+//   WARN   same order, anything else (another item, or the same item in a
+//          different container — e.g. order 13951006 has two personalized
+//          mats with the same item ID in two containers, both legit)
+//   WARN   same container on a different order (likely a typo)
+function _rprDupCheck(orderId, item, container, excludeId) {
+  var out = { block: null, warn: [] };
+  orderId = String(orderId || '').trim();
+  item = String(item || '').trim().toUpperCase();
+  container = String(container || '').trim();
+  if (!orderId && !container) return out;
+  Object.keys(_rprEntries).forEach(function(id) {
+    if (id === excludeId) return;
+    var e = _rprEntries[id];
+    if (!e || _rprIsArchived(e)) return;
+    var eOrder = String(e.orderId || '').trim();
+    var eItem = String(e.item || '').trim().toUpperCase();
+    var eCont = String(e.containerNumber || '').trim();
+    var sameOrder = orderId && eOrder === orderId;
+    var sameCont = container && eCont === container;
+    if (sameOrder && item && eItem === item && (!container || !eCont || sameCont)) {
+      if (!out.block) out.block = { id: id, e: e };
+    } else if (sameOrder || sameCont) {
+      out.warn.push({ id: id, e: e });
+    }
+  });
+  return out;
+}
+function _rprEntrySummary(e) {
+  return 'container ' + escapeHtml(e.containerNumber || '—') + ' &middot; order ' + escapeHtml(e.orderId || '—') +
+    ' &middot; ' + escapeHtml(e.item || '—') + ' &middot; <b>' + escapeHtml(e.status || 'Requested') + '</b>' +
+    (e.requestedBy ? ' &middot; requested by ' + escapeHtml(e.requestedBy) : '') +
+    (e.dateRequested ? ' ' + escapeHtml(_rprMD(e.dateRequested)) : '');
+}
+
+function rprSetView(view) {
+  _rprView = view;
+  document.getElementById('rpr-view-active-btn').classList.toggle('active', view === 'active');
+  document.getElementById('rpr-view-archive-btn').classList.toggle('active', view === 'archive');
+  renderReprints();
+}
+function rprSetStatusFilter(s) { _rprStatusFilter = s; renderReprints(); }
+function rprOnSearch(v) { _rprSearch = (v || '').trim().toLowerCase(); renderReprints(); }
+function rprToggleManage() { _rprManageOpen = !_rprManageOpen; renderReprints(); }
+
+function _rprFilteredIds() {
+  return Object.keys(_rprEntries).filter(function(id) {
+    var e = _rprEntries[id];
+    if (!e) return false;
+    if (_rprView === 'archive' ? !_rprIsArchived(e) : _rprIsArchived(e)) return false;
+    if (_rprView === 'active' && _rprStatusFilter && (e.status || 'Requested') !== _rprStatusFilter) return false;
+    if (_rprSearch) {
+      var hay = [e.containerNumber, e.orderId, e.item, e.sizeMedia, e.pjNumber, e.requestedBy, e.notes].join(' ').toLowerCase();
+      if (hay.indexOf(_rprSearch) === -1) return false;
+    }
+    return true;
+  });
+}
+
+function renderReprints() {
+  var wrap = document.getElementById('rpr-table-wrap');
+  if (!wrap) return;
+  var errEl = document.getElementById('rpr-error');
+  if (errEl) { errEl.style.display = _rprError ? '' : 'none'; errEl.textContent = _rprError; }
+  if (!_rprLoaded) { wrap.innerHTML = '<p style="color:var(--muted);font-size:14px">Loading&hellip;</p>'; return; }
+
+  var manageWrap = document.getElementById('rpr-manage-panel');
+  manageWrap.style.display = _rprManageOpen ? '' : 'none';
+  if (_rprManageOpen) {
+    var mh = '<div class="section" style="margin-bottom:16px"><div class="section-head">Reasons</div><div class="maf-chip-list">';
+    _rprReasons.forEach(function(r, i) {
+      mh += '<span class="maf-chip">' + escapeHtml(r) + '<button onclick="rprRemoveReason(' + i + ')" title="Remove">&times;</button></span>';
+    });
+    mh += '</div><div style="display:flex;gap:8px"><input type="text" id="rpr-new-reason" placeholder="Add a reason…" style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;flex:1;font-family:inherit" onkeydown="if(event.key===\'Enter\')rprAddReason()"><button class="qbtn" onclick="rprAddReason()">+ Add</button></div></div>';
+    manageWrap.innerHTML = mh;
+  }
+
+  // Status filter chips with counts (Active view only)
+  var chips = document.getElementById('rpr-status-chips');
+  if (chips) {
+    if (_rprView === 'active') {
+      var counts = { '': 0 };
+      Object.keys(_rprEntries).forEach(function(id) {
+        var e = _rprEntries[id];
+        if (!e || _rprIsArchived(e)) return;
+        var s = e.status || 'Requested';
+        counts[''] += 1;
+        counts[s] = (counts[s] || 0) + 1;
+      });
+      var ch = '';
+      [''].concat(RPR_STEPS).forEach(function(s) {
+        var on = _rprStatusFilter === s;
+        ch += '<button class="qbtn" onclick="rprSetStatusFilter(\'' + s + '\')" style="' + (on ? 'background:var(--green-dark);color:#fff;border-color:var(--green-dark)' : '') + '">' +
+          (s || 'All open') + ' (' + (counts[s] || 0) + ')</button>';
+      });
+      chips.innerHTML = ch;
+      chips.style.display = '';
+    } else {
+      chips.style.display = 'none';
+    }
+  }
+
+  var ids = _rprFilteredIds();
+  // Active: oldest wave first (most urgent on top). Archive: most recently closed first.
+  ids.sort(function(a, b) {
+    var ea = _rprEntries[a], eb = _rprEntries[b];
+    if (_rprView === 'archive') {
+      var ca = ea.dateClosed || '', cb = eb.dateClosed || '';
+      return cb < ca ? -1 : cb > ca ? 1 : 0;
+    }
+    var wa = _rprAgeBase(ea), wb = _rprAgeBase(eb);
+    return wa < wb ? -1 : wa > wb ? 1 : 0;
+  });
+
+  if (!ids.length) {
+    wrap.innerHTML = '<p style="color:var(--muted);font-size:14px;padding:20px 0">' +
+      (_rprSearch || _rprStatusFilter ? 'Nothing matches that filter.' :
+        _rprView === 'archive' ? 'No shipped or cancelled requests yet.' : 'No open reprint requests — click "+ Add Reprint Request" to log one.') + '</p>';
+    return;
+  }
+
+  var h = '<div class="table-wrap sticky-head-scroll"><table class="settings-table"><thead><tr>';
+  h += '<th>Waved / Age</th><th>Container #</th><th>Order ID</th><th>Item Id</th><th>Size / Media</th><th>Qty</th><th>Reason</th><th>Requested</th><th>PJ #</th><th>Status</th><th>Notes</th>';
+  if (_rprView === 'archive') h += '<th>Closed</th>';
+  h += '<th></th></tr></thead><tbody>';
+  ids.forEach(function(id) {
+    var e = _rprEntries[id];
+    var status = e.status || 'Requested';
+    var sc = _rprStatusColor(status);
+    h += '<tr>';
+    h += '<td style="white-space:nowrap">' + _rprAgeHtml(e) + '</td>';
+    h += '<td style="white-space:nowrap;font-weight:600">' + escapeHtml(e.containerNumber || '—') + '</td>';
+    h += '<td>' + escapeHtml(e.orderId || '—') + '</td>';
+    h += '<td style="white-space:nowrap">' + escapeHtml(e.item || '—') + '</td>';
+    h += '<td>' + escapeHtml(e.sizeMedia || '—') + '</td>';
+    h += '<td>' + escapeHtml(e.qty || '—') + '</td>';
+    h += '<td>' + escapeHtml(e.reason || '—') + '</td>';
+    h += '<td style="white-space:nowrap">' + escapeHtml(e.requestedBy || '—') + '<div style="font-size:10px;color:var(--muted)">' + escapeHtml(_rprMD(e.dateRequested)) + '</div></td>';
+    h += '<td>' + escapeHtml(e.pjNumber || '—') + '</td>';
+    h += '<td><span class="maf-status-pill" style="background:' + sc.bg + ';color:' + sc.fg + '">' + escapeHtml(status) + '</span>' + _rprStampsHtml(e) + '</td>';
+    h += '<td style="font-size:12px;max-width:220px">' + escapeHtml(e.notes || '') + '</td>';
+    if (_rprView === 'archive') h += '<td>' + escapeHtml(_rprMD(e.dateClosed) || '—') + '</td>';
+    h += '<td style="white-space:nowrap">';
+    var next = RPR_STEPS[RPR_STEPS.indexOf(status) + 1];
+    if (_rprView === 'active' && next) {
+      h += '<button class="qbtn" onclick="rprAdvance(\'' + id + '\')" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark);margin-right:4px" title="Mark as ' + next + '">&rarr; ' + next + '</button>';
+    }
+    h += '<button class="qbtn" onclick="rprOpenModal(\'' + id + '\')">Edit</button></td>';
+    h += '</tr>';
+  });
+  h += '</tbody></table></div>';
+  wrap.innerHTML = h;
+}
+
+// One-click "→ Nested" / "→ Printed" from the table.
+function rprAdvance(id) {
+  var e = _rprEntries[id];
+  if (!e) return;
+  var next = RPR_STEPS[RPR_STEPS.indexOf(e.status || 'Requested') + 1];
+  if (!next) return;
+  var by = _rprUserName();
+  if (!by) {
+    alert('Type your name in the "Your name" box first, so we know who marked it ' + next + '.');
+    var el = document.getElementById('rpr-user-name'); if (el) el.focus();
+    return;
+  }
+  var updates = {};
+  updates['status'] = next;
+  updates['stamps/' + next] = { by: by, at: new Date().toISOString() };
+  _mafWithTimeout(firebase.database().ref('reprintRequests/entries/' + id).update(updates), 10000).catch(function(err) {
+    alert('✗ Not saved — ' + (err && err.message ? err.message : err));
+  });
+}
+
+function rprAddReason() {
+  var input = document.getElementById('rpr-new-reason');
+  var v = (input.value || '').trim();
+  if (!v) return;
+  if (_rprReasons.indexOf(v) !== -1) { alert('"' + v + '" already exists.'); return; }
+  var snapshot = _rprReasons.slice();
+  _rprReasons.push(v);
+  _rprSaveReasons(snapshot);
+}
+function rprRemoveReason(i) {
+  if (!confirm('Remove reason "' + _rprReasons[i] + '"? Existing requests keep their reason text.')) return;
+  var snapshot = _rprReasons.slice();
+  _rprReasons.splice(i, 1);
+  _rprSaveReasons(snapshot);
+}
+function _rprSaveReasons(snapshot) {
+  renderReprints();
+  _mafWithTimeout(firebase.database().ref('reprintRequests/reasons').set(_rprReasons), 10000).catch(function(err) {
+    _rprReasons = snapshot;
+    renderReprints();
+    alert('✗ Save failed — reasons were NOT saved: ' + (err && err.message ? err.message : err));
+  });
+}
+
+// ── Add / Edit modal ──
+function rprOpenModal(id) {
+  _rprEditId = id;
+  _rprLookupItems = [];
+  var saveBtn = document.getElementById('rpr-save-btn');
+  if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+  var errEl = document.getElementById('rpr-modal-error');
+  if (errEl) errEl.style.display = 'none';
+  var e = id ? _rprEntries[id] : {
+    containerNumber: '', orderId: '', item: '', sizeMedia: '', qty: '1', waveDate: '',
+    reason: '', requestedBy: _rprUserName(), pjNumber: '', notes: '', status: 'Requested',
+    dateRequested: new Date().toISOString().slice(0, 10)
+  };
+  document.getElementById('rpr-modal-title').textContent = id ? 'Edit Reprint Request' : 'Add Reprint Request';
+  document.getElementById('rpr-delete-btn').style.display = id ? '' : 'none';
+
+  var fs = 'padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:100%;font-family:inherit;box-sizing:border-box';
+  function row(label, inputHtml) {
+    return '<div><label style="display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:3px">' + label + '</label>' + inputHtml + '</div>';
+  }
+  var names = {};
+  Object.keys(_rprEntries).forEach(function(k) { var n = _rprEntries[k] && _rprEntries[k].requestedBy; if (n) names[n] = 1; });
+
+  var h = '';
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
+  h += row('Container Number', '<input type="text" id="rpr-f-container" value="' + escapeHtml(e.containerNumber || '') + '" placeholder="Type or scan, then Tab" onchange="rprLookupContainer()" oninput="rprRefreshDupBox()" onkeydown="if(event.key===\'Enter\'){event.preventDefault();rprLookupContainer();}" style="' + fs + '">');
+  h += row('Order ID', '<input type="text" id="rpr-f-orderid" value="' + escapeHtml(e.orderId || '') + '" onchange="rprLookupOrder()" oninput="rprRefreshDupBox()" style="' + fs + '">');
+  h += '</div>';
+  h += '<div id="rpr-lookup-box" style="display:none;font-size:12px;padding:8px 12px;border-radius:6px"></div>';
+  h += '<div style="display:grid;grid-template-columns:1.3fr 1.3fr 0.6fr;gap:12px">';
+  h += row('Item Id', '<input type="text" id="rpr-f-item" value="' + escapeHtml(e.item || '') + '" oninput="rprRefreshDupBox()" style="' + fs + '">');
+  h += row('Size / Media', '<input type="text" id="rpr-f-sizemedia" list="rpr-piece-list" value="' + escapeHtml(e.sizeMedia || '') + '" style="' + fs + '">');
+  h += row('Qty', '<input type="number" min="1" id="rpr-f-qty" value="' + escapeHtml(e.qty || '1') + '" style="' + fs + '">');
+  h += '</div>';
+  h += '<datalist id="rpr-piece-list">' + _allKnownPieceTypes().map(function(p) { return '<option value="' + escapeHtml(p) + '">'; }).join('') + '</datalist>';
+  h += '<div id="rpr-dup-box" style="display:none;font-size:12px;padding:8px 12px;border-radius:6px"></div>';
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">';
+  h += row('Wave Date', '<input type="date" id="rpr-f-wave" value="' + escapeHtml(e.waveDate || '') + '" style="' + fs + '">');
+  h += row('Reason', '<select id="rpr-f-reason" style="' + fs + '">' + _mafSelectOptions(_rprReasons.indexOf(e.reason) === -1 && e.reason ? _rprReasons.concat([e.reason]) : _rprReasons, e.reason) + '</select>');
+  h += row('PJ #', '<input type="text" id="rpr-f-pj" value="' + escapeHtml(e.pjNumber || '') + '" placeholder="e.g. PJ-14090" style="' + fs + '">');
+  h += '</div>';
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">';
+  h += row('Requested By', '<input type="text" id="rpr-f-by" list="rpr-name-list" value="' + escapeHtml(e.requestedBy || '') + '" style="' + fs + '">');
+  h += row('Date Requested', '<input type="date" id="rpr-f-requested" value="' + escapeHtml(e.dateRequested || '') + '" style="' + fs + '">');
+  h += row('Status', '<select id="rpr-f-status" style="' + fs + '">' + RPR_STATUSES.map(function(s) { return '<option value="' + s + '"' + (s === (e.status || 'Requested') ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select>');
+  h += '</div>';
+  h += '<datalist id="rpr-name-list">' + Object.keys(names).sort().map(function(n) { return '<option value="' + escapeHtml(n) + '">'; }).join('') + '</datalist>';
+  h += row('Notes', '<textarea id="rpr-f-notes" rows="2" placeholder="e.g. flagged 10 hours, sorted 7 days…" style="' + fs + ';resize:vertical">' + escapeHtml(e.notes || '') + '</textarea>');
+
+  document.getElementById('rpr-modal-body').innerHTML = h;
+  document.getElementById('rpr-modal').style.display = 'block';
+  rprRefreshDupBox();
+  if (!id) setTimeout(function() { var c = document.getElementById('rpr-f-container'); if (c) c.focus(); }, 50);
+}
+function rprCloseModal() {
+  document.getElementById('rpr-modal').style.display = 'none';
+  _rprEditId = null;
+}
+
+function _rprLookupBox(html, kind) {
+  var box = document.getElementById('rpr-lookup-box');
+  if (!box) return;
+  if (!html) { box.style.display = 'none'; return; }
+  var colors = { ok: ['var(--green-light)', 'var(--green-dark)'], info: ['#f4f4f4', 'var(--muted)'], warn: ['#fff3d6', '#a8760a'] }[kind || 'info'];
+  box.style.background = colors[0];
+  box.style.color = colors[1];
+  box.innerHTML = html;
+  box.style.display = '';
+}
+
+// Container typed → read reprintRequests/lookup/{container} and fill in the
+// order, item, size/media, qty and wave date. A container with more than one
+// item (e.g. a 60x24 FC + OC pair) shows buttons to pick which one.
+function rprLookupContainer() {
+  var cn = (document.getElementById('rpr-f-container').value || '').trim();
+  rprRefreshDupBox();
+  if (!cn) { _rprLookupBox(''); return; }
+  if (/[.#$\[\]\/]/.test(cn)) { _rprLookupBox('That doesn\'t look like a container number.', 'warn'); return; }
+  _rprLookupBox('Looking up container ' + escapeHtml(cn) + '&hellip;', 'info');
+  firebase.database().ref('reprintRequests/lookup/' + cn).once('value').then(function(snap) {
+    var v = snap.val();
+    if ((document.getElementById('rpr-f-container') || {}).value.trim() !== cn) return; // typed something else meanwhile
+    var items = (v && v.items) || [];
+    _rprLookupItems = items;
+    if (!items.length) {
+      _rprLookupBox('Container ' + escapeHtml(cn) + ' isn\'t in the latest LMContainers report (or it already shipped). Fill in the rest by hand.', 'warn');
+      return;
+    }
+    if (items.length === 1) { rprPickLookupItem(0); return; }
+    var h = 'Container ' + escapeHtml(cn) + ' has ' + items.length + ' items — which one needs the reprint?<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">';
+    items.forEach(function(it, i) {
+      h += '<button class="qbtn" onclick="rprPickLookupItem(' + i + ')">' + escapeHtml(it.i) + (it.p ? ' &middot; ' + escapeHtml(it.p) : '') + '</button>';
+    });
+    _rprLookupBox(h + '</div>', 'ok');
+  }).catch(function(err) {
+    _rprLookupBox('Couldn\'t look that up (' + escapeHtml(err && err.message ? err.message : err) + '). Fill in the rest by hand.', 'warn');
+  });
+}
+function rprPickLookupItem(i) {
+  var it = _rprLookupItems[i];
+  if (!it) return;
+  function set(id, v) { var el = document.getElementById(id); if (el && v != null && v !== '') el.value = v; }
+  set('rpr-f-orderid', String(it.o || ''));
+  set('rpr-f-item', it.i);
+  set('rpr-f-sizemedia', it.p);
+  set('rpr-f-qty', it.q);
+  set('rpr-f-wave', it.w);
+  _rprLookupBox('&#10003; Filled in from LMContainers: order ' + escapeHtml(it.o) + ', ' + escapeHtml(it.i) +
+    (it.p ? ' (' + escapeHtml(it.p) + ')' : '') + (it.w ? ', waved ' + escapeHtml(_rprMD(it.w)) : '') + '.', 'ok');
+  rprRefreshDupBox();
+}
+// Order typed with no container → list that order's containers to pick from.
+function rprLookupOrder() {
+  rprRefreshDupBox();
+  var cn = (document.getElementById('rpr-f-container').value || '').trim();
+  var oid = (document.getElementById('rpr-f-orderid').value || '').trim();
+  if (cn || !oid || /[.#$\[\]\/]/.test(oid)) return;
+  firebase.database().ref('reprintRequests/orders/' + oid).once('value').then(function(snap) {
+    var list = snap.val() || [];
+    if (!list.length) return;
+    var h = 'Order ' + escapeHtml(oid) + ' is in container' + (list.length > 1 ? 's' : '') + ':<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">';
+    list.forEach(function(c) {
+      h += '<button class="qbtn" onclick="document.getElementById(\'rpr-f-container\').value=\'' + escapeHtml(c) + '\';rprLookupContainer()">' + escapeHtml(c) + '</button>';
+    });
+    _rprLookupBox(h + '</div>', 'ok');
+  }).catch(function() {});
+}
+
+function rprRefreshDupBox() {
+  var box = document.getElementById('rpr-dup-box');
+  if (!box) return;
+  var d = _rprDupCheck(
+    (document.getElementById('rpr-f-orderid') || {}).value,
+    (document.getElementById('rpr-f-item') || {}).value,
+    (document.getElementById('rpr-f-container') || {}).value,
+    _rprEditId);
+  if (d.block) {
+    box.style.background = 'var(--red-bg,#fdf0f0)';
+    box.style.color = 'var(--red)';
+    box.innerHTML = '<b>&#9940; Already requested</b> — ' + _rprEntrySummary(d.block.e) + '. This can\'t be saved again; edit the existing request instead.';
+    box.style.display = '';
+  } else if (d.warn.length) {
+    box.style.background = '#fff3d6';
+    box.style.color = '#a8760a';
+    box.innerHTML = '<b>&#9888; Heads up — this order/container already has an open request:</b>' +
+      d.warn.map(function(w) { return '<div style="margin-top:3px">' + _rprEntrySummary(w.e) + '</div>'; }).join('') +
+      '<div style="margin-top:4px">If this is a different piece, go ahead and save.</div>';
+    box.style.display = '';
+  } else {
+    box.style.display = 'none';
+  }
+  return d;
+}
+
+function rprSaveFromModal() {
+  function val(id) { return (document.getElementById(id).value || '').trim(); }
+  var prev = (_rprEditId && _rprEntries[_rprEditId]) || null;
+  var status = val('rpr-f-status');
+  var data = Object.assign({}, prev || {}, {
+    containerNumber: val('rpr-f-container'),
+    orderId:   val('rpr-f-orderid'),
+    item:      val('rpr-f-item').toUpperCase(),
+    sizeMedia: val('rpr-f-sizemedia'),
+    qty:       val('rpr-f-qty') || '1',
+    waveDate:  val('rpr-f-wave'),
+    reason:    val('rpr-f-reason'),
+    pjNumber:  val('rpr-f-pj'),
+    requestedBy:   val('rpr-f-by'),
+    dateRequested: val('rpr-f-requested'),
+    status:    status,
+    notes:     val('rpr-f-notes')
+  });
+  if (!data.containerNumber && !data.orderId) { alert('Enter a container number or an order ID.'); return; }
+  if (!data.item) { alert('Enter the Item Id that needs the reprint.'); return; }
+  if (!data.requestedBy) { alert('Enter who is requesting it.'); return; }
+  if (RPR_ARCHIVED_STATUSES.indexOf(status) === -1) {
+    var d = _rprDupCheck(data.orderId, data.item, data.containerNumber, _rprEditId);
+    if (d.block) { rprRefreshDupBox(); return; }
+  }
+  var nowIso = new Date().toISOString();
+  var stamps = Object.assign({}, data.stamps || {});
+  if (!prev) {
+    data.createdAt = nowIso;
+    stamps.Requested = { by: data.requestedBy, at: nowIso };
+  }
+  if (!prev || prev.status !== status) {
+    if (RPR_STEPS.indexOf(status) > 0 && !stamps[status]) stamps[status] = { by: _rprUserName() || data.requestedBy, at: nowIso };
+    if (RPR_ARCHIVED_STATUSES.indexOf(status) !== -1) {
+      data.dateClosed = data.dateClosed || nowIso.slice(0, 10);
+      if (status === 'Cancelled') data.cancelledBy = _rprUserName() || '';
+    } else {
+      data.dateClosed = '';
+    }
+  }
+  data.stamps = stamps;
+
+  var id = _rprEditId || firebase.database().ref('reprintRequests/entries').push().key;
+  var saveBtn = document.getElementById('rpr-save-btn');
+  var errEl = document.getElementById('rpr-modal-error');
+  if (errEl) errEl.style.display = 'none';
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+  _mafWithTimeout(_rprWriteEntry(id, data), 10000).then(function() {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+    rprCloseModal();
+  }).catch(function(err) {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+    if (errEl) {
+      errEl.textContent = '✗ Save failed — this request was NOT saved: ' + (err && err.message ? err.message : err) + '. If it says permission denied, the "reprintRequests" rules block still needs to be added in the Firebase console.';
+      errEl.style.display = 'block';
+    }
+  });
+}
+
+function rprDeleteEntry() {
+  if (!_rprEditId) return;
+  if (!confirm('Delete this reprint request completely? (To keep a record, set Status to Cancelled instead.)')) return;
+  var updates = {};
+  updates[_rprEditId] = null;
+  _mafWithTimeout(firebase.database().ref('reprintRequests/entries').update(updates), 10000).then(function() {
+    rprCloseModal();
+  }).catch(function(err) {
+    alert('✗ Delete failed — ' + (err && err.message ? err.message : err));
+  });
+}
+
+// Print / Save as PDF — reuses the Missing Files print layout (#missing-files-print,
+// body.print-missing-files) and prints whatever the table is showing now.
+function printReprintsReport() {
+  var ids = _rprFilteredIds();
+  ids.sort(function(a, b) {
+    var wa = _rprAgeBase(_rprEntries[a]), wb = _rprAgeBase(_rprEntries[b]);
+    return wa < wb ? -1 : wa > wb ? 1 : 0;
+  });
+  var title = _rprView === 'archive' ? 'Shipped / Cancelled' : (_rprStatusFilter || 'Open Requests');
+  var h = '<div class="mf-print-header"><div class="mf-print-eyebrow">EG Studio &middot; Reprint Requests</div>';
+  h += '<div class="mf-print-title">' + escapeHtml(title) + '</div>';
+  h += '<div class="mf-print-sub">' + new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) +
+    ' &middot; ' + ids.length + ' request' + (ids.length === 1 ? '' : 's') + '</div></div>';
+  if (!ids.length) {
+    h += '<p style="font-size:13px;color:#666">Nothing to show.</p>';
+  } else {
+    h += '<table class="mf-print-table"><thead><tr><th>Waved / Age</th><th>Container #</th><th>Order ID</th><th>Item Id</th><th>Size / Media</th><th>Qty</th><th>Reason</th><th>Requested</th><th>PJ #</th><th>Status</th><th>Notes</th></tr></thead><tbody>';
+    ids.forEach(function(id) {
+      var e = _rprEntries[id];
+      h += '<tr><td style="white-space:nowrap">' + _rprAgeHtml(e, true) + '</td>';
+      h += '<td>' + escapeHtml(e.containerNumber || '—') + '</td><td>' + escapeHtml(e.orderId || '—') + '</td>';
+      h += '<td>' + escapeHtml(e.item || '—') + '</td><td>' + escapeHtml(e.sizeMedia || '—') + '</td><td>' + escapeHtml(e.qty || '—') + '</td>';
+      h += '<td>' + escapeHtml(e.reason || '—') + '</td><td>' + escapeHtml(e.requestedBy || '—') + ' ' + escapeHtml(_rprMD(e.dateRequested)) + '</td>';
+      h += '<td>' + escapeHtml(e.pjNumber || '—') + '</td><td>' + escapeHtml(e.status || 'Requested') + _rprStampsHtml(e) + '</td>';
+      h += '<td>' + escapeHtml(e.notes || '') + '</td></tr>';
+    });
+    h += '</tbody></table>';
+  }
+  document.getElementById('missing-files-print').innerHTML = h;
+  document.body.classList.add('print-missing-files');
+  _printAs('EGStudio_Reprints_' + (_rprView === 'archive' ? 'Archive' : 'Open') + '_' + _mmddyy(new Date().toISOString().slice(0, 10)));
+  setTimeout(function() { document.body.classList.remove('print-missing-files'); }, 500);
+}
+
+var _rprLiveStarted = false;
+function _rprStartLiveSync() {
+  if (_rprLiveStarted) return;
+  _rprLiveStarted = true;
+  try { rprSaveUserName(localStorage.getItem('ppUserName') || ''); } catch (e) {}
+  function rerenderIfOpen() {
+    var panel = document.getElementById('page-reprints');
+    if (panel && panel.style.display !== 'none') renderReprints();
+  }
+  function onErr(path) {
+    return function(err) {
+      console.error(path + ' live sync error:', err);
+      _rprLoaded = true;
+      _rprError = 'Can\'t read "' + path + '" from Firebase: ' + (err && err.message ? err.message : err) +
+        '. If this says permission denied, the "reprintRequests" rules block still needs to be added in the Firebase console.';
+      rerenderIfOpen();
+    };
+  }
+  firebase.database().ref('reprintRequests/entries').on('value', function(snap) {
+    _rprEntries = snap.val() || {};
+    _rprLoaded = true;
+    _rprError = '';
+    rerenderIfOpen();
+    if (document.getElementById('rpr-modal').style.display !== 'none') rprRefreshDupBox();
+  }, onErr('reprintRequests/entries'));
+  firebase.database().ref('reprintRequests/reasons').on('value', function(snap) {
+    _rprReasons = snap.val() || RPR_REASONS_DEFAULT.slice();
+    rerenderIfOpen();
+  }, onErr('reprintRequests/reasons'));
+}
+
 // ─── TAB SWITCHING ───────────────────────────────────────
 // ─── PRE-PRODUCTION ───────────────────────────────────────
 // Replaces the owner's "2026 PreProduction Workbook.xlsx" (added 2026-09-24).
@@ -3113,6 +3757,7 @@ function showTab(tab) {
   document.getElementById('page-settings').style.display = tab === 'settings' ? 'block' : 'none';
   document.getElementById('page-report').style.display   = tab === 'report'   ? 'block' : 'none';
   document.getElementById('page-missing').style.display  = tab === 'missing'  ? 'block' : 'none';
+  document.getElementById('page-reprints').style.display = tab === 'reprints' ? 'block' : 'none';
   document.getElementById('page-preprod').style.display  = tab === 'preprod'  ? 'block' : 'none';
   document.querySelector('.main').style.display = tab === 'daily' ? 'block' : 'none';
   document.getElementById('tab-daily').classList.toggle('active',    tab === 'daily');
@@ -3121,6 +3766,7 @@ function showTab(tab) {
   document.getElementById('tab-settings').classList.toggle('active', tab === 'settings');
   document.getElementById('tab-report').classList.toggle('active',   tab === 'report');
   document.getElementById('tab-missing').classList.toggle('active',  tab === 'missing');
+  document.getElementById('tab-reprints').classList.toggle('active', tab === 'reprints');
   document.getElementById('tab-preprod').classList.toggle('active',  tab === 'preprod');
   if (tab === 'totals') {
     renderCalendar();
@@ -3140,6 +3786,10 @@ function showTab(tab) {
     if (!rdp.value) rdp.value = new Date().toISOString().slice(0, 10);
   }
   if (tab === 'missing') { renderMissingFiles(); }
+  if (tab === 'reprints') {
+    try { rprSaveUserName(localStorage.getItem('ppUserName') || ''); } catch (e) {}
+    renderReprints();
+  }
   if (tab === 'preprod') { renderPreProduction(); }
 }
 
@@ -9854,6 +10504,7 @@ function startReportApp() {
       hideLoginScreen();
       fetchFirebaseData();
       _mafStartLiveSync();
+      _rprStartLiveSync();
       _ppStartLiveSync();
       // Deep link, e.g. EGPrint's Pre-Production button opens ?tab=preprod
       var _linkTab = new URLSearchParams(location.search).get('tab');
