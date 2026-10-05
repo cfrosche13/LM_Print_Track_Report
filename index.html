@@ -7577,6 +7577,13 @@ function _fromFbKey(fbKey) { return fbKey.replace(/_/g, ':'); }
 // (e.g. permission denied, offline), so this device is the only copy for now.
 function fbPushPlan(localKey, data, callback) {
   try {
+    // Firebase rejects any `undefined` value. Rows with no machine (Wallets,
+    // Windchimes, unrouted items) are saved as null, which Firebase drops, so
+    // a plan synced back down and re-committed (e.g. after "Load for editing")
+    // has machine === undefined and the whole set() failed (owner report
+    // 2026-10-05: "value argument contains undefined in property
+    // ...rows.0.machine"). A JSON round-trip strips undefined fields.
+    data = JSON.parse(JSON.stringify(data));
     firebase.database().ref('printtrack-plans/' + _fbKey(localKey)).set(data)
       .then(function(){ if (callback) callback(true); })
       .catch(function(err){ if (callback) callback(false, err && err.message ? err.message : String(err)); });
