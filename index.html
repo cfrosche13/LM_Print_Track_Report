@@ -1104,6 +1104,7 @@ input[type="date"]:focus { border-color: var(--green-dark); }
       <button class="maf-view-tab" id="rpr-view-archive-btn" onclick="rprSetView('archive')">Archive</button>
     </div>
     <button class="qbtn" onclick="rprOpenModal(null)" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark);align-self:flex-end">+ Add Reprint Request</button>
+    <button class="qbtn" onclick="rprOpenImport()" style="align-self:flex-end">&#128229; Import List</button>
     <button class="qbtn" onclick="printReprintsReport()" style="align-self:flex-end">&#128424; Print / Export</button>
     <button class="qbtn" onclick="rprToggleManage()" style="align-self:flex-end">&#9881; Manage Reasons</button>
     <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
@@ -1189,6 +1190,33 @@ input[type="date"]:focus { border-color: var(--green-dark); }
       <div style="flex:1"></div>
       <button onclick="rprCloseModal()" style="background:none;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 16px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;font-family:inherit">Cancel</button>
       <button id="rpr-save-btn" onclick="rprSaveFromModal()" style="background:var(--green-dark);color:#fff;border:none;border-radius:var(--radius-sm);padding:8px 20px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Import Reprint list modal -->
+<div id="rpr-import-modal" onclick="if(event.target===this)rprCloseImport()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:500;overflow-y:auto;padding:2rem 1rem">
+  <div style="max-width:900px;margin:0 auto;background:var(--white);border-radius:var(--radius);box-shadow:0 8px 32px rgba(0,0,0,0.18);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);background:var(--green-light)">
+      <span style="font-size:14px;font-weight:700;color:var(--green-dark)">Import a Reprint List</span>
+      <button onclick="rprCloseImport()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted);line-height:1">&#x2715;</button>
+    </div>
+    <div style="padding:18px;display:flex;flex-direction:column;gap:12px">
+      <p style="margin:0;font-size:12px;color:var(--muted)">Choose an Excel/CSV file <b>or</b> paste rows copied from Excel (include the header row). Columns are matched by name &mdash; e.g. container_no, order_id, item_id / SKU, Shortened name / Raw Material, Qty, WaveDate, notes. Anything the list doesn't answer is filled from LMContainers when possible; the rest comes in as <b>Needs Info</b>.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div><label style="display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:3px">Excel / CSV file</label>
+          <input type="file" id="rpr-import-file" accept=".xlsx,.xls,.csv" style="font-size:13px;font-family:inherit"></div>
+        <div><label style="display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:3px">Reason for every row (optional)</label>
+          <select id="rpr-import-reason" onchange="rprImportReasonChanged()" style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:100%;font-family:inherit;box-sizing:border-box"></select></div>
+      </div>
+      <div><label style="display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:3px">&hellip;or paste rows</label>
+        <textarea id="rpr-import-paste" rows="4" placeholder="container_no&#9;order_id&#9;item_id&#9;notes ..." style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;width:100%;font-family:monospace;box-sizing:border-box;resize:vertical"></textarea></div>
+      <div><button class="qbtn" onclick="rprImportRead()">Read List &amp; Preview</button></div>
+      <div id="rpr-import-preview"></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:0 18px 18px">
+      <button onclick="rprCloseImport()" style="background:none;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 16px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;font-family:inherit">Cancel</button>
+      <button id="rpr-import-go" onclick="rprImportSave()" style="display:none;background:var(--green-dark);color:#fff;border:none;border-radius:var(--radius-sm);padding:8px 20px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Import</button>
     </div>
   </div>
 </div>
@@ -2401,7 +2429,14 @@ function printMissingFilesReport() {
 // The page reads one lookup node at a time (when someone types a container or
 // order), never the whole lookup. ship_confirm_sync.py also moves a request
 // to "Shipped" (archive) once its container is ship-confirmed.
-var RPR_STATUSES = ['Requested', 'Nested', 'Printed', 'Shipped', 'Cancelled'];
+// "Needs Info" (added 2026-10-05 with Import): a request that's missing
+// something from RPR_REQUIRED, usually because an imported list didn't have
+// that column. Saving it with everything filled in moves it to Requested.
+var RPR_STATUSES = ['Needs Info', 'Requested', 'Nested', 'Printed', 'Shipped', 'Cancelled'];
+var RPR_REQUIRED = [['containerNumber', 'container'], ['orderId', 'order ID'], ['item', 'item ID'], ['reason', 'reason'], ['requestedBy', 'requested by']];
+function _rprMissingFields(e) {
+  return RPR_REQUIRED.filter(function(f) { return !String(e[f[0]] || '').trim(); }).map(function(f) { return f[1]; });
+}
 var RPR_ARCHIVED_STATUSES = ['Shipped', 'Cancelled'];
 var RPR_STEPS = ['Requested', 'Nested', 'Printed']; // the steps the team clicks through
 var RPR_REASONS_DEFAULT = ['Missing', 'Damaged', 'Misprint', 'Wrong Item', 'Lost'];
@@ -2436,6 +2471,7 @@ function rprSaveUserName(v) {
 function _rprIsArchived(e) { return RPR_ARCHIVED_STATUSES.indexOf(e.status) !== -1; }
 
 function _rprStatusColor(status) {
+  if (status === 'Needs Info') return { bg: '#fde8e8', fg: 'var(--red)' };
   if (status === 'Printed')   return { bg: '#e3f5ea', fg: 'var(--green-dark)' };
   if (status === 'Nested')    return { bg: '#e4eefc', fg: '#2a5ea8' };
   if (status === 'Shipped')   return { bg: '#efe7f8', fg: '#6b3fa0' };
@@ -2577,7 +2613,7 @@ function renderReprints() {
         counts[s] = (counts[s] || 0) + 1;
       });
       var ch = '';
-      [''].concat(RPR_STEPS).forEach(function(s) {
+      ['', 'Needs Info'].concat(RPR_STEPS).forEach(function(s) {
         var on = _rprStatusFilter === s;
         ch += '<button class="qbtn" onclick="rprSetStatusFilter(\'' + s + '\')" style="' + (on ? 'background:var(--green-dark);color:#fff;border-color:var(--green-dark)' : '') + '">' +
           (s || 'All open') + ' (' + (counts[s] || 0) + ')</button>';
@@ -2626,12 +2662,15 @@ function renderReprints() {
     h += '<td>' + escapeHtml(e.reason || '—') + '</td>';
     h += '<td style="white-space:nowrap">' + escapeHtml(e.requestedBy || '—') + '<div style="font-size:10px;color:var(--muted)">' + escapeHtml(_rprMD(e.dateRequested)) + '</div></td>';
     h += '<td>' + escapeHtml(e.pjNumber || '—') + '</td>';
-    h += '<td><span class="maf-status-pill" style="background:' + sc.bg + ';color:' + sc.fg + '">' + escapeHtml(status) + '</span>' + _rprStampsHtml(e) + '</td>';
+    h += '<td><span class="maf-status-pill" style="background:' + sc.bg + ';color:' + sc.fg + '">' + escapeHtml(status) + '</span>' + _rprStampsHtml(e) +
+      (status === 'Needs Info' ? '<div style="font-size:10px;color:var(--red);margin-top:2px">missing: ' + escapeHtml(_rprMissingFields(e).join(', ')) + '</div>' : '') + '</td>';
     h += '<td style="font-size:12px;max-width:220px">' + escapeHtml(e.notes || '') + '</td>';
     if (_rprView === 'archive') h += '<td>' + escapeHtml(_rprMD(e.dateClosed) || '—') + '</td>';
     h += '<td style="white-space:nowrap">';
     var next = RPR_STEPS[RPR_STEPS.indexOf(status) + 1];
-    if (_rprView === 'active' && next) {
+    if (_rprView === 'active' && status === 'Needs Info') {
+      h += '<button class="qbtn" onclick="rprOpenModal(\'' + id + '\')" style="background:var(--red);color:#fff;border-color:var(--red);margin-right:4px">&#9998; Fill in</button>';
+    } else if (_rprView === 'active' && next) {
       h += '<button class="qbtn" onclick="rprAdvance(\'' + id + '\')" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark);margin-right:4px" title="Mark as ' + next + '">&rarr; ' + next + '</button>';
     }
     h += '<button class="qbtn" onclick="rprOpenModal(\'' + id + '\')">Edit</button></td>';
@@ -2645,7 +2684,8 @@ function renderReprints() {
 function rprAdvance(id) {
   var e = _rprEntries[id];
   if (!e) return;
-  var next = RPR_STEPS[RPR_STEPS.indexOf(e.status || 'Requested') + 1];
+  var cur = RPR_STEPS.indexOf(e.status || 'Requested');
+  var next = cur === -1 ? null : RPR_STEPS[cur + 1];
   if (!next) return;
   var by = _rprUserName();
   if (!by) {
@@ -2857,9 +2897,19 @@ function rprSaveFromModal() {
     status:    status,
     notes:     val('rpr-f-notes')
   });
-  if (!data.containerNumber && !data.orderId) { alert('Enter a container number or an order ID.'); return; }
-  if (!data.item) { alert('Enter the Item Id that needs the reprint.'); return; }
-  if (!data.requestedBy) { alert('Enter who is requesting it.'); return; }
+  if (!data.containerNumber && !data.orderId && !data.item) { alert('Enter at least a container number, order ID, or item ID.'); return; }
+  // Anything missing → it can only be saved as "Needs Info"; once complete,
+  // a "Needs Info" request moves on to Requested by itself.
+  var missing = _rprMissingFields(data);
+  if (RPR_ARCHIVED_STATUSES.indexOf(status) === -1) {
+    if (missing.length && status !== 'Needs Info') {
+      if (!confirm('Still missing: ' + missing.join(', ') + '.\n\nSave it as "Needs Info" so it can be filled in later?')) return;
+      status = 'Needs Info';
+    } else if (!missing.length && status === 'Needs Info') {
+      status = 'Requested';
+    }
+    data.status = status;
+  }
   if (RPR_ARCHIVED_STATUSES.indexOf(status) === -1) {
     var d = _rprDupCheck(data.orderId, data.item, data.containerNumber, _rprEditId);
     if (d.block) { rprRefreshDupBox(); return; }
@@ -2868,7 +2918,7 @@ function rprSaveFromModal() {
   var stamps = Object.assign({}, data.stamps || {});
   if (!prev) {
     data.createdAt = nowIso;
-    stamps.Requested = { by: data.requestedBy, at: nowIso };
+    stamps.Requested = { by: data.requestedBy || _rprUserName(), at: nowIso };
   }
   if (!prev || prev.status !== status) {
     if (RPR_STEPS.indexOf(status) > 0 && !stamps[status]) stamps[status] = { by: _rprUserName() || data.requestedBy, at: nowIso };
@@ -2942,6 +2992,310 @@ function printReprintsReport() {
   document.body.classList.add('print-missing-files');
   _printAs('EGStudio_Reprints_' + (_rprView === 'archive' ? 'Archive' : 'Open') + '_' + _mmddyy(new Date().toISOString().slice(0, 10)));
   setTimeout(function() { document.body.classList.remove('print-missing-files'); }, 500);
+}
+
+// ── Import a list (added 2026-10-05, print team request) ──
+// Reads an Excel/CSV file or rows pasted from Excel, matches columns by name
+// (the names the team's lists already use), fills gaps from the container
+// lookup, previews, then saves. Rows missing something from RPR_REQUIRED come
+// in as "Needs Info". Duplicates of open requests and repeats inside the list
+// are skipped.
+var RPR_IMPORT_COLS = {
+  containerNumber: ['containerno', 'container', 'containernumber', 'container#', 'cont'],
+  orderId:   ['orderid', 'order', 'ordernumber', 'order#', 'ordno'],
+  item:      ['itemid', 'item', 'sku', 'itemnumber', 'item#'],
+  sizeMedia: ['shortenedname', 'sizemedia', 'size/media', 'rawmaterial', 'material', 'media', 'piecetype', 'size', 'blankline'],
+  qty:       ['qty', 'fgqty', 'quantity', 'kidqty'],
+  waveDate:  ['wavedate', 'waved', 'wave'],
+  notes:     ['notes', 'note', 'comments', 'comment', 'taskstatus'],
+  pjNumber:  ['pj', 'pj#', 'pjnumber', 'pjno'],
+  reason:    ['reason'],
+  requestedBy: ['requestedby', 'requester']
+};
+var _rprImport = null; // { fileName, sheets: [{name, rows, use}], rows: [preview rows] }
+
+function rprOpenImport() {
+  _rprImport = null;
+  document.getElementById('rpr-import-file').value = '';
+  document.getElementById('rpr-import-paste').value = '';
+  var sel = document.getElementById('rpr-import-reason');
+  sel.innerHTML = '<option value="">— leave blank (row shows Needs Info) —</option>' +
+    _rprReasons.map(function(r) { return '<option value="' + escapeHtml(r) + '">' + escapeHtml(r) + '</option>'; }).join('');
+  document.getElementById('rpr-import-preview').innerHTML = '';
+  document.getElementById('rpr-import-go').style.display = 'none';
+  document.getElementById('rpr-import-modal').style.display = 'block';
+}
+function rprCloseImport() {
+  document.getElementById('rpr-import-modal').style.display = 'none';
+  _rprImport = null;
+}
+
+function _rprImpKey(h) { return String(h == null ? '' : h).toLowerCase().replace(/[\s_\-\.]/g, ''); }
+function _rprImpCell(v) {
+  if (v == null) return '';
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (typeof v === 'number') return String(Math.round(v) === v ? v : v);
+  return String(v).trim();
+}
+function _rprImpDate(v) {
+  if (v == null || v === '') return '';
+  if (v instanceof Date && !isNaN(v.getTime())) {
+    // cellDates gives local-midnight-ish Dates; use the local calendar day
+    return v.getFullYear() + '-' + ('0' + (v.getMonth() + 1)).slice(-2) + '-' + ('0' + v.getDate()).slice(-2);
+  }
+  var d = new Date(String(v));
+  if (isNaN(d.getTime())) return '';
+  return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+}
+
+// One sheet → {name, rows, matched: [field names found]} or null if it has
+// no container/order/item column at all.
+function _rprImpParseSheet(name, ws) {
+  var grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+  // Header = first of the top 5 rows that names at least two known columns.
+  for (var hr = 0; hr < Math.min(5, grid.length); hr++) {
+    var header = grid[hr] || [];
+    var map = {};
+    Object.keys(RPR_IMPORT_COLS).forEach(function(f) {
+      for (var c = 0; c < header.length; c++) {
+        if (RPR_IMPORT_COLS[f].indexOf(_rprImpKey(header[c])) !== -1) {
+          if (f === 'notes') { (map.notes = map.notes || []).push(c); continue; }
+          if (map[f] == null) map[f] = c;
+        }
+      }
+    });
+    var found = Object.keys(map);
+    if (found.length < 2 || (map.containerNumber == null && map.orderId == null && map.item == null)) continue;
+    var rows = [];
+    for (var r = hr + 1; r < grid.length; r++) {
+      var line = grid[r] || [];
+      var row = {};
+      Object.keys(map).forEach(function(f) {
+        if (f === 'notes') {
+          row.notes = map.notes.map(function(c) { return _rprImpCell(line[c]); }).filter(Boolean).join(' · ');
+        } else if (f === 'waveDate') {
+          row.waveDate = _rprImpDate(line[map[f]]);
+        } else {
+          row[f] = _rprImpCell(line[map[f]]);
+        }
+      });
+      if (!row.containerNumber && !row.orderId && !row.item) continue; // blank/total row
+      if (row.item) row.item = row.item.toUpperCase();
+      if (!row.pjNumber && row.notes) {
+        var pj = row.notes.match(/PJ-?\s?\d{3,6}/i);
+        if (pj) row.pjNumber = pj[0].toUpperCase().replace(/PJ-?\s?/, 'PJ-');
+      }
+      rows.push(row);
+    }
+    return { name: name, rows: rows, matched: found, use: true };
+  }
+  return null;
+}
+
+function rprImportRead() {
+  var fileEl = document.getElementById('rpr-import-file');
+  var paste = document.getElementById('rpr-import-paste').value;
+  var prev = document.getElementById('rpr-import-preview');
+  if (!_rprUserName()) {
+    prev.innerHTML = '<p style="color:var(--red);font-size:13px">Type your name in the "Your name" box at the top of the tab first &mdash; it goes on every imported request as Requested By.</p>';
+    return;
+  }
+  function handle(wb, fileName) {
+    var sheets = [];
+    wb.SheetNames.forEach(function(n) {
+      var sh = _rprImpParseSheet(n, wb.Sheets[n]);
+      if (sh && sh.rows.length) sheets.push(sh);
+    });
+    if (!sheets.length) {
+      prev.innerHTML = '<p style="color:var(--red);font-size:13px">Couldn\'t find a header row with container / order / item columns. Make sure the first row has column names like <b>container_no</b>, <b>order_id</b>, <b>item_id</b>.</p>';
+      return;
+    }
+    _rprImport = { fileName: fileName, sheets: sheets, rows: [] };
+    rprImportBuildPreview();
+  }
+  try {
+    if (fileEl.files && fileEl.files[0]) {
+      var f = fileEl.files[0];
+      prev.innerHTML = '<p style="color:var(--muted);font-size:13px">Reading ' + escapeHtml(f.name) + '&hellip;</p>';
+      var fr = new FileReader();
+      fr.onload = function(ev) {
+        try { handle(XLSX.read(new Uint8Array(ev.target.result), { type: 'array', cellDates: true }), f.name); }
+        catch (err) { prev.innerHTML = '<p style="color:var(--red);font-size:13px">Couldn\'t read that file: ' + escapeHtml(err.message || err) + '</p>'; }
+      };
+      fr.readAsArrayBuffer(f);
+    } else if (paste.trim()) {
+      handle(XLSX.read(paste, { type: 'string', cellDates: true }), 'pasted list');
+    } else {
+      prev.innerHTML = '<p style="color:var(--red);font-size:13px">Choose a file or paste some rows first.</p>';
+    }
+  } catch (err) {
+    prev.innerHTML = '<p style="color:var(--red);font-size:13px">Couldn\'t read that: ' + escapeHtml(err.message || err) + '</p>';
+  }
+}
+
+function rprImportToggleSheet(i, on) {
+  if (!_rprImport) return;
+  _rprImport.sheets[i].use = on;
+  rprImportBuildPreview();
+}
+
+// Fill gaps from reprintRequests/orders + /lookup, then classify every row.
+function rprImportBuildPreview() {
+  var prev = document.getElementById('rpr-import-preview');
+  var rows = [];
+  _rprImport.sheets.forEach(function(sh) {
+    if (!sh.use) return;
+    sh.rows.forEach(function(r) { rows.push(Object.assign({ _sheet: sh.name }, r)); });
+  });
+  prev.innerHTML = '<p style="color:var(--muted);font-size:13px">Checking ' + rows.length + ' rows against LMContainers&hellip;</p>';
+  var db = firebase.database();
+  // Step 1: order but no container → the order's containers (only if just one).
+  var needOrders = {};
+  rows.forEach(function(r) { if (!r.containerNumber && r.orderId && !/[.#$\[\]\/]/.test(r.orderId)) needOrders[r.orderId] = 1; });
+  var orderMap = {};
+  Promise.all(Object.keys(needOrders).map(function(o) {
+    return db.ref('reprintRequests/orders/' + o).once('value').then(function(s) { orderMap[o] = s.val() || []; }).catch(function() {});
+  })).then(function() {
+    rows.forEach(function(r) {
+      var list = !r.containerNumber && r.orderId ? orderMap[r.orderId] : null;
+      if (list && list.length === 1) { r.containerNumber = String(list[0]); r._filled = true; }
+    });
+    // Step 2: container → order / item / size / qty / wave.
+    var conts = {};
+    rows.forEach(function(r) { if (r.containerNumber && !/[.#$\[\]\/]/.test(r.containerNumber)) conts[r.containerNumber] = 1; });
+    var lookup = {};
+    return Promise.all(Object.keys(conts).map(function(c) {
+      return db.ref('reprintRequests/lookup/' + c).once('value').then(function(s) { lookup[c] = (s.val() || {}).items || []; }).catch(function() {});
+    })).then(function() { return lookup; });
+  }).then(function(lookup) {
+    rows.forEach(function(r) {
+      var items = lookup[r.containerNumber] || [];
+      var it = null;
+      if (r.item) it = items.filter(function(x) { return String(x.i).toUpperCase() === r.item; })[0] || null;
+      else if (items.length === 1) it = items[0];
+      if (!it) return;
+      ['orderId:o', 'item:i', 'sizeMedia:p', 'qty:q', 'waveDate:w'].forEach(function(pair) {
+        var f = pair.split(':')[0], k = pair.split(':')[1];
+        if (!r[f] && it[k] != null && it[k] !== '') { r[f] = String(it[k]); r._filled = true; }
+      });
+    });
+    _rprImportClassify(rows);
+  }).catch(function(err) {
+    prev.innerHTML = '<p style="color:var(--red);font-size:13px">Lookup failed: ' + escapeHtml(err.message || err) + '</p>';
+  });
+}
+
+function _rprImportClassify(rows) {
+  var reasonAll = document.getElementById('rpr-import-reason').value;
+  var by = _rprUserName();
+  var seen = {};
+  rows.forEach(function(r) {
+    if (!r.reason && reasonAll) { r.reason = reasonAll; r._reasonFromAll = true; }
+    if (!r.requestedBy && by) r.requestedBy = by;
+    if (!r.qty) r.qty = '1';
+    var key = [r.orderId, r.item, r.containerNumber].join('|');
+    var dup = _rprDupCheck(r.orderId, r.item, r.containerNumber, null);
+    if (dup.block) { r._result = 'dup'; r._dupOf = dup.block.e; }
+    else if (seen[key]) { r._result = 'repeat'; }
+    else {
+      seen[key] = 1;
+      r._missing = _rprMissingFields(r);
+      r._result = r._missing.length ? 'needs' : 'new';
+    }
+  });
+  _rprImport.rows = rows;
+  _rprImportRenderPreview();
+}
+
+function _rprImportRenderPreview() {
+  var prev = document.getElementById('rpr-import-preview');
+  var imp = _rprImport;
+  var h = '';
+  if (imp.sheets.length > 1 || imp.fileName !== 'pasted list') {
+    h += '<div style="font-size:12px;margin-bottom:8px"><b>' + escapeHtml(imp.fileName) + '</b> &mdash; sheets to import:<div style="display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:4px">';
+    imp.sheets.forEach(function(sh, i) {
+      h += '<label style="display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox"' + (sh.use ? ' checked' : '') +
+        ' onchange="rprImportToggleSheet(' + i + ',this.checked)"> ' + escapeHtml(sh.name) + ' <span style="color:var(--muted)">(' + sh.rows.length + ')</span></label>';
+    });
+    h += '</div></div>';
+  }
+  var n = { 'new': 0, needs: 0, dup: 0, repeat: 0 };
+  imp.rows.forEach(function(r) { n[r._result]++; });
+  h += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;font-size:12px">' +
+    '<span class="maf-status-pill" style="background:#e3f5ea;color:var(--green-dark)">' + n['new'] + ' ready</span>' +
+    '<span class="maf-status-pill" style="background:#fde8e8;color:var(--red)">' + n.needs + ' Needs Info</span>' +
+    '<span class="maf-status-pill" style="background:#f0f0f0;color:var(--muted)">' + n.dup + ' already requested &middot; skipped</span>' +
+    '<span class="maf-status-pill" style="background:#f0f0f0;color:var(--muted)">' + n.repeat + ' repeated in list &middot; skipped</span></div>';
+  if (!imp.rows.length) {
+    h += '<p style="font-size:13px;color:var(--muted)">No rows selected.</p>';
+  } else {
+    h += '<div style="max-height:340px;overflow:auto;border:1px solid var(--border);border-radius:6px"><table class="settings-table" style="font-size:12px"><thead><tr>' +
+      '<th>Result</th><th>Container</th><th>Order</th><th>Item</th><th>Size / Media</th><th>Qty</th><th>Waved</th><th>Reason</th><th>Notes</th></tr></thead><tbody>';
+    imp.rows.forEach(function(r) {
+      var res;
+      if (r._result === 'new') res = '<span style="color:var(--green-dark);font-weight:700">Ready</span>';
+      else if (r._result === 'needs') res = '<span style="color:var(--red);font-weight:700">Needs Info</span><div style="font-size:10px;color:var(--red)">missing: ' + escapeHtml(r._missing.join(', ')) + '</div>';
+      else if (r._result === 'dup') res = '<span style="color:var(--muted)">Already requested</span><div style="font-size:10px;color:var(--muted)">' + escapeHtml(r._dupOf.status || '') + (r._dupOf.requestedBy ? ' &middot; ' + escapeHtml(r._dupOf.requestedBy) : '') + '</div>';
+      else res = '<span style="color:var(--muted)">Repeated in list</span>';
+      var dim = (r._result === 'dup' || r._result === 'repeat') ? ' style="opacity:0.55"' : '';
+      h += '<tr' + dim + '><td style="white-space:nowrap">' + res + '</td><td>' + escapeHtml(r.containerNumber || '—') + '</td><td>' + escapeHtml(r.orderId || '—') +
+        '</td><td>' + escapeHtml(r.item || '—') + '</td><td>' + escapeHtml(r.sizeMedia || '—') + '</td><td>' + escapeHtml(r.qty || '') +
+        '</td><td>' + escapeHtml(_rprMD(r.waveDate) || '—') + '</td><td>' + escapeHtml(r.reason || '—') + '</td><td style="max-width:180px">' + escapeHtml(r.notes || '') + '</td></tr>';
+    });
+    h += '</tbody></table></div>';
+    h += '<p style="font-size:11px;color:var(--muted);margin:6px 0 0">Blanks were filled in from the LMContainers report where the container matched. "Requested by" is your name from the top of the tab.</p>';
+  }
+  prev.innerHTML = h;
+  var go = document.getElementById('rpr-import-go');
+  var count = n['new'] + n.needs;
+  go.style.display = count ? '' : 'none';
+  go.disabled = false;
+  go.textContent = 'Import ' + count + ' request' + (count === 1 ? '' : 's');
+}
+
+// Changing the "Reason for every row" dropdown after reading re-classifies.
+function rprImportReasonChanged() {
+  if (_rprImport && _rprImport.rows.length) {
+    var reasonAll = document.getElementById('rpr-import-reason').value;
+    _rprImport.rows.forEach(function(r) { if (r._reasonFromAll || !r.reason) { r.reason = reasonAll; r._reasonFromAll = !!reasonAll; } });
+    _rprImportClassify(_rprImport.rows);
+  }
+}
+
+function rprImportSave() {
+  if (!_rprImport) return;
+  var by = _rprUserName();
+  if (!by) { alert('Type your name in the "Your name" box at the top of the tab first — it goes on every imported request.'); return; }
+  var todo = _rprImport.rows.filter(function(r) { return r._result === 'new' || r._result === 'needs'; });
+  if (!todo.length) return;
+  var nowIso = new Date().toISOString();
+  var today = nowIso.slice(0, 10);
+  var ref = firebase.database().ref('reprintRequests/entries');
+  var updates = {};
+  todo.forEach(function(r) {
+    var e = {
+      containerNumber: r.containerNumber || '', orderId: r.orderId || '', item: r.item || '',
+      sizeMedia: r.sizeMedia || '', qty: r.qty || '1', waveDate: r.waveDate || '',
+      reason: r.reason || '', pjNumber: r.pjNumber || '', requestedBy: r.requestedBy || by,
+      notes: r.notes || '', dateRequested: today, createdAt: nowIso,
+      status: r._result === 'needs' ? 'Needs Info' : 'Requested',
+      importedFrom: _rprImport.fileName + (r._sheet && r._sheet !== 'Sheet1' ? ' / ' + r._sheet : ''),
+      stamps: { Requested: { by: by, at: nowIso } }
+    };
+    updates[ref.push().key] = e;
+  });
+  var go = document.getElementById('rpr-import-go');
+  go.disabled = true;
+  go.textContent = 'Saving…';
+  _mafWithTimeout(ref.update(updates), 20000).then(function() {
+    rprCloseImport();
+    _rprStatusFilter = '';
+    rprSetView('active');
+  }).catch(function(err) {
+    go.disabled = false;
+    go.textContent = 'Import ' + todo.length;
+    alert('✗ Import failed — nothing was saved: ' + (err && err.message ? err.message : err));
+  });
 }
 
 var _rprLiveStarted = false;
