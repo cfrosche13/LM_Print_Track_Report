@@ -2112,7 +2112,7 @@ function renderMissingFiles() {
     h += '<td>' + escapeHtml(e.issue || '—') + '</td>';
     h += '<td>' + escapeHtml(e.sizeMedia || '—') + '</td>';
     h += '<td>' + escapeHtml(_mafContactsDisplay(e)) + '</td>';
-    h += '<td><span class="maf-status-pill" style="background:' + sc.bg + ';color:' + sc.fg + '">' + escapeHtml(e.status || 'Missing') + '</span>' + _mafNotifiedAtHtml(e) + _mafShippedNoteHtml(e) + '</td>';
+    h += '<td><span class="maf-status-pill" style="background:' + sc.bg + ';color:' + sc.fg + '">' + escapeHtml(e.status || 'Missing') + '</span>' + _mafNotifiedAtHtml(e) + _mafShippedNoteHtml(e) + _mafReprintBadgeHtml(e) + '</td>';
     var ac = _mafAgeColor(e.dateReported);
     h += '<td>' + (ac ? '<span class="maf-status-pill" style="background:' + ac.bg + ';color:' + ac.fg + '">' + escapeHtml(e.dateReported) + '</span>' : '—') + '</td>';
     if (_mafView === 'archive') h += '<td>' + escapeHtml(e.dateResolved || '—') + '</td>';
@@ -2663,11 +2663,15 @@ function renderReprints() {
     h += '<td style="white-space:nowrap">' + escapeHtml(e.requestedBy || '—') + '<div style="font-size:10px;color:var(--muted)">' + escapeHtml(_rprMD(e.dateRequested)) + '</div></td>';
     h += '<td>' + escapeHtml(e.pjNumber || '—') + '</td>';
     h += '<td><span class="maf-status-pill" style="background:' + sc.bg + ';color:' + sc.fg + '">' + escapeHtml(status) + '</span>' + _rprStampsHtml(e) +
-      (status === 'Needs Info' ? '<div style="font-size:10px;color:var(--red);margin-top:2px">missing: ' + escapeHtml(_rprMissingFields(e).join(', ')) + '</div>' : '') + '</td>';
+      (status === 'Needs Info' ? '<div style="font-size:10px;color:var(--red);margin-top:2px">missing: ' + escapeHtml(_rprMissingFields(e).join(', ')) + '</div>' : '') + _rprMafBadgeHtml(e) + '</td>';
     h += '<td style="font-size:12px;max-width:220px">' + escapeHtml(e.notes || '') + '</td>';
     if (_rprView === 'archive') h += '<td>' + escapeHtml(_rprMD(e.dateClosed) || '—') + '</td>';
     h += '<td style="white-space:nowrap">';
     var next = RPR_STEPS[RPR_STEPS.indexOf(status) + 1];
+    var mafLink = _rprView === 'active' ? _rprLinkedMaf(e) : null;
+    if (mafLink && mafLink.open) {
+      h += '<button class="qbtn" onclick="rprFileReceived(\'' + id + '\')" style="margin-right:4px;border-color:var(--red);color:var(--red)" title="Resolve the Missing Files entry">&#10003; File received</button>';
+    }
     if (_rprView === 'active' && status === 'Needs Info') {
       h += '<button class="qbtn" onclick="rprOpenModal(\'' + id + '\')" style="background:var(--red);color:#fff;border-color:var(--red);margin-right:4px">&#9998; Fill in</button>';
     } else if (_rprView === 'active' && next) {
@@ -2773,6 +2777,12 @@ function rprOpenModal(id) {
   h += '</div>';
   h += '<datalist id="rpr-name-list">' + Object.keys(names).sort().map(function(n) { return '<option value="' + escapeHtml(n) + '">'; }).join('') + '</datalist>';
   h += row('Notes', '<textarea id="rpr-f-notes" rows="2" placeholder="e.g. flagged 10 hours, sorted 7 days…" style="' + fs + ';resize:vertical">' + escapeHtml(e.notes || '') + '</textarea>');
+  var issueGuess = (String(e.notes || '').match(RPR_FILE_MISSING_RE) ? e.notes : '') || 'Missing file';
+  h += '<div id="rpr-maf-box" style="font-size:12px;border-top:1px solid var(--border);padding-top:10px">' +
+    '<div id="rpr-maf-linked" style="display:none"></div>' +
+    '<div id="rpr-maf-offer" style="display:none"><label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">' +
+    '<input type="checkbox" id="rpr-maf-create" onchange="rprToggleMafFields(this.checked)"> &#128196; The file is missing &mdash; also log it in Missing Files</label>' +
+    '<div id="rpr-maf-fields" style="display:none">' + _rprMafFieldsHtml('rpr-maf', issueGuess) + '</div></div></div>';
 
   document.getElementById('rpr-modal-body').innerHTML = h;
   document.getElementById('rpr-modal').style.display = 'block';
@@ -2856,6 +2866,7 @@ function rprLookupOrder() {
 function rprRefreshDupBox() {
   var box = document.getElementById('rpr-dup-box');
   if (!box) return;
+  rprRefreshMafBox();
   var d = _rprDupCheck(
     (document.getElementById('rpr-f-orderid') || {}).value,
     (document.getElementById('rpr-f-item') || {}).value,
@@ -2932,11 +2943,21 @@ function rprSaveFromModal() {
   data.stamps = stamps;
 
   var id = _rprEditId || firebase.database().ref('reprintRequests/entries').push().key;
+  var rootUpdates = {};
+  rootUpdates['reprintRequests/entries/' + id] = data;
+  var mafCb = document.getElementById('rpr-maf-create');
+  var offerEl = document.getElementById('rpr-maf-offer');
+  if (mafCb && mafCb.checked && offerEl && offerEl.style.display !== 'none') {
+    var mf = _rprReadMafFields('rpr-maf');
+    if (!mf) return;
+    var by = _rprUserName() || data.requestedBy;
+    rootUpdates['missingArtFiles/entries/' + firebase.database().ref('missingArtFiles/entries').push().key] = _rprNewMafEntry(data, mf, by);
+  }
   var saveBtn = document.getElementById('rpr-save-btn');
   var errEl = document.getElementById('rpr-modal-error');
   if (errEl) errEl.style.display = 'none';
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
-  _mafWithTimeout(_rprWriteEntry(id, data), 10000).then(function() {
+  _mafWithTimeout(firebase.database().ref().update(rootUpdates), 10000).then(function() {
     if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
     rprCloseModal();
   }).catch(function(err) {
@@ -3250,6 +3271,9 @@ function _rprImportClassify(rows) {
     else if (seen[key]) { r._result = 'repeat'; }
     else {
       seen[key] = 1;
+      r._fileMissing = RPR_FILE_MISSING_RE.test(String(r.notes || '')) || !!r.needsFile;
+      r._fileIssue = RPR_FILE_MISSING_RE.test(String(r.notes || '')) ? r.notes : (r.needsFile || '');
+      r._mafLink = r._fileMissing ? _rprLinkedMaf(r) : null;
       r._missing = _rprMissingFields(r);
       r._result = r._missing.length ? 'needs' : 'new';
     }
@@ -3293,6 +3317,9 @@ function _rprImportRenderPreview() {
       else if (r._result === 'needs') res = '<span style="color:var(--red);font-weight:700">Needs Info</span><div style="font-size:10px;color:var(--red)">missing: ' + escapeHtml(r._missing.join(', ')) + '</div>';
       else if (r._result === 'dup') res = '<span style="color:var(--muted)">Already requested</span><div style="font-size:10px;color:var(--muted)">' + escapeHtml(r._dupOf.status || '') + (r._dupOf.requestedBy ? ' &middot; ' + escapeHtml(r._dupOf.requestedBy) : '') + '</div>';
       else res = '<span style="color:var(--muted)">Repeated in list</span>';
+      if (r._fileMissing && (r._result === 'new' || r._result === 'needs')) {
+        res += '<div style="font-size:10px;color:var(--red)">&#128196; file missing' + (r._mafLink ? ' &middot; in Missing Files' : ' &middot; not in Missing Files') + '</div>';
+      }
       if (r._force && r._result !== 'skip') res += '<div style="font-size:10px"><label style="cursor:pointer"><input type="checkbox" checked onchange="rprImportForce(' + idx + ',this.checked)"> import anyway</label></div>';
       var dim = (r._result === 'dup' || r._result === 'repeat' || r._result === 'skip') ? ' style="opacity:0.55"' : '';
       h += '<tr' + dim + '><td style="white-space:nowrap">' + res + '</td><td>' + escapeHtml(r.containerNumber || '—') + '</td><td>' + escapeHtml(r.orderId || '—') +
@@ -3301,6 +3328,16 @@ function _rprImportRenderPreview() {
     });
     h += '</tbody></table></div>';
     h += '<p style="font-size:11px;color:var(--muted);margin:6px 0 0">Blanks were filled in from the LMContainers report where the container matched. "Requested by" is your name from the top of the tab.</p>';
+  }
+  var mafRows = imp.rows.filter(function(r) { return (r._result === 'new' || r._result === 'needs') && r._fileMissing && !r._mafLink; });
+  if (mafRows.length) {
+    var keepOn = imp.mafOn ? ' checked' : '';
+    h += '<div style="margin-top:10px;padding:10px 12px;border:1px solid var(--red-border,#f0c8c8);border-radius:6px;background:#fff8f8;font-size:12px">' +
+      '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600"><input type="checkbox" id="rpr-imp-maf-create"' + keepOn +
+      ' onchange="_rprImport.mafOn=this.checked;document.getElementById(\'rpr-imp-maf-fields\').style.display=this.checked?\'\':\'none\'"> &#128196; ' + mafRows.length +
+      ' row' + (mafRows.length === 1 ? ' says' : 's say') + ' the file is missing and ' + (mafRows.length === 1 ? 'isn\'t' : 'aren\'t') + ' in Missing Files &mdash; also log ' + (mafRows.length === 1 ? 'it' : 'them') + ' there</label>' +
+      '<div id="rpr-imp-maf-fields" style="display:' + (imp.mafOn ? '' : 'none') + '">' + _rprMafFieldsHtml('rpr-imp-maf', null) +
+      '<div style="color:var(--muted);margin-top:4px">Issue = each row\'s note. You can change department/contact per entry in Missing Files afterward.</div></div></div>';
   }
   prev.innerHTML = h;
   var go = document.getElementById('rpr-import-go');
@@ -3325,6 +3362,12 @@ function rprImportSave() {
   if (!by) { alert('Type your name in the "Your name" box at the top of the tab first — it goes on every imported request.'); return; }
   var todo = _rprImport.rows.filter(function(r) { return r._result === 'new' || r._result === 'needs'; });
   if (!todo.length) return;
+  var mafFields = null;
+  var mafCb = document.getElementById('rpr-imp-maf-create');
+  if (mafCb && mafCb.checked) {
+    mafFields = _rprReadMafFields('rpr-imp-maf');
+    if (!mafFields) return;
+  }
   var nowIso = new Date().toISOString();
   var today = nowIso.slice(0, 10);
   var ref = firebase.database().ref('reprintRequests/entries');
@@ -3339,12 +3382,16 @@ function rprImportSave() {
       importedFrom: _rprImport.fileName + (r._sheet && r._sheet !== 'Sheet1' ? ' / ' + r._sheet : ''),
       stamps: { Requested: { by: by, at: nowIso } }
     };
-    updates[ref.push().key] = e;
+    updates['reprintRequests/entries/' + ref.push().key] = e;
+    if (mafFields && r._fileMissing && !r._mafLink) {
+      updates['missingArtFiles/entries/' + firebase.database().ref('missingArtFiles/entries').push().key] =
+        _rprNewMafEntry(r, { department: mafFields.department, contacts: mafFields.contacts, issue: r._fileIssue }, by);
+    }
   });
   var go = document.getElementById('rpr-import-go');
   go.disabled = true;
   go.textContent = 'Saving…';
-  _mafWithTimeout(ref.update(updates), 20000).then(function() {
+  _mafWithTimeout(firebase.database().ref().update(updates), 20000).then(function() {
     rprCloseImport();
     _rprStatusFilter = '';
     rprSetView('active');
@@ -3353,6 +3400,157 @@ function rprImportSave() {
     go.textContent = 'Import ' + todo.length;
     alert('✗ Import failed — nothing was saved: ' + (err && err.message ? err.message : err));
   });
+}
+
+// ── Missing Files ↔ Reprints link (added 2026-10-05) ──
+// A missing art file blocks a reprint (nothing to nest until the file shows
+// up), so the two tabs point at each other. Matched by container, then
+// order + item, then order alone; cancelled / auto-shipped Missing Files
+// entries are ignored. The 10/5 data already had them disagreeing (reprint
+// note "Personalization is ready" while Missing Files still said Email Sent).
+var RPR_FILE_MISSING_RE = /file missing|missing file|no file|personali[sz]ed file|per file|file needed/i;
+
+function _rprMatchScore(a, b) {
+  var ac = String(a.containerNumber || '').trim(), bc = String(b.containerNumber || '').trim();
+  var ao = String(a.orderId || '').trim(), bo = String(b.orderId || '').trim();
+  var ai = String(a.item || '').trim().toUpperCase(), bi = String(b.item || '').trim().toUpperCase();
+  if (ac && ac === bc) return 3;
+  if (ao && ao === bo && ai && ai === bi) return 2;
+  if (ao && ao === bo) return 1;
+  return 0;
+}
+// Best Missing Files entry for a reprint (or any {containerNumber, orderId, item}).
+function _rprLinkedMaf(e) {
+  var best = null;
+  Object.keys(_mafEntries || {}).forEach(function(mid) {
+    var m = _mafEntries[mid];
+    if (!m || m.status === 'Cancelled' || m.status === 'Shipped') return;
+    var score = _rprMatchScore(e, m);
+    if (!score) return;
+    var open = MAF_ARCHIVED_STATUSES.indexOf(m.status) === -1;
+    var rank = score * 2 + (open ? 1 : 0);
+    if (!best || rank > best.rank) best = { id: mid, e: m, open: open, rank: rank };
+  });
+  return best;
+}
+// Best reprint request for a Missing Files entry.
+function _mafLinkedReprint(m) {
+  var best = null;
+  Object.keys(_rprEntries || {}).forEach(function(rid) {
+    var r = _rprEntries[rid];
+    if (!r) return;
+    var score = _rprMatchScore(m, r);
+    if (!score) return;
+    var rank = score * 2 + (_rprIsArchived(r) ? 0 : 1);
+    if (!best || rank > best.rank) best = { id: rid, e: r, rank: rank };
+  });
+  return best;
+}
+
+// Under a reprint's Status pill.
+function _rprMafBadgeHtml(e) {
+  var link = _rprLinkedMaf(e);
+  if (!link) return '';
+  var m = link.e;
+  var style = 'display:inline-block;margin-top:4px;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap;';
+  if (link.open) {
+    var when = m.notifiedAt ? _rprShortStamp(m.notifiedAt).split(' ')[0] : _rprMD(m.dateReported);
+    return '<div><span onclick="mafOpenModal(\'' + link.id + '\')" title="' + escapeHtml(m.issue || 'Open in Missing Files') + '" style="' + style +
+      'background:#fde8e8;color:var(--red)">&#128196; File missing &middot; ' + escapeHtml(m.status || 'Missing') + (when ? ' ' + escapeHtml(when) : '') + '</span></div>';
+  }
+  return '<div><span onclick="mafOpenModal(\'' + link.id + '\')" style="' + style + 'background:#e3f5ea;color:var(--green-dark)">&#128196; File resolved' +
+    (m.dateResolved ? ' ' + escapeHtml(_rprMD(m.dateResolved)) : '') + '</span></div>';
+}
+// Under a Missing Files entry's Status pill.
+function _mafReprintBadgeHtml(m) {
+  if (typeof _rprEntries === 'undefined') return '';
+  var link = _mafLinkedReprint(m);
+  if (!link) return '';
+  var r = link.e, sc = _rprStatusColor(r.status || 'Requested');
+  return '<div><span onclick="rprOpenModal(\'' + link.id + '\')" title="Open the reprint request" style="display:inline-block;margin-top:4px;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap;background:' +
+    sc.bg + ';color:' + sc.fg + '">&#128257; Reprint: ' + escapeHtml(r.status || 'Requested') + '</span></div>';
+}
+
+// "✓ File received" on a reprint row: resolves the linked Missing Files
+// entry so the two tabs can't disagree. Targeted field update (never a
+// whole-object write), same reason as _mafWriteEntry.
+function rprFileReceived(rid) {
+  var e = _rprEntries[rid];
+  var link = e && _rprLinkedMaf(e);
+  if (!link || !link.open) return;
+  var by = _rprUserName();
+  if (!by) {
+    alert('Type your name in the "Your name" box first, so we know who marked the file received.');
+    var el = document.getElementById('rpr-user-name'); if (el) el.focus();
+    return;
+  }
+  if (!confirm('Mark the missing file for container ' + (link.e.containerNumber || link.e.orderId || '') + ' as received?\n\nThis resolves it in Missing Files.')) return;
+  var now = new Date();
+  var today = now.getFullYear() + '-' + ('0' + (now.getMonth() + 1)).slice(-2) + '-' + ('0' + now.getDate()).slice(-2);
+  _mafWithTimeout(firebase.database().ref('missingArtFiles/entries/' + link.id).update({
+    status: 'Resolved', dateResolved: today, resolvedBy: by, resolvedVia: 'Reprints', resolvedAt: now.toISOString()
+  }), 10000).catch(function(err) {
+    alert('✗ Not saved — ' + (err && err.message ? err.message : err));
+  });
+}
+
+// Department + contact checkboxes for creating a Missing Files entry from
+// this tab (prefix keeps the modal's and the import's inputs apart).
+function _rprMafFieldsHtml(prefix, issue) {
+  var fs = 'padding:6px 9px;border:1px solid var(--border);border-radius:6px;font-size:12px;width:100%;font-family:inherit;box-sizing:border-box';
+  var h = '<div style="display:grid;grid-template-columns:1fr 1.4fr;gap:10px;margin-top:8px">';
+  h += '<div><label style="display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:3px">Department</label><select id="' + prefix + '-dept" style="' + fs + '">' + _mafSelectOptions(_mafDepartments, '') + '</select></div>';
+  if (issue != null) h += '<div><label style="display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:3px">Issue</label><input type="text" id="' + prefix + '-issue" value="' + escapeHtml(issue) + '" style="' + fs + '"></div>';
+  h += '</div><div style="margin-top:8px"><label style="display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:3px">Point of Contact (they get the usual Missing Files email)</label><div style="display:flex;flex-wrap:wrap;gap:4px 14px">';
+  _mafContacts.forEach(function(c) {
+    h += '<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;white-space:nowrap"><input type="checkbox" class="' + prefix + '-contact" value="' + escapeHtml(c) + '"> ' + escapeHtml(c) + '</label>';
+  });
+  return h + '</div></div>';
+}
+function _rprReadMafFields(prefix) {
+  var dept = (document.getElementById(prefix + '-dept') || {}).value || '';
+  var issueEl = document.getElementById(prefix + '-issue');
+  var contacts = Array.prototype.slice.call(document.querySelectorAll('.' + prefix + '-contact:checked')).map(function(cb) { return cb.value; });
+  if (!dept) { alert('Pick a Department for the Missing Files entry.'); return null; }
+  if (!contacts.length) { alert('Pick at least one Point of Contact for the Missing Files entry — they\'re who gets emailed.'); return null; }
+  return { department: dept, contacts: contacts, issue: issueEl ? issueEl.value.trim() : '' };
+}
+function _rprNewMafEntry(r, fields, by) {
+  var now = new Date();
+  var today = now.getFullYear() + '-' + ('0' + (now.getMonth() + 1)).slice(-2) + '-' + ('0' + now.getDate()).slice(-2);
+  return {
+    department: fields.department, contacts: fields.contacts, additionalEmail: '', company: '',
+    orderId: r.orderId || '', item: r.item || '', containerNumber: r.containerNumber || '', design: '',
+    issue: fields.issue || r._fileIssue || 'Missing file', sizeMedia: r.sizeMedia || '', status: 'Missing',
+    dateReported: today, dateResolved: '', notes: 'Logged from Reprints by ' + by
+  };
+}
+
+// Modal: shows the linked Missing Files entry, or offers to log one.
+function rprRefreshMafBox() {
+  var box = document.getElementById('rpr-maf-box');
+  if (!box) return;
+  var cur = {
+    containerNumber: (document.getElementById('rpr-f-container') || {}).value,
+    orderId: (document.getElementById('rpr-f-orderid') || {}).value,
+    item: (document.getElementById('rpr-f-item') || {}).value
+  };
+  var link = (cur.containerNumber || cur.orderId) ? _rprLinkedMaf(cur) : null;
+  var linked = document.getElementById('rpr-maf-linked');
+  var offer = document.getElementById('rpr-maf-offer');
+  if (link) {
+    linked.innerHTML = '&#128196; <b>Missing Files:</b> ' + escapeHtml(link.e.status || 'Missing') + ' &mdash; ' + escapeHtml(link.e.issue || '') +
+      ' <a href="#" onclick="mafOpenModal(\'' + link.id + '\');return false">open</a>';
+    linked.style.color = link.open ? 'var(--red)' : 'var(--green-dark)';
+    linked.style.display = '';
+    offer.style.display = 'none';
+  } else {
+    linked.style.display = 'none';
+    offer.style.display = '';
+  }
+}
+function rprToggleMafFields(on) {
+  document.getElementById('rpr-maf-fields').style.display = on ? '' : 'none';
 }
 
 var _rprLiveStarted = false;
@@ -3379,7 +3577,13 @@ function _rprStartLiveSync() {
     _rprError = '';
     rerenderIfOpen();
     if (document.getElementById('rpr-modal').style.display !== 'none') rprRefreshDupBox();
+    var mafPage = document.getElementById('page-missing');
+    if (mafPage && mafPage.style.display !== 'none') renderMissingFiles(); // reprint badges
   }, onErr('reprintRequests/entries'));
+  // Missing Files badges on this tab follow that tab's live data too.
+  firebase.database().ref('missingArtFiles/entries').on('value', function() {
+    setTimeout(rerenderIfOpen, 0); // after _mafStartLiveSync's listener stored it
+  }, function() {});
   firebase.database().ref('reprintRequests/reasons').on('value', function(snap) {
     _rprReasons = snap.val() || RPR_REASONS_DEFAULT.slice();
     rerenderIfOpen();
