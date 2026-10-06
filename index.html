@@ -129,6 +129,19 @@ input[type="date"]:focus { border-color: var(--green-dark); }
 /* Long tables (Missing Files, Pre-Production) scroll inside their own box so the column labels stay pinned at the top */
 .sticky-head-scroll { overflow: auto; max-height: calc(100vh - 140px); }
 .sticky-head-scroll thead th { position: sticky; top: 0; z-index: 2; }
+/* Reprints (owner request 2026-10-06): use the screen width so every column
+   fits without scrolling sideways; tighter cells; row buttons stack. */
+#page-reprints .main { max-width: 1720px; }
+#page-reprints .settings-table th { padding: 7px 7px; letter-spacing: 0.03em; }
+#page-reprints .settings-table td { padding: 6px 7px; font-size: 12px; }
+#page-reprints .rpr-actions { display: flex; flex-direction: column; align-items: stretch; gap: 4px; }
+#page-reprints .rpr-actions .qbtn { padding: 4px 8px; font-size: 11px; white-space: nowrap; margin: 0 !important; }
+@media (max-width: 1500px) {
+  #page-reprints .main { padding-left: 0.75rem; padding-right: 0.75rem; }
+  #page-reprints .settings-table th { padding: 6px 4px; font-size: 10px; letter-spacing: 0; }
+  #page-reprints .settings-table td { padding: 5px 4px; font-size: 11px; }
+  #page-reprints .settings-table td span[onclick] { white-space: normal !important; }
+}
 .pph-table { width: 100%; border-collapse: collapse; }
 .pph-table th { font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 10px 14px; background: var(--green-light); border-bottom: 1px solid var(--border); }
 .pph-table td { padding: 9px 14px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text); vertical-align: middle; }
@@ -2874,9 +2887,11 @@ function renderReprints() {
     h += '<td>' + escapeHtml(e.pjNumber || '—') + '</td>';
     h += '<td><span class="maf-status-pill" style="background:' + sc.bg + ';color:' + sc.fg + '">' + escapeHtml(status) + '</span>' + _rprStampsHtml(e) +
       (status === 'Needs Info' ? '<div style="font-size:10px;color:var(--red);margin-top:2px">missing: ' + escapeHtml(_rprMissingFields(e).join(', ')) + '</div>' : '') + _rprMafBadgeHtml(e) + '</td>';
-    h += '<td style="font-size:12px;max-width:220px">' + escapeHtml(e.notes || '') + '</td>';
+    // overflow-wrap: long no-space notes (e.g. a \\fs2\... file path) would
+    // otherwise force the whole table wider than the screen.
+    h += '<td style="font-size:11px;min-width:140px;max-width:200px;overflow-wrap:anywhere">' + escapeHtml(e.notes || '') + '</td>';
     if (_rprView === 'archive') h += '<td>' + escapeHtml(_rprMD(e.dateClosed) || '—') + '</td>';
-    h += '<td style="white-space:nowrap">';
+    h += '<td><div class="rpr-actions">';
     var next = RPR_STEPS[RPR_STEPS.indexOf(status) + 1];
     var mafLink = _rprView === 'active' ? _rprLinkedMaf(e) : null;
     if (mafLink && mafLink.open) {
@@ -2887,7 +2902,7 @@ function renderReprints() {
     } else if (_rprView === 'active' && next) {
       h += '<button class="qbtn" onclick="rprAdvance(\'' + id + '\')" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark);margin-right:4px" title="Mark as ' + next + '">&rarr; ' + next + '</button>';
     }
-    h += '<button class="qbtn" onclick="rprOpenModal(\'' + id + '\')">Edit</button></td>';
+    h += '<button class="qbtn" onclick="rprOpenModal(\'' + id + '\')">Edit</button></div></td>';
     h += '</tr>';
   });
   h += '</tbody></table></div>';
