@@ -2570,6 +2570,8 @@ function _rprEntrySummary(e) {
 
 function rprSetView(view) {
   _rprView = view;
+  _rprColFilters = {};
+  rprCloseColFilter();
   document.getElementById('rpr-view-active-btn').classList.toggle('active', view === 'active');
   document.getElementById('rpr-view-archive-btn').classList.toggle('active', view === 'archive');
   renderReprints();
@@ -2578,7 +2580,192 @@ function rprSetStatusFilter(s) { _rprStatusFilter = s; renderReprints(); }
 function rprOnSearch(v) { _rprSearch = (v || '').trim().toLowerCase(); renderReprints(); }
 function rprToggleManage() { _rprManageOpen = !_rprManageOpen; renderReprints(); }
 
-function _rprFilteredIds() {
+// Excel-style column filters + print checkboxes (owner request 2026-10-06:
+// "filter down what I want to print"). Each header has a ▾ that opens a
+// checklist of that column's values (only values still visible under the
+// OTHER filters, like Excel). Rows also have a checkbox, all checked by
+// default; Print / Export prints only rows that are both visible and checked.
+var RPR_COLS = [
+  { k: 'wave',      label: 'Waved / Age',  v: function(e) { var b = _rprAgeBase(e); return b ? _rprMD(b) + (e.waveDate ? '' : ' (requested)') : ''; }, sort: function(e) { return _rprAgeBase(e); } },
+  { k: 'container', label: 'Container #',  v: function(e) { return e.containerNumber; } },
+  { k: 'order',     label: 'Order ID',     v: function(e) { return e.orderId; } },
+  { k: 'item',      label: 'Item Id',      v: function(e) { return e.item; } },
+  { k: 'size',      label: 'Size / Media', v: function(e) { return e.sizeMedia; } },
+  { k: 'qty',       label: 'Qty',          v: function(e) { return e.qty; }, num: true },
+  { k: 'reason',    label: 'Reason',       v: function(e) { return e.reason; } },
+  { k: 'by',        label: 'Requested',    v: function(e) { return e.requestedBy; } },
+  { k: 'pj',        label: 'PJ #',         v: function(e) { return e.pjNumber; } },
+  { k: 'status',    label: 'Status',       v: function(e) { return e.status || 'Requested'; } },
+  { k: 'notes',     label: 'Notes',        v: function(e) { return e.notes; } },
+  { k: 'closed',    label: 'Closed',       v: function(e) { return _rprMD(e.dateClosed); }, sort: function(e) { return e.dateClosed || ''; }, archiveOnly: true }
+];
+var RPR_BLANK = '(Blanks)';
+var _rprColFilters = {};   // { colKey: { value: true, ... } } — only the values to SHOW
+var _rprUnchecked  = {};   // { entryId: true } — rows unticked for printing
+var _rprVisibleIds = [];   // what the table is showing right now
+var _rprFilterPop  = null; // the open dropdown: { k, values: [...], checked: {} }
+
+function _rprCol(k) { return RPR_COLS.filter(function(c) { return c.k === k; })[0]; }
+function _rprColVal(col, e) {
+  var v = col.v(e);
+  v = v == null ? '' : String(v).trim();
+  return v || RPR_BLANK;
+}
+function _rprColsForView() {
+  return RPR_COLS.filter(function(c) { return !c.archiveOnly || _rprView === 'archive'; });
+}
+function _rprHasColFilters() { return Object.keys(_rprColFilters).length > 0; }
+function rprClearColFilters() { _rprColFilters = {}; renderReprints(); }
+
+function _rprHeaderCell(col) {
+  var on = !!_rprColFilters[col.k];
+  return '<th><span style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap">' + escapeHtml(col.label) +
+    '<button type="button" onclick="rprOpenColFilter(\'' + col.k + '\', this, event)" title="' + (on ? 'Filtered — click to change' : 'Filter this column') + '" style="' +
+    'border:1px solid ' + (on ? 'var(--green-dark)' : 'var(--border)') + ';background:' + (on ? 'var(--green-dark)' : 'var(--white)') + ';color:' + (on ? '#fff' : 'var(--muted)') +
+    ';border-radius:4px;font-size:9px;line-height:1;padding:3px 4px;cursor:pointer;font-family:inherit">' + '&#9660;' + '</button></span></th>';
+}
+
+function rprOpenColFilter(k, btn, ev) {
+  if (ev) ev.stopPropagation();
+  if (_rprFilterPop && _rprFilterPop.k === k) { rprCloseColFilter(); return; }
+  rprCloseColFilter();
+  var col = _rprCol(k);
+  var counts = {}, sortKey = {};
+  _rprFilteredIds(k).forEach(function(id) {
+    var e = _rprEntries[id];
+    var v = _rprColVal(col, e);
+    counts[v] = (counts[v] || 0) + 1;
+    if (col.sort && sortKey[v] == null) sortKey[v] = col.sort(e) || '';
+  });
+  // Values the current filter shows but no row has anymore still need to be
+  // listed (unticked) so OK doesn't silently drop them.
+  var values = Object.keys(counts);
+  values.sort(function(a, b) {
+    if (a === RPR_BLANK) return 1;
+    if (b === RPR_BLANK) return -1;
+    if (col.sort) { var sa = sortKey[a], sb = sortKey[b]; return sa < sb ? -1 : sa > sb ? 1 : 0; }
+    if (col.num) return (parseFloat(a) || 0) - (parseFloat(b) || 0);
+    return a.toLowerCase() < b.toLowerCase() ? -1 : a.toLowerCase() > b.toLowerCase() ? 1 : 0;
+  });
+  var cur = _rprColFilters[k];
+  var checked = {};
+  values.forEach(function(v) { checked[v] = !cur || !!cur[v]; });
+  _rprFilterPop = { k: k, values: values, counts: counts, checked: checked, search: '' };
+
+  var pop = document.createElement('div');
+  pop.id = 'rpr-filter-pop';
+  pop.style.cssText = 'position:fixed;z-index:600;background:var(--white);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.18);width:250px;padding:10px;font-size:12px';
+  pop.onclick = function(e2) { e2.stopPropagation(); };
+  pop.innerHTML =
+    '<div style="font-weight:700;color:var(--green-dark);margin-bottom:6px">Filter: ' + escapeHtml(col.label) + '</div>' +
+    '<input type="search" id="rpr-fp-search" placeholder="Search…" oninput="rprColFilterSearch(this.value)" style="width:100%;box-sizing:border-box;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-size:12px;font-family:inherit;margin-bottom:6px">' +
+    '<div id="rpr-fp-list" style="max-height:260px;overflow-y:auto;border:1px solid var(--border);border-radius:5px;padding:4px 6px"></div>' +
+    '<div style="display:flex;gap:6px;margin-top:8px">' +
+      '<button class="qbtn" onclick="rprClearColFilter()" style="font-size:11px;padding:4px 8px"' + (cur ? '' : ' disabled') + '>Clear filter</button>' +
+      '<div style="flex:1"></div>' +
+      '<button class="qbtn" onclick="rprCloseColFilter()" style="font-size:11px;padding:4px 8px">Cancel</button>' +
+      '<button class="qbtn" id="rpr-fp-ok" onclick="rprApplyColFilter()" style="font-size:11px;padding:4px 10px;background:var(--green-dark);color:#fff;border-color:var(--green-dark)">OK</button>' +
+    '</div>';
+  document.body.appendChild(pop);
+  var r = btn.getBoundingClientRect();
+  var left = Math.min(r.left, window.innerWidth - 262);
+  pop.style.left = Math.max(8, left) + 'px';
+  pop.style.top = Math.min(r.bottom + 4, window.innerHeight - pop.offsetHeight - 8) + 'px';
+  _rprRenderColFilterList();
+  setTimeout(function() { var s = document.getElementById('rpr-fp-search'); if (s) s.focus(); }, 0);
+}
+function _rprColFilterShown() {
+  var q = _rprFilterPop.search;
+  return _rprFilterPop.values.filter(function(v) { return !q || v.toLowerCase().indexOf(q) !== -1; });
+}
+function _rprRenderColFilterList() {
+  var list = document.getElementById('rpr-fp-list');
+  if (!list || !_rprFilterPop) return;
+  var shown = _rprColFilterShown();
+  var allOn = shown.length && shown.every(function(v) { return _rprFilterPop.checked[v]; });
+  var h = '<label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;font-weight:700;border-bottom:1px solid var(--border);margin-bottom:2px">' +
+    '<input type="checkbox"' + (allOn ? ' checked' : '') + ' onchange="rprColFilterAll(this.checked)"> (Select All' + (_rprFilterPop.search ? ' shown' : '') + ')</label>';
+  if (!shown.length) h += '<div style="color:var(--muted);padding:4px 0">No matches.</div>';
+  shown.forEach(function(v) {
+    var i = _rprFilterPop.values.indexOf(v);
+    h += '<label style="display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer">' +
+      '<input type="checkbox"' + (_rprFilterPop.checked[v] ? ' checked' : '') + ' onchange="rprColFilterToggle(' + i + ',this.checked)">' +
+      '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' + (v === RPR_BLANK ? ';font-style:italic;color:var(--muted)' : '') + '" title="' + escapeHtml(v) + '">' + escapeHtml(v) + '</span>' +
+      '<span style="color:var(--muted)">' + (_rprFilterPop.counts[v] || 0) + '</span></label>';
+  });
+  list.innerHTML = h;
+  var ok = document.getElementById('rpr-fp-ok');
+  if (ok) ok.disabled = !_rprFilterPop.values.some(function(v) { return _rprFilterPop.checked[v]; });
+}
+function rprColFilterSearch(q) { if (!_rprFilterPop) return; _rprFilterPop.search = (q || '').trim().toLowerCase(); _rprRenderColFilterList(); }
+function rprColFilterAll(on) {
+  if (!_rprFilterPop) return;
+  _rprColFilterShown().forEach(function(v) { _rprFilterPop.checked[v] = on; });
+  _rprRenderColFilterList();
+}
+function rprColFilterToggle(i, on) {
+  if (!_rprFilterPop) return;
+  _rprFilterPop.checked[_rprFilterPop.values[i]] = on;
+  _rprRenderColFilterList();
+}
+function rprApplyColFilter() {
+  if (!_rprFilterPop) return;
+  var p = _rprFilterPop;
+  // Excel behavior: with a search typed, OK keeps only the ticked values
+  // that match the search.
+  var pool = p.search ? _rprColFilterShown() : p.values;
+  var keep = {}, n = 0;
+  pool.forEach(function(v) { if (p.checked[v]) { keep[v] = true; n++; } });
+  if (!n) return;
+  if (n === p.values.length) delete _rprColFilters[p.k]; else _rprColFilters[p.k] = keep;
+  rprCloseColFilter();
+  renderReprints();
+}
+function rprClearColFilter() {
+  if (!_rprFilterPop) return;
+  delete _rprColFilters[_rprFilterPop.k];
+  rprCloseColFilter();
+  renderReprints();
+}
+function rprCloseColFilter() {
+  var pop = document.getElementById('rpr-filter-pop');
+  if (pop) pop.parentNode.removeChild(pop);
+  _rprFilterPop = null;
+}
+document.addEventListener('click', function() { if (_rprFilterPop) rprCloseColFilter(); });
+document.addEventListener('keydown', function(e) {
+  if (!_rprFilterPop) return;
+  if (e.key === 'Escape') rprCloseColFilter();
+  else if (e.key === 'Enter') { e.preventDefault(); rprApplyColFilter(); }
+});
+window.addEventListener('resize', function() { if (_rprFilterPop) rprCloseColFilter(); });
+
+// ── Print checkboxes (no re-render on click, so the table doesn't jump) ──
+function rprToggleRow(id, on) {
+  if (on) delete _rprUnchecked[id]; else _rprUnchecked[id] = true;
+  _rprUpdateSelUI();
+}
+function rprToggleAllRows(on) {
+  _rprVisibleIds.forEach(function(id) { if (on) delete _rprUnchecked[id]; else _rprUnchecked[id] = true; });
+  Array.prototype.forEach.call(document.querySelectorAll('.rpr-row-cb'), function(cb) { cb.checked = on; });
+  _rprUpdateSelUI();
+}
+function _rprSelectedIds() {
+  return _rprVisibleIds.filter(function(id) { return !_rprUnchecked[id]; });
+}
+function _rprUpdateSelUI() {
+  var total = _rprVisibleIds.length, sel = _rprSelectedIds().length;
+  var all = document.getElementById('rpr-cb-all');
+  if (all) { all.checked = total > 0 && sel === total; all.indeterminate = sel > 0 && sel < total; }
+  var lbl = document.getElementById('rpr-sel-count');
+  if (lbl) lbl.innerHTML = total ? '&#128424; ' + sel + ' of ' + total + ' checked for print' : '';
+  Array.prototype.forEach.call(document.querySelectorAll('.rpr-row-cb'), function(cb) {
+    var tr = cb.closest('tr');
+    if (tr) tr.style.opacity = cb.checked ? '' : '0.5';
+  });
+}
+
+function _rprFilteredIds(exceptCol) {
   return Object.keys(_rprEntries).filter(function(id) {
     var e = _rprEntries[id];
     if (!e) return false;
@@ -2587,6 +2774,11 @@ function _rprFilteredIds() {
     if (_rprSearch) {
       var hay = [e.containerNumber, e.orderId, e.item, e.sizeMedia, e.pjNumber, e.requestedBy, e.notes].join(' ').toLowerCase();
       if (hay.indexOf(_rprSearch) === -1) return false;
+    }
+    for (var k in _rprColFilters) {
+      if (k === exceptCol) continue;
+      var col = _rprCol(k);
+      if (col && !_rprColFilters[k][_rprColVal(col, e)]) return false;
     }
     return true;
   });
@@ -2647,22 +2839,30 @@ function renderReprints() {
     return wa < wb ? -1 : wa > wb ? 1 : 0;
   });
 
+  _rprVisibleIds = ids;
+  var filteredCols = Object.keys(_rprColFilters).map(function(k) { var c = _rprCol(k); return c ? c.label : k; });
+  var bar = '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:8px;font-size:12px">' +
+    '<span id="rpr-sel-count" style="font-weight:600;color:var(--green-dark)"></span>' +
+    (filteredCols.length ? '<span style="color:var(--muted)">Filtered by: <b>' + escapeHtml(filteredCols.join(', ')) + '</b></span>' +
+      '<button class="qbtn" onclick="rprClearColFilters()" style="font-size:11px;padding:3px 8px">&#10005; Clear all filters</button>' : '') + '</div>';
+
   if (!ids.length) {
-    wrap.innerHTML = '<p style="color:var(--muted);font-size:14px;padding:20px 0">' +
-      (_rprSearch || _rprStatusFilter ? 'Nothing matches that filter.' :
+    wrap.innerHTML = (filteredCols.length ? bar : '') + '<p style="color:var(--muted);font-size:14px;padding:20px 0">' +
+      (_rprSearch || _rprStatusFilter || filteredCols.length ? 'Nothing matches that filter.' :
         _rprView === 'archive' ? 'No shipped or cancelled requests yet.' : 'No open reprint requests — click "+ Add Reprint Request" to log one.') + '</p>';
     return;
   }
 
-  var h = '<div class="table-wrap sticky-head-scroll"><table class="settings-table"><thead><tr>';
-  h += '<th>Waved / Age</th><th>Container #</th><th>Order ID</th><th>Item Id</th><th>Size / Media</th><th>Qty</th><th>Reason</th><th>Requested</th><th>PJ #</th><th>Status</th><th>Notes</th>';
-  if (_rprView === 'archive') h += '<th>Closed</th>';
+  var h = bar + '<div class="table-wrap sticky-head-scroll"><table class="settings-table"><thead><tr>';
+  h += '<th style="width:28px;text-align:center"><input type="checkbox" id="rpr-cb-all" title="Check / uncheck every row shown" onchange="rprToggleAllRows(this.checked)"></th>';
+  h += _rprColsForView().map(_rprHeaderCell).join('');
   h += '<th></th></tr></thead><tbody>';
   ids.forEach(function(id) {
     var e = _rprEntries[id];
     var status = e.status || 'Requested';
     var sc = _rprStatusColor(status);
     h += '<tr>';
+    h += '<td style="text-align:center"><input type="checkbox" class="rpr-row-cb"' + (_rprUnchecked[id] ? '' : ' checked') + ' onchange="rprToggleRow(\'' + id + '\', this.checked)"></td>';
     h += '<td style="white-space:nowrap">' + _rprAgeHtml(e) + '</td>';
     h += '<td style="white-space:nowrap;font-weight:600">' + escapeHtml(e.containerNumber || '—') + '</td>';
     h += '<td>' + escapeHtml(e.orderId || '—') + '</td>';
@@ -2692,6 +2892,7 @@ function renderReprints() {
   });
   h += '</tbody></table></div>';
   wrap.innerHTML = h;
+  _rprUpdateSelUI();
 }
 
 // One-click "→ Nested" / "→ Printed" from the table.
@@ -2991,11 +3192,9 @@ function rprDeleteEntry() {
 // Print / Save as PDF — reuses the Missing Files print layout (#missing-files-print,
 // body.print-missing-files) and prints whatever the table is showing now.
 function printReprintsReport() {
-  var ids = _rprFilteredIds();
-  ids.sort(function(a, b) {
-    var wa = _rprAgeBase(_rprEntries[a]), wb = _rprAgeBase(_rprEntries[b]);
-    return wa < wb ? -1 : wa > wb ? 1 : 0;
-  });
+  // Exactly what's on screen (filters + sort), minus unchecked rows.
+  var ids = _rprSelectedIds();
+  if (!ids.length) { alert('No rows are checked — tick the rows you want to print.'); return; }
   var title = _rprView === 'archive' ? 'Shipped / Cancelled' : (_rprStatusFilter || 'Open Requests');
   var h = '<div class="mf-print-header"><div class="mf-print-eyebrow">EG Studio &middot; Reprint Requests</div>';
   h += '<div class="mf-print-title">' + escapeHtml(title) + '</div>';
