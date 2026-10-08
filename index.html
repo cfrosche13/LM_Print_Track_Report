@@ -645,6 +645,8 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     #missing-files-print .mf-print-table th { background: var(--green-light); padding: 5px 8px; font-weight: 600; color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); text-align: left; }
     #missing-files-print .mf-print-table td { padding: 5px 8px; border-bottom: 1px solid #eee; }
   }
+#page-reprints tr.rpr-row { cursor: pointer; }
+#page-reprints tr.rpr-row:hover td { background: #f3f8f5; }
 </style>
 </head>
 <body>
@@ -1190,6 +1192,19 @@ input[type="date"]:focus { border-color: var(--green-dark); }
 </div>
 
 <!-- Add/Edit Reprint Request modal -->
+<div id="rpr-hist-modal" onclick="if(event.target===this)rprCloseHistory()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:500;overflow-y:auto;padding:2rem 1rem">
+  <div style="max-width:820px;margin:0 auto;background:var(--white);border-radius:var(--radius);box-shadow:0 8px 32px rgba(0,0,0,0.18);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border);background:var(--green-light)">
+      <span id="rpr-hist-title" style="font-size:14px;font-weight:700;color:var(--green-dark)"></span>
+      <span style="display:flex;gap:8px;align-items:center">
+        <button class="qbtn" onclick="var i=_rprHistoryId;rprCloseHistory();rprOpenModal(i)">Edit</button>
+        <button class="qbtn" onclick="rprPrintHistory()">&#128424; Print</button>
+        <button onclick="rprCloseHistory()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted);line-height:1">&#x2715;</button>
+      </span>
+    </div>
+    <div id="rpr-hist-body" style="padding:14px 18px 18px"></div>
+  </div>
+</div>
 <div id="rpr-modal" onclick="if(event.target===this)rprCloseModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:500;overflow-y:auto;padding:2rem 1rem">
   <div style="max-width:600px;margin:0 auto;background:var(--white);border-radius:var(--radius);box-shadow:0 8px 32px rgba(0,0,0,0.18);overflow:hidden">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);background:var(--green-light)">
@@ -2554,33 +2569,169 @@ function _rprStampsHtml(e) {
   return '<div style="font-size:10px;color:var(--muted);margin-top:2px;line-height:1.35">' + lines.join('<br>') + '</div>';
 }
 
-// Tempo touch history written by tempo_progress.py (entry.tempo), counted
-// only from after the request was entered. A re-flag shows only if nothing
-// good happened after it.
-function _tempoFlagHtml(t) {
-  if (!t || !t.flag) return '';
-  var f = t.flag;
-  return '<div style="font-size:10px;color:var(--red);font-weight:700;margin-top:2px">&#9888; flagged again in Tempo: ' +
-    escapeHtml(f.what || 'exception') + (f.station ? ' at ' + escapeHtml(f.station) : '') + ' ' + escapeHtml(_rprShortStamp(f.at)) + '</div>';
-}
-function _rprTempoHtml(e) { return _tempoFlagHtml(e.tempo); }
-// Missing Files keeps its own file status; Tempo shows as a tag under it.
+// Missing Files keeps its own file status; Tempo (entry.tempo, written by
+// tempo_progress.py from scans after it was reported) shows as ONE bubble.
 function _mafTempoHtml(e) {
   var t = e.tempo;
   if (!t || MAF_ARCHIVED_STATUSES.indexOf(e.status) !== -1) return '';
-  var h = '';
-  if (t.stage) {
-    h += '<div style="margin-top:3px"><span class="maf-status-pill" style="background:#dff3f1;color:#17706a;font-size:10px" title="Last step scanned in Tempo after this was reported">Tempo: ' +
-      escapeHtml(t.stage) + ' ' + escapeHtml(_rprShortStamp(t.at)) + '</span></div>';
-  } else if (t.newPjAt && !t.flag) {
-    h += '<div style="margin-top:3px"><span class="maf-status-pill" style="background:#e4eefc;color:#2a5ea8;font-size:10px">Tempo: new PJ ' + escapeHtml(_rprShortStamp(t.newPjAt)) + '</span></div>';
+  var label, bg, fg;
+  if (t.flag) {
+    label = '&#9888; Tempo: ' + escapeHtml(t.flag.what || 'flagged') + ' ' + escapeHtml(_rprShortStamp(t.flag.at)); bg = '#fde8e8'; fg = 'var(--red)';
+  } else if (t.stage) {
+    label = 'Tempo: ' + escapeHtml(t.stage) + ' ' + escapeHtml(_rprShortStamp(t.at)); bg = '#dff3f1'; fg = '#17706a';
+  } else if (t.newPjAt) {
+    label = 'Tempo: new PJ ' + escapeHtml(_rprShortStamp(t.newPjAt)); bg = '#e4eefc'; fg = '#2a5ea8';
+  } else return '';
+  var tip = t.flag ? 'Flagged again in Tempo' + (t.flag.station ? ' at ' + t.flag.station : '') + (t.newPjAt ? '; new PJ ' + _rprShortStamp(t.newPjAt) : '')
+                   : 'Last step scanned in Tempo after this was reported';
+  return '<div style="margin-top:3px"><span class="maf-status-pill" style="background:' + bg + ';color:' + fg + ';font-size:10px" title="' + escapeHtml(tip) + '">' + label + '</span></div>';
+}
+
+// The one status bubble on the main table. Turns red with a warning sign when
+// Tempo flagged the item again after the request (and nothing good since).
+function _rprStatusBubble(e) {
+  var status = e.status || 'Requested';
+  var sc = _rprStatusColor(status);
+  var f = e.tempo && e.tempo.flag && !_rprIsArchived(e) ? e.tempo.flag : null;
+  if (f) {
+    return '<span class="maf-status-pill" style="background:#fde8e8;color:var(--red)" title="Flagged again in Tempo: ' +
+      escapeHtml((f.what || 'exception') + (f.station ? ' at ' + f.station : '') + ' ' + _rprShortStamp(f.at)) + '">&#9888; ' + escapeHtml(status) + '</span>';
   }
-  h += _tempoFlagHtml(t);
-  if (t.flag && t.newPjAt && t.newPjAt > t.flag.at) {
-    h += '<div style="font-size:10px;color:#2a5ea8;margin-top:2px">new PJ assigned after that ' + escapeHtml(_rprShortStamp(t.newPjAt)) + '</div>';
+  return '<span class="maf-status-pill" style="background:' + sc.bg + ';color:' + sc.fg + '">' + escapeHtml(status) + '</span>';
+}
+
+// ── History pop-up (added 2026-10-08) ───────────────────────────────────────
+// Click a reprint row → the whole story of that container + item: live in
+// Tempo, onto the reprint tracker, back in Tempo. Tempo's touch history is
+// saved hourly by tempo_progress.py at reprintRequests/history/{id} (the
+// browser can't reach Tempo); the tracker / Missing Files events come from
+// the entries themselves.
+var _rprHistoryId = null;
+function rprRowClick(ev, id) {
+  if (ev.target.closest('input, button, a, select, label')) return;
+  rprOpenHistory(id);
+}
+function _rprDateOnly(d) { // 'YYYY-MM-DD' → local start of that day
+  var p = String(d || '').split('-');
+  return p.length === 3 ? new Date(+p[0], +p[1] - 1, +p[2]).toISOString() : '';
+}
+// Like _rprLinkedMaf but also finds resolved / shipped entries (for history).
+function _rprLinkedMafAny(e) {
+  var best = null;
+  Object.keys(_mafEntries || {}).forEach(function(mid) {
+    var m = _mafEntries[mid];
+    if (!m || m.status === 'Cancelled') return;
+    var score = _rprMatchScore(e, m);
+    if (score && (!best || score > best.score)) best = { id: mid, e: m, score: score };
+  });
+  return best;
+}
+function _rprAppEvents(e) {
+  var ev = [];
+  function add(t, src, what, detail, extra) {
+    if (!t) return;
+    ev.push(Object.assign({ t: t, src: src, what: what, detail: detail || '' }, extra || {}));
   }
+  if (e.waveDate) add(_rprDateOnly(e.waveDate), 'swms', 'Order waved', 'from the LMContainers report', { dateOnly: true });
+  var m = _rprLinkedMaf(e) || _rprLinkedMafAny(e);
+  if (m) {
+    var me = m.e;
+    add(me.createdAt || _rprDateOnly(me.dateReported), 'maf', 'Missing file reported',
+      [me.issue, me.department].filter(Boolean).join(' · '), { dateOnly: !me.createdAt });
+    if (me.notifiedAt) add(me.notifiedAt, 'maf', 'Missing file email sent', (me.contacts || []).join(', '));
+    if (me.dateResolved && me.status === 'Resolved') add(_rprDateOnly(me.dateResolved), 'maf', 'File received / resolved', '', { dateOnly: true });
+  }
+  var st = e.stamps || {};
+  var req = st.Requested || {};
+  var reqBy = req.by || e.requestedBy;
+  add(req.at || e.createdAt || _rprDateOnly(e.dateRequested), 'rpr', 'Added to the reprint tracker',
+    [e.reason, reqBy ? 'by ' + reqBy : ''].filter(Boolean).join(' · '), { request: true, dateOnly: !(req.at || e.createdAt) });
+  ['Nested', 'Printed'].concat(RPR_TEMPO_STEPS).forEach(function(s) {
+    // Tempo-made stamps repeat a Tempo scan that's already in the history.
+    if (st[s] && st[s].by !== 'Tempo') add(st[s].at, 'rpr', 'Marked ' + s, 'by ' + (st[s].by || '?'));
+  });
+  if (e.status === 'Shipped' && e.shippedAt) add(e.shippedAt, 'swms', 'Container ship-confirmed', 'request closed as Shipped');
+  if (e.status === 'Cancelled' && e.dateClosed) add(_rprDateOnly(e.dateClosed), 'rpr', 'Request cancelled', e.cancelledBy ? 'by ' + e.cancelledBy : '', { dateOnly: true });
+  return ev;
+}
+var RPR_HIST_SRC = {
+  tempo: { label: 'Tempo',         bg: '#dff3f1', fg: '#17706a' },
+  rpr:   { label: 'Reprints',      bg: '#fff3d6', fg: '#a8760a' },
+  maf:   { label: 'Missing Files', bg: '#fde8e8', fg: 'var(--red)' },
+  swms:  { label: 'SWMS',          bg: '#efe7f8', fg: '#6b3fa0' }
+};
+function _rprHistTime(x) {
+  var d = new Date(x.t);
+  if (isNaN(d.getTime())) return '';
+  var day = d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
+  return x.dateOnly ? day : day + ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+function _rprHistoryHtml(e, hist) {
+  var events = _rprAppEvents(e).concat((hist && hist.events) || []);
+  events.sort(function(a, b) { return new Date(a.t) - new Date(b.t); });
+  var reqEv = events.filter(function(x) { return x.request; })[0];
+  var reqAt = reqEv ? new Date(reqEv.t).getTime() : Infinity;
+  var h = '', inTracker = false, backInTempo = false;
+  function divider(text) {
+    return '<div style="display:flex;align-items:center;gap:8px;margin:12px 0 6px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)">' +
+      '<span style="flex:1;border-top:1px dashed var(--border)"></span>' + text + '<span style="flex:1;border-top:1px dashed var(--border)"></span></div>';
+  }
+  if (events.length && !events[0].request) h += divider('Live in Tempo');
+  events.forEach(function(x) {
+    var t = new Date(x.t).getTime();
+    if (!inTracker && t >= reqAt) { inTracker = true; h += divider('Jumped to the reprint tracker'); }
+    if (inTracker && !backInTempo && x.src === 'tempo' && t > reqAt) { backInTempo = true; h += divider('Back in Tempo'); }
+    var src = RPR_HIST_SRC[x.src] || RPR_HIST_SRC.tempo;
+    h += '<div style="display:grid;grid-template-columns:118px 92px 1fr;gap:8px;align-items:baseline;padding:5px 0;border-bottom:1px solid #f0f2f1;font-size:12px">' +
+      '<span style="color:var(--muted);white-space:nowrap">' + escapeHtml(_rprHistTime(x)) + '</span>' +
+      '<span><span class="maf-status-pill" style="background:' + src.bg + ';color:' + src.fg + ';font-size:10px">' + src.label + '</span></span>' +
+      '<span><b style="' + (x.flag ? 'color:var(--red)' : '') + '">' + (x.flag ? '&#9888; ' : '') + escapeHtml(x.what) + '</b>' +
+      (x.detail ? '<span style="color:var(--muted)"> &middot; ' + escapeHtml(x.detail) + '</span>' : '') + '</span></div>';
+  });
+  if (!events.length) h += '<p style="color:var(--muted);font-size:13px">No history yet.</p>';
   return h;
 }
+function rprOpenHistory(id) {
+  var e = _rprEntries[id];
+  if (!e) return;
+  _rprHistoryId = id;
+  document.getElementById('rpr-hist-title').textContent = 'History · ' + (e.containerNumber || '—') + ' · ' + (e.item || '—');
+  var info = [['Order', e.orderId], ['Size / media', e.sizeMedia], ['Qty', e.qty], ['Reason', e.reason], ['PJ #', e.pjNumber], ['Notes', e.notes]]
+    .filter(function(r) { return r[1]; })
+    .map(function(r) { return '<span style="overflow-wrap:anywhere"><span style="color:var(--muted)">' + r[0] + ':</span> ' + escapeHtml(r[1]) + '</span>'; }).join('');
+  var head = '<div style="display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;font-size:12px;margin-bottom:6px">' + _rprStatusBubble(e) + info + '</div>';
+  var body = document.getElementById('rpr-hist-body');
+  body.innerHTML = head + '<p style="color:var(--muted);font-size:13px">Loading Tempo history&hellip;</p>';
+  document.getElementById('rpr-hist-modal').style.display = '';
+  _mafWithTimeout(firebase.database().ref('reprintRequests/history/' + id).once('value'), 10000).then(function(snap) {
+    if (_rprHistoryId !== id) return;
+    var hist = snap.val();
+    body.innerHTML = head + _rprHistoryHtml(e, hist) +
+      '<div style="font-size:10px;color:var(--muted);margin-top:10px">' +
+      (hist && hist.updatedAt ? 'Tempo history as of ' + escapeHtml(_rprShortStamp(hist.updatedAt)) + ' &middot; refreshes hourly' :
+        'Tempo history not saved yet &mdash; it fills in on the next hourly sync.') + '</div>';
+  }).catch(function(err) {
+    if (_rprHistoryId !== id) return;
+    body.innerHTML = head + _rprHistoryHtml(e, null) +
+      '<div style="font-size:11px;color:var(--red);margin-top:10px">Couldn\'t load the Tempo history: ' + escapeHtml(err && err.message ? err.message : String(err)) + '</div>';
+  });
+}
+function rprCloseHistory() {
+  _rprHistoryId = null;
+  document.getElementById('rpr-hist-modal').style.display = 'none';
+}
+function rprPrintHistory() {
+  var title = document.getElementById('rpr-hist-title').textContent;
+  var w = window.open('', '_blank');
+  if (!w) return;
+  w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>' + escapeHtml(title) +
+    '</title><style>body{font-family:Arial,sans-serif;margin:24px;color:#222}.maf-status-pill{display:inline-block;padding:2px 8px;border-radius:20px;font-weight:700;font-size:11px;print-color-adjust:exact;-webkit-print-color-adjust:exact}</style></head><body><h2 style="margin:0 0 10px">' +
+    escapeHtml(title) + '</h2>' + document.getElementById('rpr-hist-body').innerHTML + '</body></html>');
+  w.document.close();
+  w.focus();
+  w.print();
+}
+
 
 // Duplicate rules (owner choice 2026-10-05), checked against OPEN requests:
 //   BLOCK  same order + same item + same container (or either container blank)
@@ -2911,7 +3062,7 @@ function renderReprints() {
     var e = _rprEntries[id];
     var status = e.status || 'Requested';
     var sc = _rprStatusColor(status);
-    h += '<tr>';
+    h += '<tr class="rpr-row" onclick="rprRowClick(event, \'' + id + '\')" title="Click for the full history">';
     h += '<td style="text-align:center"><input type="checkbox" class="rpr-row-cb"' + (_rprUnchecked[id] ? '' : ' checked') + ' onchange="rprToggleRow(\'' + id + '\', this.checked)"></td>';
     h += '<td style="white-space:nowrap">' + _rprAgeHtml(e) + '</td>';
     h += '<td style="white-space:nowrap;font-weight:600">' + escapeHtml(e.containerNumber || '—') + '</td>';
@@ -2922,8 +3073,9 @@ function renderReprints() {
     h += '<td>' + escapeHtml(e.reason || '—') + '</td>';
     h += '<td style="white-space:nowrap">' + escapeHtml(e.requestedBy || '—') + '<div style="font-size:10px;color:var(--muted)">' + escapeHtml(_rprMD(e.dateRequested)) + '</div></td>';
     h += '<td>' + escapeHtml(e.pjNumber || '—') + '</td>';
-    h += '<td><span class="maf-status-pill" style="background:' + sc.bg + ';color:' + sc.fg + '">' + escapeHtml(status) + '</span>' + _rprStampsHtml(e) + _rprTempoHtml(e) +
-      (status === 'Needs Info' ? '<div style="font-size:10px;color:var(--red);margin-top:2px">missing: ' + escapeHtml(_rprMissingFields(e).join(', ')) + '</div>' : '') + _rprMafBadgeHtml(e) + '</td>';
+    // Owner 2026-10-08: just the latest status here; who/when, Tempo scans
+    // and re-flags live in the history pop-up (click the row).
+    h += '<td>' + _rprStatusBubble(e) + _rprMafBadgeHtml(e) + '</td>';
     // overflow-wrap: long no-space notes (e.g. a \\fs2\... file path) would
     // otherwise force the whole table wider than the screen.
     h += '<td style="font-size:11px;min-width:140px;max-width:200px;overflow-wrap:anywhere">' + escapeHtml(e.notes || '') + '</td>';
@@ -3262,7 +3414,7 @@ function printReprintsReport() {
       h += '<td>' + escapeHtml(e.containerNumber || '—') + '</td><td>' + escapeHtml(e.orderId || '—') + '</td>';
       h += '<td>' + escapeHtml(e.item || '—') + '</td><td>' + escapeHtml(e.sizeMedia || '—') + '</td><td>' + escapeHtml(e.qty || '—') + '</td>';
       h += '<td>' + escapeHtml(e.reason || '—') + '</td><td>' + escapeHtml(e.requestedBy || '—') + ' ' + escapeHtml(_rprMD(e.dateRequested)) + '</td>';
-      h += '<td>' + escapeHtml(e.pjNumber || '—') + '</td><td>' + escapeHtml(e.status || 'Requested') + _rprStampsHtml(e) + _rprTempoHtml(e) + '</td>';
+      h += '<td>' + escapeHtml(e.pjNumber || '—') + '</td><td>' + escapeHtml(e.status || 'Requested') + _rprStampsHtml(e) + '</td>';
       h += '<td>' + escapeHtml(e.notes || '') + '</td></tr>';
     });
     h += '</tbody></table>';
