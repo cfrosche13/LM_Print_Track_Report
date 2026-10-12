@@ -9531,9 +9531,13 @@ function _cleaningStatusForShift(machine, date, shift) {
   var status = { start: false, mid: false, end: false };
   _cleaningEntriesFor(machine, date).forEach(function(e) {
     var hour = e.ts ? new Date(e.ts).getHours() : null;
-    var entryShift = (hour != null && hour >= 15) ? 'night' : 'day';
-    if (entryShift !== shift) return;
     var tier = _cleaningTier(e);
+    // Day crew's End of Shift checklist usually finishes ~3:10-3:40 PM, so
+    // End of Shift uses a 4 PM cutoff (owner, 2026-10-12). Only affects these
+    // recap checkboxes — tally/plan counts keep their own 3 PM split.
+    var cutoff = tier === 'End of Shift' ? 16 : 15;
+    var entryShift = (hour != null && hour >= cutoff) ? 'night' : 'day';
+    if (entryShift !== shift) return;
     if (tier === 'Start of Shift') status.start = true;
     else if (tier === 'Mid Shift') status.mid = true;
     else if (tier === 'End of Shift') status.end = true;
