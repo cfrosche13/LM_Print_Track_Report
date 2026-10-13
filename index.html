@@ -5873,6 +5873,29 @@ function _saveDrinkwareSkuMap() {
   try { localStorage.setItem('drinkwareSkuMap', JSON.stringify(_drinkwareSkuMap)); } catch(e) {}
 }
 
+// Built-in fallback by blank glass (kids_item), confirmed against FLAG's
+// View_LM_List recipes 2026-10-13. The hand-made table above lives in each
+// browser's own storage, so a computer with an empty table showed every order
+// as plain "Drinkware". These always apply when nothing more specific matches.
+// CWCV is the usual color build (owner, 2026-10-13); designs that differ are
+// picked up per design from the art-folder index (_drinkwareSkuColorMap).
+var _DRINKWARE_BLANK_DEFAULTS = {
+  'TURD7EGSC': 'Drinkware · Pint Glass CWCV',          // Glass Tumbler, 16oz, Blank
+  'WGTJBEGSC': 'Drinkware · Stemless Wine Glass CWCV'  // Stemless Wine Glass, 17oz, Blank
+};
+// Precedence: art-folder item_id match, then the hand-made kids_item table,
+// then the built-in blank defaults.
+function _drinkwareMatchFor(itemId, kidsItem) {
+  return _drinkwareSkuColorMap[itemId] || _drinkwareSkuMap[kidsItem] || _DRINKWARE_BLANK_DEFAULTS[kidsItem] || null;
+}
+
+// Home machine (fixture) for a Drinkware piece type when Targets & Rules has no
+// routing override for it: Stemless Wine on M2, everything else on M1, so the
+// two biggest glass types each keep their own fixture (owner, 2026-10-13).
+function _drinkwareDefaultHome(key) {
+  return /wine/i.test(key || '') ? 'Drinkware M2' : 'Drinkware M1';
+}
+
 // Returns the home machine for a product, checking routing overrides first.
 function _getProductHome(name, iname) {
   var key = name || iname;
@@ -6359,7 +6382,7 @@ function deriveMachineFromProduct(name, iname, coirSku) {
   if (!name && !iname) return null;
   var key = name || iname;
   if (_routingOverrides[key] && _routingOverrides[key].home) return _routingOverrides[key].home;
-  if (isDrinkware(key, ''))         return 'Drinkware M1';
+  if (isDrinkware(key, ''))         return _drinkwareDefaultHome(key);
   if (isFlocked(key, ''))           return '30+';
   if (isCoir(key, ''))              return _coirHomeMachine(coirSku || iname, name);
   if (isCircle(key, ''))            return '30+';
@@ -6950,7 +6973,7 @@ async function coirFsaReload() {
         if (isCoir(o.shortName || '', o.coirSku || '')) {
           o.machine = deriveMachineFromProduct(o.shortName, o.itemName, o.coirSku);
         } else if (isDrinkware(o._rawShortName || o.shortName || '', '')) {
-          var mapped = _drinkwareSkuColorMap[o.coirSku] || _drinkwareSkuMap[o.itemName];
+          var mapped = _drinkwareMatchFor(o.coirSku, o.itemName);
           o.shortName = mapped || o._rawShortName || o.shortName;
           o.machine = deriveMachineFromProduct(o.shortName, o.itemName, o.coirSku);
         }
@@ -7175,7 +7198,7 @@ function parseLMContainersRows(jsonRows) {
     // kids_item mapping table for anything the art reorg hasn't reached yet.
     var rawProductName = productName;
     if (isDrinkware(productName, '')) {
-      var _dwMatch = _drinkwareSkuColorMap[coirSkuCode] || _drinkwareSkuMap[skuCode];
+      var _dwMatch = _drinkwareMatchFor(coirSkuCode, skuCode);
       if (_dwMatch) productName = _dwMatch;
     }
     // Skip rows with no product info (footer/total rows)
@@ -7601,6 +7624,12 @@ function runPlan(orders) {
         }
         if (!rFound) { assignedMachine = 'BLOCKED'; notes.push('⚠ ' + original + ' is DOWN — no flex machines available'); }
 
+      } else if (isDrinkware(name, iname)) {
+        // Drinkware fixtures can move to the other Drinkware machine
+        var dwOther = original === 'Drinkware M1' ? 'Drinkware M2' : 'Drinkware M1';
+        if (MACHINE_UP[dwOther]) { assignedMachine = dwOther; moved = true; notes.push('Fixture moved: ' + original + ' is DOWN → ' + dwOther); }
+        else { assignedMachine = 'BLOCKED'; notes.push('⚠ Both Drinkware machines are DOWN'); }
+
       } else if (isYardSign(name, iname)) {
         // H5 ONLY — no exceptions, ever
         if (!MACHINE_UP['H5']) { assignedMachine = 'BLOCKED'; notes.push('⚠ Yard Signs are H5 only — H5 is DOWN'); }
@@ -7659,7 +7688,6 @@ function runPlan(orders) {
       if (isHangingSign18x18(name, iname) && assignedMachine === '30+' && MACHINE_UP['H5'])                    item._shiftTag = 'hang18On30p';
       if ((isAntiFatigue(name, iname)||isPorchLeaner(name, iname)) && assignedMachine === 'H5' && MACHINE_UP['30+']) item._shiftTag = 'h5FlexTo30p';
       if (isPVC(name, iname) && assignedMachine === 'H5')                                                       item._shiftTag = 'pvcOnH5';
-      if (isDrinkware(name, iname) && assignedMachine === 'Drinkware M1' && MACHINE_UP['Drinkware M2'])         item._shiftTag = 'drinkwareOnM1';
       // Override-based flex tag: if this product has a routing override with flex machines,
       // and it's sitting on its home machine, tag it for potential load-balancing.
       if (!item._shiftTag) {
@@ -7791,30 +7819,28 @@ function runPlan(orders) {
     });
   }
 
-  // Splits Drinkware work across M1 and M2 proportional to each machine's own
-  // capacity (usually an even 50/50 since both run the same speed, but stays
-  // correct if the owner ever schedules them for different hours) instead of
-  // loading everything onto M1 and only spilling to M2 once M1 is already
-  // over its own capacity. That old behavior meant M2 sat idle any time total
-  // Drinkware demand fit on M1 alone, cutting the shift's real throughput in
-  // half instead of running both machines in parallel (found 2026-08-05).
+  // Fixture-first Drinkware plan (owner, 2026-10-13): each glass type stays on
+  // its home machine (its fixture), so each machine owns its own backlog and
+  // rolls and isn't swapping fixtures all day. Work only crosses over when one
+  // machine would otherwise sit idle while the other has more than it can
+  // print this shift; that's a fixture change and is labeled as one.
+  // Replaces the 2026-08 version, which put everything on M1 and lent M2 just
+  // one shift's worth, leaving every roll on M1.
   function _balanceDrinkwareMachines() {
     var m1 = 'Drinkware M1', m2 = 'Drinkware M2';
     if (!MACHINE_UP[m1] || !MACHINE_UP[m2]) return; // one machine not scheduled — nothing to balance
-    var capM1 = MACHINE_GOALS[m1] || 1, capM2 = MACHINE_GOALS[m2] || 1;
-    var total = (machineLoad[m1] || 0) + (machineLoad[m2] || 0);
-    var targetM1 = Math.round(total * capM1 / (capM1 + capM2));
-    var toBalance = (machineLoad[m1] || 0) - targetM1;
-    if (toBalance <= 0) return; // M1 already at or under its fair share
+    _fillIdleDrinkware(m1, m2);
+    _fillIdleDrinkware(m2, m1);
+  }
 
-    var hrsRoomM2 = Math.max(0, (MACHINE_NET_HRS[m2] || NET_HRS) - (machineHrsUsed[m2] || 0));
-    // Manual (hand-typed) Drinkware orders are included here too — excluding them
-    // meant any day where most Drinkware volume was manual (common, since order-file
-    // parsing isn't fully set up for Drinkware yet) left M2 nearly empty regardless
-    // of how full M1 got (found 2026-08-12).
-    var eligible = planRows.filter(function(r) { return r.machine === m1; });
-    // REG/ASAP moves first; must-ship DS-only rows stay on M1 unless there's no other way to balance.
-    // Manual rows sort alongside DS as lowest-priority-to-move (last resort).
+  function _fillIdleDrinkware(from, to) {
+    var hrsOver = (machineHrsUsed[from] || 0) - (MACHINE_NET_HRS[from] || NET_HRS);
+    var hrsRoom = (MACHINE_NET_HRS[to] || NET_HRS) - (machineHrsUsed[to] || 0);
+    if (hrsOver <= 0 || hrsRoom <= 0) return;
+
+    // Move what would roll anyway: REG/ASAP/FBA before must-ship DS, manual
+    // rows last, biggest row first so it's usually one glass type (one fixture).
+    var eligible = planRows.filter(function(r) { return r.machine === from; });
     eligible.sort(function(a, b) {
       var aDS = (a._manual || (a.dsQty > 0 && a.regQty === 0 && a.asapQty === 0 && (a.fbaQty||0) === 0)) ? 1 : 0;
       var bDS = (b._manual || (b.dsQty > 0 && b.regQty === 0 && b.asapQty === 0 && (b.fbaQty||0) === 0)) ? 1 : 0;
@@ -7822,11 +7848,10 @@ function runPlan(orders) {
     });
 
     eligible.forEach(function(row) {
-      if (toBalance <= 0) return;
-      var pph = lookupPph(row.name, row.itemName, m2) || MACHINE_PPH[m2] || 60;
-      var roomPcs = Math.floor(hrsRoomM2 * pph);
-      if (roomPcs <= 0) return;
-      var toMove = Math.min(row.qty, toBalance, roomPcs);
+      if (hrsOver <= 0 || hrsRoom <= 0) return;
+      var pphFrom = lookupPph(row.name, row.itemName, from) || MACHINE_PPH[from] || 60;
+      var pphTo   = lookupPph(row.name, row.itemName, to)   || MACHINE_PPH[to]   || 60;
+      var toMove = Math.min(row.qty, Math.floor(hrsOver * pphFrom), Math.floor(hrsRoom * pphTo));
       if (toMove <= 0) return;
 
       var manualMove = row._manual ? toMove : 0;
@@ -7836,27 +7861,26 @@ function runPlan(orders) {
       var asapMove = row._manual ? 0 : Math.round(row.asapQty * frac);
       var regMove  = row._manual ? 0 : Math.max(0, toMove - dsMove - fbaMove - asapMove);
 
-      machineLoad[m1]    -= toMove;  machineLoad[m2]    += toMove;
-      machineDSLoad[m1]  -= dsMove;  machineDSLoad[m2]  += dsMove;
-      machineFbaLoad[m1] -= fbaMove; machineFbaLoad[m2] += fbaMove;
-      machineRegLoad[m1] -= (regMove + asapMove); machineRegLoad[m2] += (regMove + asapMove);
-      machineManualLoad[m1] -= manualMove; machineManualLoad[m2] += manualMove;
-      var hrsMoved = toMove / pph;
-      machineHrsUsed[m1] = Math.max(0, (machineHrsUsed[m1] || 0) - hrsMoved);
-      machineHrsUsed[m2] = (machineHrsUsed[m2] || 0) + hrsMoved;
-      hrsRoomM2 -= hrsMoved;
-      toBalance -= toMove;
+      machineLoad[from]       -= toMove;     machineLoad[to]       += toMove;
+      machineDSLoad[from]     -= dsMove;     machineDSLoad[to]     += dsMove;
+      machineFbaLoad[from]    -= fbaMove;    machineFbaLoad[to]    += fbaMove;
+      machineRegLoad[from]    -= (regMove + asapMove); machineRegLoad[to] += (regMove + asapMove);
+      machineManualLoad[from] -= manualMove; machineManualLoad[to] += manualMove;
+      machineHrsUsed[from] = Math.max(0, (machineHrsUsed[from] || 0) - toMove / pphFrom);
+      machineHrsUsed[to]   = (machineHrsUsed[to] || 0) + toMove / pphTo;
+      hrsOver -= toMove / pphFrom;
+      hrsRoom -= toMove / pphTo;
 
-      var note = 'Shifted: ' + m1 + ' → ' + m2 + ' (' + toMove.toLocaleString() + ' pcs — balancing load across both Drinkware machines)';
+      var note = 'Fixture change: ' + from + ' → ' + to + ' (' + toMove.toLocaleString() + ' pcs — ' + to + ' has open time after its own work)';
       if (toMove === row.qty) {
-        row.machine = m2; row.moved = true; row.loadShifted = true; row._shiftTag = null;
+        row.machine = to; row.moved = true; row.loadShifted = true; row._shiftTag = null;
         row.notes.push(note);
       } else {
         planRows.push({
           name: row.name, itemName: row.itemName, coirSku: row.coirSku,
           qty: toMove, dsQty: dsMove, regQty: regMove, asapQty: asapMove, fbaQty: fbaMove,
           orderType: row.orderType,
-          machine: m2, originalMachine: m1,
+          machine: to, originalMachine: from,
           notes: [note], moved: true, loadShifted: true, _shiftTag: null,
           _manual: row._manual || false, _manualNote: row._manualNote || '',
           earliestWave: row.earliestWave || null
@@ -7886,9 +7910,7 @@ function runPlan(orders) {
       shiftItems('pvcOnH5', 'H5', '30', 'H5 over capacity — PVC flex to 30');
     }
   } else if (PLAN_GROUP === 'drinkware') {
-    // Split the total load across M1 and M2 (see _balanceDrinkwareMachines)
-    // instead of only spilling to M2 once M1 alone is over capacity — runs
-    // both machines whenever there's enough work to keep them both busy.
+    // Fixture-first: only fill a machine's idle time (see _balanceDrinkwareMachines)
     _balanceDrinkwareMachines();
   }
 
@@ -10578,7 +10600,7 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
       summaryHtml += '</div>';
       summaryHtml += '<div style="font-size:11px;background:var(--amber-bg);border:1px solid var(--amber-border);border-radius:4px;padding:5px 8px;color:var(--amber);margin-top:4px">';
       summaryHtml += PLAN_GROUP === 'drinkware'
-        ? '👋 You should manually shift ' + shifted.toLocaleString() + ' pcs here from Drinkware M1'
+        ? '👋 Fixture change: ' + shifted.toLocaleString() + ' pcs come over from ' + (m === 'Drinkware M1' ? 'Drinkware M2' : 'Drinkware M1') + ' after this machine\'s own work'
         : '👋 You should manually shift ' + shifted.toLocaleString() + ' pcs of coir here from Machine 30';
       summaryHtml += '</div>';
     } else {
@@ -11860,7 +11882,7 @@ function _reapplyDrinkwareSkuMap() {
     if (!o._fromLMContainers || !isDrinkware(o._rawShortName || o.shortName || '', '')) return;
     // Same precedence as parseLMContainersRows: folder-based item_id match
     // (o.coirSku) first, manual kids_item mapping (o.itemName) as fallback.
-    var mapped = _drinkwareSkuColorMap[o.coirSku] || _drinkwareSkuMap[o.itemName];
+    var mapped = _drinkwareMatchFor(o.coirSku, o.itemName);
     o.shortName = mapped || o._rawShortName || o.shortName;
     o.machine = deriveMachineFromProduct(o.shortName, o.itemName, o.coirSku);
   });
