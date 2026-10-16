@@ -5301,6 +5301,20 @@ function reorderBunch(machine, bucketType, draggedName, draggedItemName, targetN
   if (window._planOrders) runPlan(window._planOrders);
 }
 
+// ⇧ on a Rolling row in "All open work": put it first in its bucket so it fills
+// before the rest (DS still always fills before FBA/REG). Re-renders from the
+// live rows rather than runPlan so manual drags already made stay put.
+function pullIntoPlan(name, itemName, bucketType, machine) {
+  var planDate = document.getElementById('plan-datepicker').value;
+  if (!planDate) return;
+  var key = _rowOrderKey(name, itemName);
+  var ovKey = planDate + ':' + machine + ':' + bucketType;
+  var current = (_rowOrderOverride[ovKey] || _currentBucketOrderKeys(machine, bucketType)).filter(function(k) { return k !== key; });
+  current.unshift(key);
+  _rowOrderOverride[ovKey] = current;
+  _rerenderPlanAfterMove();
+}
+
 // The bucket's current default-sorted row-key order, used to seed an override the
 // first time a row is dragged in that bucket (so the whole list doesn't collapse
 // down to just the two rows involved in that one drag).
@@ -10850,10 +10864,37 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
     manualRows.forEach(function(r) { if (r.qty > 0)              flatEntries.push({ row: r, bt: 'manual', col: '#8e6fc9',           lbl: 'OTHER',   qty: r.qty }); });
     shiftedRows.forEach(function(r){ if (r.qty > 0)              flatEntries.push({ row: r, bt: 'shifted', col: 'var(--amber)',      lbl: 'SHIFTED', qty: r.qty }); });
 
+    // Split each entry into the part that fits today and the part that rolls,
+    // filling in the same priority order as "What gets made today" above, so
+    // the owner can see which pieces a drag actually takes off today's plan
+    // (owner, 2026-10-16: dragging rolling pieces left the planned number
+    // unchanged, and the old single list didn't show which were which).
+    var flatRemaining = canDo, plannedEntries = [], rollingEntries = [];
+    flatEntries.forEach(function(e) {
+      var p = Math.min(e.qty, Math.max(0, flatRemaining));
+      flatRemaining -= p;
+      if (p > 0)          plannedEntries.push({ row: e.row, bt: e.bt, col: e.col, lbl: e.lbl, qty: p, partial: p < e.qty });
+      if (e.qty - p > 0)  rollingEntries.push({ row: e.row, bt: e.bt, col: e.col, lbl: e.lbl, qty: e.qty - p, partial: p > 0 });
+    });
+    function _sumQty(list) { return list.reduce(function(n, e) { return n + e.qty; }, 0); }
+
     if (flatEntries.length) {
       breakdownHtml += '<div style="margin-top:10px">';
-      breakdownHtml += '<div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:5px">All open work</div>';
-      flatEntries.forEach(function(e) {
+      breakdownHtml += '<div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--green-dark);margin-bottom:5px">Planned today &mdash; ' + _sumQty(plannedEntries).toLocaleString() + ' pcs</div>';
+      if (!plannedEntries.length) breakdownHtml += '<div style="font-size:11px;color:var(--muted);padding:2px 0">Nothing fits this shift.</div>';
+      plannedEntries.forEach(function(e) { breakdownHtml += _openWorkRowHtml(e, false); });
+      if (rollingEntries.length) {
+        breakdownHtml += '<div style="margin-top:12px;padding-top:8px;border-top:2px solid var(--amber-border)">';
+        breakdownHtml += '<div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--amber);margin-bottom:2px">Rolling &mdash; ' + _sumQty(rollingEntries).toLocaleString() + ' pcs</div>';
+        breakdownHtml += '<div style="font-size:10px;color:var(--muted);margin-bottom:5px">Drag to another machine to get it made there, or &#8679; to put it at the front of its line here.</div>';
+        rollingEntries.forEach(function(e) { breakdownHtml += _openWorkRowHtml(e, true); });
+        breakdownHtml += '</div>';
+      }
+      breakdownHtml += '</div>';
+    }
+
+    function _openWorkRowHtml(e, isRolling) {
+        var html = '';
         var r = e.row, bt = e.bt, col = e.col, q = e.qty;
         var isShifted = (bt === 'shifted');
         var selected = !isShifted && _isBunchSelected(r.name, r.itemName, bt, m);
@@ -10873,17 +10914,22 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
         var rollLink = isShifted
           ? ' <a href="#" onclick="event.preventDefault();event.stopPropagation();rollShiftedRow(\'' + _jsEsc(r.name) + '\',\'' + _jsEsc(r.itemName) + '\',\'' + m + '\')" title="Remove from today\'s plan" style="color:var(--amber);text-decoration:none;font-size:14px;line-height:1;flex-shrink:0">&#8618;</a>'
           : ' <a href="#" onclick="event.preventDefault();event.stopPropagation();rollRowForward(\'' + _jsEsc(r.name) + '\',\'' + _jsEsc(r.itemName) + '\',\'' + bt + '\',\'' + m + '\',' + q + ')" title="Roll to next shift" style="color:var(--amber);text-decoration:none;font-size:14px;line-height:1;flex-shrink:0">&#8618;</a>';
-        var badge = '<span style="flex-shrink:0;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;background:' + col + ';color:#fff">' + e.lbl + '</span>';
+        // Rolling rows get "move to the front of the line" instead of roll —
+        // they're already rolling. Shifted rows keep their remove link.
+        if (isRolling && !isShifted) {
+          rollLink = ' <a href="#" onclick="event.preventDefault();event.stopPropagation();pullIntoPlan(\'' + _jsEsc(r.name) + '\',\'' + _jsEsc(r.itemName) + '\',\'' + bt + '\',\'' + m + '\')" title="Move to the front of its line so it gets made today (bumps the last planned item)" style="color:var(--green-dark);text-decoration:none;font-size:14px;line-height:1;flex-shrink:0">&#8679;</a>';
+        }
+        var badge = '<span style="flex-shrink:0;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;background:' + col + ';color:#fff' + (isRolling ? ';opacity:0.7' : '') + '">' + e.lbl + '</span>';
         var noteHtml = (bt === 'manual' && r._manualNote) ? ' <span style="color:var(--muted);font-style:italic">&mdash; ' + r._manualNote + '</span>' : '';
         var movedHtml = r._manualMoved ? ' <span style="color:var(--muted);font-style:italic;font-size:10px">&mdash; moved from ' + r._manualMoveFrom + ' <a href="#" onclick="event.preventDefault();event.stopPropagation();undoBunchMove(\'' + _jsEsc(r.name) + '\',\'' + _jsEsc(r.itemName) + '\',\'' + r._manualMoveFrom + '\',\'' + m + '\',' + (r._manualMoveAmount||0) + ')" style="color:var(--blue)">&#8634; undo</a></span>' : '';
-        breakdownHtml += '<div' + dragAttrs + ' style="display:flex;align-items:center;gap:6px;font-size:11px;padding:4px 2px;border-bottom:1px solid var(--border)">';
-        breakdownHtml += badge;
-        breakdownHtml += '<span style="flex:1;color:var(--text)">' + checkSpan + _coirDisplayName(r.name, r.coirSku) + noteHtml + movedHtml + '</span>';
-        breakdownHtml += '<span style="font-weight:600;color:' + col + ';flex-shrink:0">' + q.toLocaleString() + '</span>';
-        breakdownHtml += rollLink;
-        breakdownHtml += '</div>';
-      });
-      breakdownHtml += '</div>';
+        var partialHtml = e.partial ? ' <span style="font-size:9px;color:var(--muted)">(' + (isRolling ? 'rest of it' : 'part') + ')</span>' : '';
+        html += '<div' + dragAttrs + ' style="display:flex;align-items:center;gap:6px;font-size:11px;padding:4px 2px;border-bottom:1px solid var(--border)">';
+        html += badge;
+        html += '<span style="flex:1;color:' + (isRolling ? 'var(--muted)' : 'var(--text)') + '">' + checkSpan + _coirDisplayName(r.name, r.coirSku) + noteHtml + movedHtml + partialHtml + '</span>';
+        html += '<span style="font-weight:600;color:' + (isRolling ? 'var(--amber)' : col) + ';flex-shrink:0">' + q.toLocaleString() + '</span>';
+        html += rollLink;
+        html += '</div>';
+        return html;
     }
 
     // ── Manually rolled forward to the next shift's plan ──────────────────
