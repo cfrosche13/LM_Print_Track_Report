@@ -5939,7 +5939,12 @@ function recomputeGoals() {
     var effectiveHrs = mHrs > 0 ? Math.max(0, schedNet - maintLost) : 0;
     MACHINE_NET_HRS[m] = effectiveHrs;
     MACHINE_GOALS[m]   = Math.round(MACHINE_PPH[m] * effectiveHrs);
-    MACHINE_UP[m]      = mHrs > 0;
+    // Down = no hours scheduled, maintenance eating the whole shift, or no
+    // operator. The last two used to leave the machine "up" with nothing to
+    // run it, so its work never redirected (owner, 2026-10-16: M1 down via
+    // maintenance kept every M1 glass on M1).
+    var mOps = _machineOperators[m] != null ? _machineOperators[m] : 1;
+    MACHINE_UP[m]      = mHrs > 0 && effectiveHrs > 0 && mOps > 0;
   });
 
   // Refresh machine-down note
@@ -6032,6 +6037,7 @@ function onOperatorsChange() {
     if (el) _machineOperators[m] = Math.max(0, parseInt(el.value) || 0);
   });
   try { localStorage.setItem('machineOperators', JSON.stringify(_machineOperators)); } catch(e) {}
+  recomputeGoals(); // 0 operators marks the machine down
   if (window._planOrders) runPlan(window._planOrders);
 }
 
