@@ -5315,6 +5315,40 @@ function pullIntoPlan(name, itemName, bucketType, machine) {
   _rerenderPlanAfterMove();
 }
 
+// ─── MANUAL "TODAY'S PLAN" LIMIT PER MACHINE ─────────────────────────────────
+// Owner, 2026-10-20: rolling an item left spare capacity, so the next item in
+// line slid into the plan to fill it. Typing a lower Today's Plan number caps
+// that machine at that number, so rolling something just lowers what's left
+// instead of pulling more work in. Can only lower, never raise past capacity.
+// Keyed by planDate like _rowOrderOverride, session-only.
+var _planCapOverride = {}; // { 'date:machine': todaysPlanTotal }
+
+function editPlanCap(machine) {
+  var el = document.getElementById('plan-cap-' + _machineIdKey(machine));
+  if (!el || el.querySelector('input')) return;
+  var cur = parseInt(el.getAttribute('data-value'), 10) || 0;
+  el.innerHTML = '<input type="number" min="0" value="' + cur + '" style="width:110px;font-family:inherit;font-size:22px;font-weight:700;padding:2px 6px;border:1px solid var(--green-dark);border-radius:5px"' +
+    ' onclick="event.stopPropagation()"' +
+    ' onkeydown="if(event.key===\'Enter\'||event.key===\'Escape\'){this.setAttribute(\'data-done\',\'1\');setPlanCap(\'' + _jsEsc(machine) + '\', event.key===\'Enter\' ? this.value : null);}"' +
+    ' onblur="if(!this.getAttribute(\'data-done\'))setPlanCap(\'' + _jsEsc(machine) + '\', this.value)">';
+  var inp = el.querySelector('input');
+  inp.focus(); inp.select();
+}
+
+// value null = cancel the edit; blank, or anything at/above the automatic plan, clears the limit.
+function setPlanCap(machine, value) {
+  var planDate = document.getElementById('plan-datepicker').value;
+  if (!planDate) return;
+  var key = planDate + ':' + machine;
+  if (value !== null) {
+    var n = parseInt(value, 10);
+    var auto = (window._planAutoTotals || {})[machine];
+    if (isNaN(n) || n < 0 || (auto != null && n >= auto)) delete _planCapOverride[key];
+    else _planCapOverride[key] = n;
+  }
+  _rerenderPlanAfterMove();
+}
+
 // The bucket's current default-sorted row-key order, used to seed an override the
 // first time a row is dragged in that bucket (so the whole list doesn't collapse
 // down to just the two rows involved in that one drag).
@@ -10461,6 +10495,7 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
   // from full-shift capacity instead of hours actually left at commit time,
   // so it never matched what the owner saw on screen when they hit Commit.
   var _liveMachinePlan = {};
+  window._planAutoTotals = {};
 
   GROUP_MACHINES[PLAN_GROUP].forEach(function(m) {
     if (!MACHINE_UP[m]) {
@@ -10496,6 +10531,16 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
     var manual   = manualLoad[m] || 0;
     var canDo    = Math.min(open, remainingCap);
     var leftOver = Math.max(0, open - remainingCap);
+    // Owner-set Today's Plan limit (see _planCapOverride): caps what's left to
+    // print so a roll doesn't pull the next item in to fill the gap.
+    var _autoPlanTotal = (machineActualToday[m] || 0) + canDo;
+    window._planAutoTotals[m] = _autoPlanTotal;
+    var _capOv = planDate ? _planCapOverride[planDate + ':' + m] : undefined;
+    var _capped = _capOv != null && _capOv < _autoPlanTotal;
+    if (_capped) {
+      canDo    = Math.max(0, _capOv - (machineActualToday[m] || 0));
+      leftOver = Math.max(0, open - canDo);
+    }
     var dsOverCap  = ds > remainingCap;
     var overloaded = open > remainingCap * 1.1;
     var cardCls    = overloaded ? 'overloaded' : '';
@@ -10556,7 +10601,10 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
     summaryHtml += '</div>';
     summaryHtml += '<div>';
     summaryHtml += '<div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:2px">Today\'s Plan</div>';
-    summaryHtml += '<div style="font-family:\'Lora\',serif;font-size:32px;font-weight:700;color:var(--green-dark);line-height:1">' + machinePlanTotal.toLocaleString() + '</div>';
+    summaryHtml += '<div id="plan-cap-' + _machineIdKey(m) + '" data-value="' + machinePlanTotal + '" onclick="editPlanCap(\'' + _jsEsc(m) + '\')" title="Click to set a lower number for today. Rolling an item then won\'t pull other work in to fill the gap." style="cursor:pointer;font-family:\'Lora\',serif;font-size:32px;font-weight:700;color:var(--green-dark);line-height:1">' + machinePlanTotal.toLocaleString() + ' <span style="font-family:inherit;font-size:13px;color:var(--muted);font-weight:400">&#9998;</span></div>';
+    if (_capped) {
+      summaryHtml += '<div style="font-size:10px;color:var(--amber);margin-top:3px">Set by you (auto: ' + _autoPlanTotal.toLocaleString() + ') <a href="#" onclick="event.preventDefault();setPlanCap(\'' + _jsEsc(m) + '\', \'\')" style="color:var(--blue)">&#8634; reset</a></div>';
+    }
     summaryHtml += '</div>';
     summaryHtml += '</div>';
 
