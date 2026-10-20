@@ -1195,6 +1195,7 @@ input[type="date"]:focus { border-color: var(--green-dark); }
 
   <div id="fba-error" style="display:none;margin-bottom:1rem;padding:10px 14px;background:var(--red-bg);border:1px solid var(--red-border);border-radius:var(--radius);color:var(--red);font-size:13px;font-weight:600"></div>
   <div id="fba-body"></div>
+  <input type="file" id="fba-pack-input" accept=".xlsx,.xls,.csv" style="display:none" onchange="fbaLoadPacking(this)">
 
   <div class="footer">EG Studio &nbsp;&middot;&nbsp; Print Track &nbsp;&middot;&nbsp; FBA</div>
 </div>
@@ -11670,12 +11671,21 @@ function _mafStartLiveSync() {
 // a whole batch or one machine + piece type: preProduction/fba/marks/
 // {batch}/{groupKey}/{step} = {by, at}. A hand mark always wins over Tempo.
 // Lives under preProduction so it uses that path's existing Firebase rules.
+//
+// Packing list (owner, 2026-10-20): the Amazon carton plan a coworker keeps
+// per batch (Item ID, Carton Pack Qty, Carton Count, Total Units, "made").
+// Loaded per batch into preProduction/fba/packing/{batch}. It adds cartons per
+// SKU, "N made" counts as Printed, and SKUs Tempo doesn't have (Wallets come
+// only from this list) show as their own rows. Each SKU gets a Boxed tick
+// (marks/{batch}/sku_{item}/2) that counts that SKU as Packaged. Wallets ARE
+// shown here even though they're left out of all other reporting (owner OK).
 
 var FBA_STEPS = ['Nested', 'Printed', 'Packaged', 'Palletized', 'Shipped'];
-var FBA_MACHINE_ORDER = ['30', '30+', 'H5', 'Colex', 'Drinkware', 'Clock'];
+var FBA_MACHINE_ORDER = ['30', '30+', 'H5', 'Colex', 'Drinkware', 'Clock', 'Wallets'];
+var _fbaPacking = {};       // { batchKey: { fileName, loadedBy, loadedAt, items: { itemKey: {i,n,cat,cpq,cc,u,made,note} } } }
 var _fbaData = null;        // { updatedAt, batches: { key: batch } }
 var _fbaMarks = {};         // { batchKey: { groupKey: { stepIdx: {by, at} } } }
-var _fbaLoaded = { data: false, marks: false };
+var _fbaLoaded = { data: false, marks: false, packing: false };
 var _fbaView = 'active';
 var _fbaOpen = {};          // { batchKey: true } expanded batches
 var _fbaOpenGroup = {};     // { batchKey|groupKey: true } expanded item lists
@@ -11705,6 +11715,11 @@ function _fbaStartLiveSync() {
     _fbaLoaded.marks = true;
     rerenderIfOpen();
   }, onErr('preProduction/fba/marks'));
+  firebase.database().ref('preProduction/fba/packing').on('value', function(snap) {
+    _fbaPacking = snap.val() || {};
+    _fbaLoaded.packing = true;
+    rerenderIfOpen();
+  }, onErr('preProduction/fba/packing'));
 }
 
 function _fbaKey(s) { return String(s || '').replace(/[.#$\[\]\/]/g, '_'); }
@@ -11719,6 +11734,39 @@ function _fbaMachine(it) {
   if (_ppIsPlainCoir(s)) return _ppCoirColor(it.i, it.n) === 'FC' ? '30+' : '30';
   return deriveMachineFromProduct(s, it.k, it.i) || it.b || 'Other';
 }
+// SKUs that are only on the packing list (not in Tempo): place them by the
+// sheet's Pembroke Category and the size in the item name.
+function _fbaPackMachinePiece(pk) {
+  var cat = String(pk.cat || ''), n = String(pk.n || '');
+  if (/wallet/i.test(cat) || /wallet/i.test(n)) {
+    var kind = /tri-?fold/i.test(n) ? 'Tri-Fold Wallet' : /front pocket/i.test(n) ? 'Front Pocket Wallet'
+             : /passcase/i.test(n) ? 'Passcase Wallet' : /bi-?fold/i.test(n) ? 'Bi-Fold Wallet' : 'Wallet';
+    return ['Wallets', kind];
+  }
+  if (/drinkware/i.test(cat)) return ['Drinkware', 'Glass Tumbler 16oz'];
+  if (/scoreboard|clock/i.test(cat + ' ' + n)) return ['Clock', 'BT Clock Blank'];
+  if (/anti.?fatigue/i.test(cat + ' ' + n)) return ['H5', 'Anti-Fatigue 18x30'];
+  if (/pvc/i.test(cat + ' ' + n)) return ['H5', 'PVC 28x16'];
+  if (/coir/i.test(cat + ' ' + n)) {
+    var size = /60"?\s*x\s*24|24"?\s*x\s*60/i.test(n) ? '60x24' : /36"?\s*x\s*24|24"?\s*x\s*36/i.test(n) ? '36x24' : /16"?\s*x\s*28|28"?\s*x\s*16/i.test(n) ? '28x16' : '';
+    var piece = 'Coir' + (size ? ' ' + size : '');
+    return [_ppCoirColor(pk.i, n) === 'FC' ? '30+' : '30', piece];
+  }
+  return ['Other', cat || 'Other'];
+}
+function _fbaItemKey(itemId) { return _fbaKey(String(itemId || '').toUpperCase()); }
+
+// One item's step pcs after the packing list and hand marks: "N made" counts
+// as printed (and so nested), a Boxed tick counts the whole SKU as packaged.
+function _fbaItemSteps(batchKey, it) {
+  var q = it.q || 0, st = (it.st || [0, 0, 0, 0, 0]).slice();
+  var made = Math.min(q, (it.pk && it.pk.made) || 0);
+  if (made > st[1]) st[1] = made;
+  if (_fbaMark(batchKey, 'sku_' + _fbaItemKey(it.i), 2)) st[2] = q;
+  for (var i = st.length - 2; i >= 0; i--) if (st[i + 1] > st[i]) st[i] = st[i + 1];  // a later step implies the earlier ones
+  return st.map(function(v) { return Math.min(q, v || 0); });
+}
+
 function _fbaPiece(it) {
   var s = it.s || it.b || 'Unknown';
   if (!_ppIsPlainCoir(s)) return s;
@@ -11728,16 +11776,32 @@ function _fbaPiece(it) {
 
 // { machine: { piece: { pcs, st:[5], f, items:[] } } } in display order.
 function _fbaGroups(batch) {
-  var out = {};
-  (batch.items || []).forEach(function(it) {
-    var m = _fbaMachine(it), p = _fbaPiece(it);
+  var out = {}, pack = ((_fbaPacking[batch.key] || {}).items) || {}, seen = {};
+  function add(m, p, it) {
     var g = ((out[m] = out[m] || {})[p] = out[m][p] || { pcs: 0, st: [0, 0, 0, 0, 0], f: 0, items: [] });
+    var st = _fbaItemSteps(batch.key, it);
     g.pcs += it.q || 0;
-    (it.st || []).forEach(function(v, i) { g.st[i] += v || 0; });
+    st.forEach(function(v, i) { g.st[i] += v; });
     g.f += it.f || 0;
     g.items.push(it);
+  }
+  (batch.items || []).forEach(function(raw) {
+    var k = _fbaItemKey(raw.i);
+    var it = Object.assign({}, raw, { pk: pack[k] || null });
+    seen[k] = true;
+    add(_fbaMachine(it), _fbaPiece(it), it);
+  });
+  Object.keys(pack).forEach(function(k) {
+    if (seen[k]) return;
+    var pk = pack[k], mp = _fbaPackMachinePiece(pk);
+    add(mp[0], mp[1], { i: pk.i, n: pk.n, q: pk.u || 0, st: [0, 0, 0, 0, 0], f: 0, pk: pk, packOnly: true });
   });
   return out;
+}
+function _fbaTotalPcs(groups) {
+  var n = 0;
+  Object.keys(groups).forEach(function(m) { Object.keys(groups[m]).forEach(function(p) { n += groups[m][p].pcs; }); });
+  return n;
 }
 function _fbaMachineList(groups) {
   return Object.keys(groups).sort(function(a, b) {
@@ -11764,7 +11828,8 @@ function _fbaBatchDone(batchKey, groups, step) {
   return done;
 }
 function _fbaIsShipped(batch, groups) {
-  return batch.pcs > 0 && _fbaBatchDone(batch.key, groups, 4) >= batch.pcs;
+  var total = _fbaTotalPcs(groups);
+  return total > 0 && _fbaBatchDone(batch.key, groups, 4) >= total;
 }
 
 function fbaSetView(v) {
@@ -11825,7 +11890,7 @@ function _fbaStepCell(batchKey, groupKey, done, total, step, big) {
 function renderFba() {
   var body = document.getElementById('fba-body');
   if (!body) return;
-  if (!_fbaLoaded.data || !_fbaLoaded.marks) { body.innerHTML = '<p style="color:var(--muted);font-size:14px">Loading&hellip;</p>'; return; }
+  if (!_fbaLoaded.data || !_fbaLoaded.marks || !_fbaLoaded.packing) { body.innerHTML = '<p style="color:var(--muted);font-size:14px">Loading&hellip;</p>'; return; }
   var batches = (_fbaData && _fbaData.batches) || {};
   var keys = Object.keys(batches).sort().reverse();
   var showShipped = _fbaView === 'shipped';
@@ -11845,7 +11910,8 @@ function renderFba() {
 }
 
 function _fbaBatchHtml(b, groups) {
-  var key = b.key, open = !!_fbaOpen[key];
+  var key = b.key, open = !!_fbaOpen[key], total = _fbaTotalPcs(groups);
+  var pack = _fbaPacking[key];
   var orders = Object.keys(b.orders || {}).sort();
   var h = '<div class="section" style="background:var(--white);border:1px solid var(--border);border-left:4px solid var(--blue);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px">';
   h += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">';
@@ -11857,14 +11923,31 @@ function _fbaBatchHtml(b, groups) {
        (b.firstWave ? ' &middot; waved ' + escapeHtml(_fbaDateLabel(b.firstWave)) : '') +
        (b.inFile ? '' : ' &middot; <span style="color:var(--amber)">no longer in LMContainers (counted as shipped)</span>') + '</div>';
   h += '</div>';
+  h += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
+  h += '<button class="qbtn" onclick="fbaPickPacking(\'' + _jsEsc(key) + '\')" title="Load the Amazon carton plan (Item ID, Carton Pack Qty, Carton Count, Total Units, made) for this batch">&#11014; ' + (pack ? 'Replace' : 'Load') + ' packing list</button>';
   h += '<button class="qbtn" onclick="fbaToggleBatch(\'' + _jsEsc(key) + '\')">' + (open ? '&#9650; Hide items' : '&#9660; Show items') + '</button>';
   h += '</div>';
+  h += '</div>';
+  if (pack) {
+    var pItems = pack.items || {}, pKeys = Object.keys(pItems);
+    var tempoKeys = {};
+    (b.items || []).forEach(function(it) { tempoKeys[_fbaItemKey(it.i)] = true; });
+    var extra = pKeys.filter(function(k) { return !tempoKeys[k]; }).length;
+    var cartons = pKeys.reduce(function(n, k) { return n + (pItems[k].cc || 0); }, 0);
+    var boxed = pKeys.filter(function(k) { return _fbaMark(key, 'sku_' + k, 2); });
+    var boxedCartons = boxed.reduce(function(n, k) { return n + (pItems[k].cc || 0); }, 0);
+    h += '<div style="font-size:12px;color:var(--muted);margin-top:6px">&#128230; Packing list: <b style="color:var(--text)">' + pKeys.length + ' SKUs &middot; ' + cartons.toLocaleString() + ' cartons</b>' +
+         ' &middot; <b style="color:' + (boxed.length && boxed.length === pKeys.length ? 'var(--green-dark)' : 'var(--text)') + '">' + boxed.length + ' SKUs boxed (' + boxedCartons.toLocaleString() + ' cartons)</b>' +
+         (extra ? ' &middot; ' + extra + ' SKU' + (extra !== 1 ? 's' : '') + ' only on the packing list' : '') +
+         ' &middot; loaded ' + (pack.loadedBy ? 'by ' + escapeHtml(pack.loadedBy) + ' ' : '') + escapeHtml(_ppStamp(pack.loadedAt)) +
+         (pack.fileName ? ' &middot; ' + escapeHtml(pack.fileName) : '') + '</div>';
+  }
 
   // Batch-level steps
   h += '<div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">';
   FBA_STEPS.forEach(function(name, i) {
     h += '<div><div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:4px">' + name + '</div>';
-    h += _fbaStepCell(key, '_batch', _fbaBatchDone(key, groups, i), b.pcs || 0, i, true) + '</div>';
+    h += _fbaStepCell(key, '_batch', _fbaBatchDone(key, groups, i), total, i, true) + '</div>';
   });
   h += '</div>';
 
@@ -11887,7 +11970,7 @@ function _fbaGroupsHtml(batchKey, groups) {
     pieces.forEach(function(p) {
       var g = groups[m][p], gk = _fbaGroupKey(m, p), ok = batchKey + '|' + gk, gOpen = !!_fbaOpenGroup[ok];
       h += '<tr>';
-      h += '<td style="cursor:pointer;min-width:190px" onclick="fbaToggleGroup(\'' + _jsEsc(ok) + '\')"><span style="color:var(--muted);font-size:10px">' + (gOpen ? '&#9660;' : '&#9654;') + '</span> <b>' + escapeHtml(p) + '</b>' +
+      h += '<td style="cursor:pointer" onclick="fbaToggleGroup(\'' + _jsEsc(ok) + '\')"><span style="color:var(--muted);font-size:10px">' + (gOpen ? '&#9660;' : '&#9654;') + '</span> <b>' + escapeHtml(p) + '</b>' +
            ' <span style="font-size:11px;color:var(--muted)">' + g.items.length + ' SKU' + (g.items.length !== 1 ? 's' : '') + '</span>' +
            (g.f ? ' <span title="Flagged in Tempo" style="font-size:10px;font-weight:700;color:var(--red)">&#9873; ' + g.f.toLocaleString() + ' flagged</span>' : '') + '</td>';
       h += '<td style="text-align:right;font-weight:700">' + g.pcs.toLocaleString() + '</td>';
@@ -11895,11 +11978,27 @@ function _fbaGroupsHtml(batchKey, groups) {
       h += '</tr>';
       if (gOpen) {
         g.items.slice().sort(function(a, b) { return (b.q || 0) - (a.q || 0); }).forEach(function(it) {
-          h += '<tr style="background:var(--bg)"><td style="padding-left:26px;font-size:11px"><span style="font-family:monospace;color:var(--muted)">' + escapeHtml(it.i) + '</span> ' + escapeHtml(it.n || '') + '</td>';
+          var st = _fbaItemSteps(batchKey, it), pk = it.pk, ik = _fbaItemKey(it.i);
+          var info = [];
+          if (pk) {
+            info.push((pk.cc || 0) + ' carton' + (pk.cc !== 1 ? 's' : '') + ' &times; ' + (pk.cpq || 0) + ' = ' + (pk.u || 0).toLocaleString() + ' units');
+            if (pk.made) info.push('<b style="color:var(--green-dark)">' + pk.made + ' made</b>');
+            if (pk.note) info.push(escapeHtml(pk.note));
+          }
+          if (it.packOnly) info.push('<span style="color:var(--amber)">packing list only &mdash; not in Tempo</span>');
+          h += '<tr style="background:var(--bg)"><td style="padding-left:26px;font-size:11px"><span style="font-family:monospace;color:var(--muted)">' + escapeHtml(it.i) + '</span> ' + escapeHtml(it.n || '') +
+               (info.length ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + info.join(' &middot; ') + '</div>' : '') + '</td>';
           h += '<td style="text-align:right;font-size:11px">' + (it.q || 0).toLocaleString() + '</td>';
           FBA_STEPS.forEach(function(n, i) {
-            var d = Math.min(it.q || 0, (it.st || [])[i] || 0);
-            h += '<td style="font-size:10px;color:' + _fbaPctColor(it.q ? d * 100 / it.q : 0) + '">' + d.toLocaleString() + ' / ' + (it.q || 0).toLocaleString() + '</td>';
+            var d = st[i];
+            var cell = '<span style="color:' + _fbaPctColor(it.q ? d * 100 / it.q : 0) + '">' + d.toLocaleString() + ' / ' + (it.q || 0).toLocaleString() + '</span>';
+            if (i === 2) {
+              var bm = _fbaMark(batchKey, 'sku_' + ik, 2);
+              cell = '<label style="display:flex;align-items:center;gap:4px;cursor:pointer" title="' + (bm ? 'Boxed &mdash; ' + escapeHtml(bm.by || '') + ' ' + escapeHtml(_ppStamp(bm.at)) : 'Tick when this SKU is boxed') + '">' +
+                     '<input type="checkbox"' + (bm ? ' checked' : '') + ' onclick="event.preventDefault();fbaToggleMark(\'' + _jsEsc(batchKey) + '\',\'sku_' + _jsEsc(ik) + '\',2)">' +
+                     (bm ? '<b style="color:var(--green-dark)">Boxed</b>' : cell) + '</label>';
+            }
+            h += '<td style="font-size:10px">' + cell + '</td>';
           });
           h += '</tr>';
         });
@@ -11908,6 +12007,86 @@ function _fbaGroupsHtml(batchKey, groups) {
     h += '</tbody></table></div></div>';
   });
   return h;
+}
+
+// ── Packing list upload (Excel/CSV) ──
+// Columns by header name: Item ID (falls back to SKU), Item Name, Pembroke
+// Category, Carton Pack Qty, Carton Count, Total Units, made. A "made" cell
+// like "78 made" counts as printed; anything else past the made column (e.g.
+// a wallet's blank code) is kept as a note. Repeat SKUs are added together.
+var _fbaPackingTarget = null;
+function fbaPickPacking(batchKey) {
+  _fbaPackingTarget = batchKey;
+  var inp = document.getElementById('fba-pack-input');
+  inp.value = '';
+  inp.click();
+}
+function fbaLoadPacking(input) {
+  var file = input.files && input.files[0], batchKey = _fbaPackingTarget;
+  if (!file || !batchKey) return;
+  var by = _ppUserName();
+  if (!by) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      var wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+      var grid = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+      var items = _fbaParsePacking(grid);
+      var n = Object.keys(items).length;
+      if (!n) throw new Error('No rows with an Item ID and carton counts were found.');
+      if (_fbaPacking[batchKey] && !confirm('Replace the packing list already loaded for this batch? (Boxed ticks are kept.)')) return;
+      _mafWithTimeout(firebase.database().ref('preProduction/fba/packing/' + batchKey).set({
+        fileName: file.name, loadedBy: by, loadedAt: new Date().toISOString(), items: items
+      }), 15000).catch(function(err) { alert('Could not save: ' + (err && err.message ? err.message : err)); });
+    } catch (err) {
+      alert('Could not read ' + file.name + ': ' + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+function _fbaParsePacking(grid) {
+  var hi = -1, cols = {};
+  for (var r = 0; r < Math.min(grid.length, 15) && hi < 0; r++) {
+    var row = grid[r].map(function(c) { return String(c).trim().toLowerCase(); });
+    if (row.indexOf('item id') >= 0) {
+      hi = r;
+      row.forEach(function(c, i) {
+        if (c === 'sku') cols.sku = i;
+        else if (c === 'item id') cols.id = i;
+        else if (/^item name/.test(c)) cols.name = i;
+        else if (/category/.test(c)) cols.cat = i;
+        else if (/carton pack/.test(c)) cols.cpq = i;
+        else if (/carton count/.test(c)) cols.cc = i;
+        else if (/total units/.test(c)) cols.u = i;
+        else if (c === 'made') cols.made = i;
+      });
+    }
+  }
+  if (hi < 0) throw new Error('Couldn\'t find a header row with "Item ID".');
+  var items = {};
+  for (var r2 = hi + 1; r2 < grid.length; r2++) {
+    var row2 = grid[r2];
+    var id = String(row2[cols.id] || row2[cols.sku] || '').trim().toUpperCase();
+    var cc = parseInt(row2[cols.cc], 10);
+    if (!id || isNaN(cc)) continue;
+    var cpq = parseInt(row2[cols.cpq], 10) || 0, u = parseInt(row2[cols.u], 10) || cc * cpq;
+    var notes = [], made = 0;
+    for (var c = cols.made != null ? cols.made : row2.length; c < row2.length; c++) {
+      var v = String(row2[c] || '').trim();
+      if (!v) continue;
+      var mm = /^(\d+)\s*made$/i.exec(v);
+      if (mm) made += parseInt(mm[1], 10); else notes.push(v);
+    }
+    var k = _fbaItemKey(id), cur = items[k];
+    if (!cur) {
+      items[k] = { i: id, n: String(row2[cols.name] || '').trim(), cat: String(row2[cols.cat] || '').trim(), cpq: cpq, cc: cc, u: u, made: made, note: notes.join(' ') };
+    } else {
+      cur.cc += cc; cur.u += u; cur.made += made;
+      if (!cur.cat) cur.cat = String(row2[cols.cat] || '').trim();
+      if (notes.length) cur.note = (cur.note ? cur.note + ' / ' : '') + notes.join(' ');
+    }
+  }
+  return items;
 }
 
 function startReportApp() {
