@@ -682,6 +682,7 @@ input[type="date"]:focus { border-color: var(--green-dark); }
   <div class="subnav-item" id="tab-missing"  onclick="showTab('missing')">&#128196; Missing Files</div>
   <div class="subnav-item" id="tab-reprints" onclick="showTab('reprints')">&#128257; Reprints</div>
   <div class="subnav-item" id="tab-preprod"  onclick="showTab('preprod')">&#127981; Pre-Production</div>
+  <div class="subnav-item" id="tab-fba"      onclick="showTab('fba')">&#128230; FBA</div>
 </div>
 
 <div class="main">
@@ -1170,6 +1171,32 @@ input[type="date"]:focus { border-color: var(--green-dark); }
   <input type="file" id="pp-file-input" accept=".xlsx,.xls" multiple style="display:none" onchange="ppLoadPrebookFiles(this)">
 
   <div class="footer">EG Studio &nbsp;&middot;&nbsp; Print Track &nbsp;&middot;&nbsp; Pre-Production</div>
+</div>
+</div>
+
+<div id="page-fba" style="display:none">
+<div class="main">
+  <div class="page-head">
+    <h1>&#128230; FBA</h1>
+    <p>Amazon FBA batches, grouped by machine and piece type, from nesting through shipping.</p>
+  </div>
+
+  <div class="report-controls">
+    <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;flex-wrap:wrap">
+      <button class="maf-view-tab active" id="fba-view-active-btn"  onclick="fbaSetView('active')">Open Batches</button>
+      <button class="maf-view-tab"        id="fba-view-shipped-btn" onclick="fbaSetView('shipped')">Shipped</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
+      <label for="fba-user-name">Your name</label>
+      <input type="text" id="fba-user-name" placeholder="Who's checking things off?" onchange="ppSaveUserName(this.value)"
+        style="padding:5px 9px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;width:190px">
+    </div>
+  </div>
+
+  <div id="fba-error" style="display:none;margin-bottom:1rem;padding:10px 14px;background:var(--red-bg);border:1px solid var(--red-border);border-radius:var(--radius);color:var(--red);font-size:13px;font-weight:600"></div>
+  <div id="fba-body"></div>
+
+  <div class="footer">EG Studio &nbsp;&middot;&nbsp; Print Track &nbsp;&middot;&nbsp; FBA</div>
 </div>
 </div>
 
@@ -4757,6 +4784,7 @@ function showTab(tab) {
   document.getElementById('page-missing').style.display  = tab === 'missing'  ? 'block' : 'none';
   document.getElementById('page-reprints').style.display = tab === 'reprints' ? 'block' : 'none';
   document.getElementById('page-preprod').style.display  = tab === 'preprod'  ? 'block' : 'none';
+  document.getElementById('page-fba').style.display      = tab === 'fba'      ? 'block' : 'none';
   document.querySelector('.main').style.display = tab === 'daily' ? 'block' : 'none';
   document.getElementById('tab-daily').classList.toggle('active',    tab === 'daily');
   document.getElementById('tab-totals').classList.toggle('active',   tab === 'totals');
@@ -4766,6 +4794,7 @@ function showTab(tab) {
   document.getElementById('tab-missing').classList.toggle('active',  tab === 'missing');
   document.getElementById('tab-reprints').classList.toggle('active', tab === 'reprints');
   document.getElementById('tab-preprod').classList.toggle('active',  tab === 'preprod');
+  document.getElementById('tab-fba').classList.toggle('active',      tab === 'fba');
   if (tab === 'totals') {
     renderCalendar();
     _initTotalsComboDefaults();
@@ -4789,6 +4818,10 @@ function showTab(tab) {
     renderReprints();
   }
   if (tab === 'preprod') { renderPreProduction(); }
+  if (tab === 'fba') {
+    try { var _fbaName = document.getElementById('fba-user-name'); if (_fbaName) _fbaName.value = localStorage.getItem('ppUserName') || ''; } catch (e) {}
+    renderFba();
+  }
 }
 
 // ─── TOTALS DATA ──────────────────────────────────────────
@@ -11627,6 +11660,256 @@ function _mafStartLiveSync() {
   }, function(err) { console.error('missingArtFiles/contacts live sync error:', err); });
 }
 
+// ═══════════════════════════════════════
+// FBA TAB (added 2026-10-20)
+// ═══════════════════════════════════════
+// Amazon FBA drops (WHOLE_S_ID 430428) come in big batches. fba_sync.py
+// (ShipConfirmSync, hourly) reads Tempo's copy of LMContainers and writes one
+// summary per batch to preProduction/fba/data: items with pcs and how many
+// pcs Tempo shows at each step. People can also mark a step done by hand for
+// a whole batch or one machine + piece type: preProduction/fba/marks/
+// {batch}/{groupKey}/{step} = {by, at}. A hand mark always wins over Tempo.
+// Lives under preProduction so it uses that path's existing Firebase rules.
+
+var FBA_STEPS = ['Nested', 'Printed', 'Packaged', 'Palletized', 'Shipped'];
+var FBA_MACHINE_ORDER = ['30', '30+', 'H5', 'Colex', 'Drinkware', 'Clock'];
+var _fbaData = null;        // { updatedAt, batches: { key: batch } }
+var _fbaMarks = {};         // { batchKey: { groupKey: { stepIdx: {by, at} } } }
+var _fbaLoaded = { data: false, marks: false };
+var _fbaView = 'active';
+var _fbaOpen = {};          // { batchKey: true } expanded batches
+var _fbaOpenGroup = {};     // { batchKey|groupKey: true } expanded item lists
+var _fbaLiveStarted = false;
+
+function _fbaStartLiveSync() {
+  if (_fbaLiveStarted) return;
+  _fbaLiveStarted = true;
+  function rerenderIfOpen() {
+    var panel = document.getElementById('page-fba');
+    if (panel && panel.style.display !== 'none') renderFba();
+  }
+  function onErr(path) {
+    return function(err) {
+      console.error(path + ' live sync error:', err);
+      var el = document.getElementById('fba-error');
+      if (el) { el.style.display = ''; el.textContent = 'Can\'t read "' + path + '" from Firebase: ' + (err && err.message ? err.message : err); }
+    };
+  }
+  firebase.database().ref('preProduction/fba/data').on('value', function(snap) {
+    _fbaData = snap.val();
+    _fbaLoaded.data = true;
+    rerenderIfOpen();
+  }, onErr('preProduction/fba/data'));
+  firebase.database().ref('preProduction/fba/marks').on('value', function(snap) {
+    _fbaMarks = snap.val() || {};
+    _fbaLoaded.marks = true;
+    rerenderIfOpen();
+  }, onErr('preProduction/fba/marks'));
+}
+
+function _fbaKey(s) { return String(s || '').replace(/[.#$\[\]\/]/g, '_'); }
+
+// Machine for one synced item. Drinkware stays one group (no M1/M2 split here)
+// and Clock is its own group; everything else uses the Planning tab's routing,
+// with plain coir moved to 30+ when the art files say Full Color.
+function _fbaMachine(it) {
+  var s = it.s || it.b || '';
+  if (/drinkware|glass|tumbler|cup/i.test(it.b + ' ' + s)) return 'Drinkware';
+  if (/clock/i.test(it.b + ' ' + s)) return 'Clock';
+  if (_ppIsPlainCoir(s)) return _ppCoirColor(it.i, it.n) === 'FC' ? '30+' : '30';
+  return deriveMachineFromProduct(s, it.k, it.i) || it.b || 'Other';
+}
+function _fbaPiece(it) {
+  var s = it.s || it.b || 'Unknown';
+  if (!_ppIsPlainCoir(s)) return s;
+  var c = _ppCoirColor(it.i, it.n);
+  return c ? s + ' ' + c : s;
+}
+
+// { machine: { piece: { pcs, st:[5], f, items:[] } } } in display order.
+function _fbaGroups(batch) {
+  var out = {};
+  (batch.items || []).forEach(function(it) {
+    var m = _fbaMachine(it), p = _fbaPiece(it);
+    var g = ((out[m] = out[m] || {})[p] = out[m][p] || { pcs: 0, st: [0, 0, 0, 0, 0], f: 0, items: [] });
+    g.pcs += it.q || 0;
+    (it.st || []).forEach(function(v, i) { g.st[i] += v || 0; });
+    g.f += it.f || 0;
+    g.items.push(it);
+  });
+  return out;
+}
+function _fbaMachineList(groups) {
+  return Object.keys(groups).sort(function(a, b) {
+    var ia = FBA_MACHINE_ORDER.indexOf(a), ib = FBA_MACHINE_ORDER.indexOf(b);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
+  });
+}
+function _fbaGroupKey(machine, piece) { return _fbaKey(machine + '|' + piece); }
+function _fbaMark(batchKey, groupKey, step) {
+  return ((_fbaMarks[batchKey] || {})[groupKey] || {})[step] || null;
+}
+
+// Done pcs for one machine+piece group at one step: hand mark (group or whole
+// batch) = all of it, otherwise whatever Tempo shows.
+function _fbaGroupDone(batchKey, groupKey, g, step) {
+  if (_fbaMark(batchKey, '_batch', step) || _fbaMark(batchKey, groupKey, step)) return g.pcs;
+  return Math.min(g.pcs, g.st[step]);
+}
+function _fbaBatchDone(batchKey, groups, step) {
+  var done = 0;
+  Object.keys(groups).forEach(function(m) {
+    Object.keys(groups[m]).forEach(function(p) { done += _fbaGroupDone(batchKey, _fbaGroupKey(m, p), groups[m][p], step); });
+  });
+  return done;
+}
+function _fbaIsShipped(batch, groups) {
+  return batch.pcs > 0 && _fbaBatchDone(batch.key, groups, 4) >= batch.pcs;
+}
+
+function fbaSetView(v) {
+  _fbaView = v;
+  ['active', 'shipped'].forEach(function(k) {
+    var b = document.getElementById('fba-view-' + k + '-btn');
+    if (b) b.classList.toggle('active', k === v);
+  });
+  renderFba();
+}
+function fbaToggleBatch(key) { _fbaOpen[key] = !_fbaOpen[key]; renderFba(); }
+function fbaToggleGroup(key) { _fbaOpenGroup[key] = !_fbaOpenGroup[key]; renderFba(); }
+
+// Tick / untick a hand mark. groupKey '_batch' = the whole batch.
+function fbaToggleMark(batchKey, groupKey, step) {
+  var cur = _fbaMark(batchKey, groupKey, step);
+  var label = FBA_STEPS[step] + (groupKey === '_batch' ? ' for the whole batch' : '');
+  if (cur && !confirm('Clear "' + label + '" (marked by ' + (cur.by || 'someone') + ')?')) return;
+  var val = null;
+  if (!cur) {
+    var by = _ppUserName();
+    if (!by) return;
+    val = { by: by, at: new Date().toISOString() };
+  }
+  _mafWithTimeout(firebase.database().ref('preProduction/fba/marks/' + batchKey + '/' + groupKey + '/' + step).set(val), 10000)
+    .catch(function(err) { alert('Could not save: ' + (err && err.message ? err.message : err)); });
+}
+
+function _fbaDateLabel(iso) {
+  if (!iso) return '';
+  var d = new Date(iso.length === 10 ? iso + 'T12:00:00' : iso);
+  return isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function _fbaPctColor(pct) { return pct >= 100 ? 'var(--green-dark)' : pct > 0 ? 'var(--amber)' : 'var(--muted)'; }
+
+// One step cell: done/total, a thin bar, and the hand-mark checkbox.
+function _fbaStepCell(batchKey, groupKey, done, total, step, big) {
+  var pct = total > 0 ? Math.round(done * 100 / total) : 0;
+  var mark = _fbaMark(batchKey, groupKey, step);
+  var batchMark = groupKey !== '_batch' && _fbaMark(batchKey, '_batch', step);
+  var h = '<div style="min-width:' + (big ? '120px' : '92px') + '">';
+  h += '<div style="display:flex;align-items:center;gap:5px;font-size:' + (big ? '13px' : '11px') + '">';
+  h += '<span onclick="fbaToggleMark(\'' + _jsEsc(batchKey) + '\',\'' + _jsEsc(groupKey) + '\',' + step + ')" title="' +
+       (mark ? 'Marked by ' + escapeHtml(mark.by || '') + ' ' + escapeHtml(_ppStamp(mark.at)) + ' — click to clear' : 'Click to mark ' + FBA_STEPS[step] + ' done by hand') +
+       '" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:3px;font-size:11px;line-height:1;flex-shrink:0;' +
+       (mark ? 'background:var(--green-dark);color:#fff;border:1px solid var(--green-dark)' : 'background:var(--white);border:1px solid var(--border);color:transparent') + '">&#10003;</span>';
+  h += '<span style="font-weight:700;color:' + _fbaPctColor(pct) + '">' + pct + '%</span>';
+  h += '</div>';
+  h += '<div style="height:4px;background:var(--bg);border-radius:2px;overflow:hidden;margin:3px 0 2px;border:1px solid var(--border)"><div style="height:100%;width:' + pct + '%;background:' + _fbaPctColor(pct) + '"></div></div>';
+  var sub = mark ? '&#9998; ' + escapeHtml(mark.by || '') + ' ' + escapeHtml(_ppStamp(mark.at))
+          : batchMark ? '&#9998; whole batch'
+          : done.toLocaleString() + ' / ' + total.toLocaleString() + ' &middot; Tempo';
+  h += '<div style="font-size:10px;color:var(--muted);white-space:nowrap">' + sub + '</div>';
+  h += '</div>';
+  return h;
+}
+
+function renderFba() {
+  var body = document.getElementById('fba-body');
+  if (!body) return;
+  if (!_fbaLoaded.data || !_fbaLoaded.marks) { body.innerHTML = '<p style="color:var(--muted);font-size:14px">Loading&hellip;</p>'; return; }
+  var batches = (_fbaData && _fbaData.batches) || {};
+  var keys = Object.keys(batches).sort().reverse();
+  var showShipped = _fbaView === 'shipped';
+  var h = '<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Tempo numbers updated ' +
+    escapeHtml(_ppStamp(_fbaData && _fbaData.updatedAt) || 'never') +
+    ' &middot; refreshes every hour &middot; tick a box to mark a step done by hand (that wins over Tempo).</div>';
+  var shown = 0;
+  keys.forEach(function(key) {
+    var b = batches[key];
+    var groups = _fbaGroups(b);
+    if (_fbaIsShipped(b, groups) !== showShipped) return;
+    shown++;
+    h += _fbaBatchHtml(b, groups);
+  });
+  if (!shown) h += '<p style="color:var(--muted);font-size:14px;padding:20px 0">' + (showShipped ? 'No shipped batches yet.' : 'No open FBA batches right now.') + '</p>';
+  body.innerHTML = h;
+}
+
+function _fbaBatchHtml(b, groups) {
+  var key = b.key, open = !!_fbaOpen[key];
+  var orders = Object.keys(b.orders || {}).sort();
+  var h = '<div class="section" style="background:var(--white);border:1px solid var(--border);border-left:4px solid var(--blue);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px">';
+  h += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">';
+  h += '<div>';
+  h += '<div style="font-family:\'Lora\',serif;font-size:20px;font-weight:700;color:var(--text)">Batch &mdash; ' + escapeHtml(_fbaDateLabel(key)) + '</div>';
+  h += '<div style="font-size:12px;color:var(--muted);margin-top:3px">' + orders.length + ' order' + (orders.length !== 1 ? 's' : '') + ': ' +
+       orders.map(function(o) { var od = b.orders[o]; return '<b style="color:var(--text)">' + escapeHtml(o) + '</b> (' + (od.pcs || 0).toLocaleString() + ' pcs, wave ' + escapeHtml(od.wave || '?') + ')'; }).join(' &middot; ') + '</div>';
+  h += '<div style="font-size:12px;color:var(--muted);margin-top:2px">' + (b.pcs || 0).toLocaleString() + ' pcs &middot; ' + (b.containers || 0).toLocaleString() + ' containers' +
+       (b.firstWave ? ' &middot; waved ' + escapeHtml(_fbaDateLabel(b.firstWave)) : '') +
+       (b.inFile ? '' : ' &middot; <span style="color:var(--amber)">no longer in LMContainers (counted as shipped)</span>') + '</div>';
+  h += '</div>';
+  h += '<button class="qbtn" onclick="fbaToggleBatch(\'' + _jsEsc(key) + '\')">' + (open ? '&#9650; Hide items' : '&#9660; Show items') + '</button>';
+  h += '</div>';
+
+  // Batch-level steps
+  h += '<div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">';
+  FBA_STEPS.forEach(function(name, i) {
+    h += '<div><div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:4px">' + name + '</div>';
+    h += _fbaStepCell(key, '_batch', _fbaBatchDone(key, groups, i), b.pcs || 0, i, true) + '</div>';
+  });
+  h += '</div>';
+
+  if (open) h += _fbaGroupsHtml(key, groups);
+  h += '</div>';
+  return h;
+}
+
+function _fbaGroupsHtml(batchKey, groups) {
+  var h = '';
+  _fbaMachineList(groups).forEach(function(m) {
+    var pieces = Object.keys(groups[m]).sort();
+    var mPcs = pieces.reduce(function(n, p) { return n + groups[m][p].pcs; }, 0);
+    h += '<div style="margin-top:16px">';
+    h += '<div style="font-size:13px;font-weight:700;color:var(--green-dark);margin-bottom:6px">' + (/^\d|^H5$|^Colex$/.test(m) ? 'Machine ' : '') + escapeHtml(m) +
+         ' <span style="font-weight:400;color:var(--muted)">&mdash; ' + mPcs.toLocaleString() + ' pcs</span></div>';
+    h += '<div class="table-wrap"><table class="settings-table"><thead><tr><th>Piece type</th><th style="text-align:right">Pcs</th>';
+    FBA_STEPS.forEach(function(n) { h += '<th>' + n + '</th>'; });
+    h += '</tr></thead><tbody>';
+    pieces.forEach(function(p) {
+      var g = groups[m][p], gk = _fbaGroupKey(m, p), ok = batchKey + '|' + gk, gOpen = !!_fbaOpenGroup[ok];
+      h += '<tr>';
+      h += '<td style="cursor:pointer;min-width:190px" onclick="fbaToggleGroup(\'' + _jsEsc(ok) + '\')"><span style="color:var(--muted);font-size:10px">' + (gOpen ? '&#9660;' : '&#9654;') + '</span> <b>' + escapeHtml(p) + '</b>' +
+           ' <span style="font-size:11px;color:var(--muted)">' + g.items.length + ' SKU' + (g.items.length !== 1 ? 's' : '') + '</span>' +
+           (g.f ? ' <span title="Flagged in Tempo" style="font-size:10px;font-weight:700;color:var(--red)">&#9873; ' + g.f.toLocaleString() + ' flagged</span>' : '') + '</td>';
+      h += '<td style="text-align:right;font-weight:700">' + g.pcs.toLocaleString() + '</td>';
+      FBA_STEPS.forEach(function(n, i) { h += '<td>' + _fbaStepCell(batchKey, gk, _fbaGroupDone(batchKey, gk, g, i), g.pcs, i, false) + '</td>'; });
+      h += '</tr>';
+      if (gOpen) {
+        g.items.slice().sort(function(a, b) { return (b.q || 0) - (a.q || 0); }).forEach(function(it) {
+          h += '<tr style="background:var(--bg)"><td style="padding-left:26px;font-size:11px"><span style="font-family:monospace;color:var(--muted)">' + escapeHtml(it.i) + '</span> ' + escapeHtml(it.n || '') + '</td>';
+          h += '<td style="text-align:right;font-size:11px">' + (it.q || 0).toLocaleString() + '</td>';
+          FBA_STEPS.forEach(function(n, i) {
+            var d = Math.min(it.q || 0, (it.st || [])[i] || 0);
+            h += '<td style="font-size:10px;color:' + _fbaPctColor(it.q ? d * 100 / it.q : 0) + '">' + d.toLocaleString() + ' / ' + (it.q || 0).toLocaleString() + '</td>';
+          });
+          h += '</tr>';
+        });
+      }
+    });
+    h += '</tbody></table></div></div>';
+  });
+  return h;
+}
+
 function startReportApp() {
   document.getElementById('report-login-btn').addEventListener('click', doLogin);
   document.getElementById('report-passcode').addEventListener('keydown', function(e) { if (e.key === 'Enter') doLogin(); });
@@ -11637,6 +11920,7 @@ function startReportApp() {
       _mafStartLiveSync();
       _rprStartLiveSync();
       _ppStartLiveSync();
+      _fbaStartLiveSync();
       // Deep link, e.g. EGPrint's Pre-Production button opens ?tab=preprod
       var _linkTab = new URLSearchParams(location.search).get('tab');
       if (_linkTab && document.getElementById('page-' + _linkTab)) showTab(_linkTab);
