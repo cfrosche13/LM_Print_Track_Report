@@ -11874,10 +11874,14 @@ function _fbaStepCell(batchKey, groupKey, done, total, step, big) {
   var batchMark = groupKey !== '_batch' && _fbaMark(batchKey, '_batch', step);
   var h = '<div style="min-width:' + (big ? '120px' : '92px') + '">';
   h += '<div style="display:flex;align-items:center;gap:5px;font-size:' + (big ? '13px' : '11px') + '">';
+  var full = !mark && total > 0 && done >= total;
   h += '<span onclick="fbaToggleMark(\'' + _jsEsc(batchKey) + '\',\'' + _jsEsc(groupKey) + '\',' + step + ')" title="' +
-       (mark ? 'Marked by ' + escapeHtml(mark.by || '') + ' ' + escapeHtml(_ppStamp(mark.at)) + ' — click to clear' : 'Click to mark ' + FBA_STEPS[step] + ' done by hand') +
+       (mark ? 'Marked by ' + escapeHtml(mark.by || '') + ' ' + escapeHtml(_ppStamp(mark.at)) + ' — click to clear'
+             : full ? FBA_STEPS[step] + ' is 100% done' : 'Click to mark ' + FBA_STEPS[step] + ' done by hand') +
        '" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:3px;font-size:11px;line-height:1;flex-shrink:0;' +
-       (mark ? 'background:var(--green-dark);color:#fff;border:1px solid var(--green-dark)' : 'background:var(--white);border:1px solid var(--border);color:transparent') + '">&#10003;</span>';
+       (mark ? 'background:var(--green-dark);color:#fff;border:1px solid var(--green-dark)'
+             : full ? 'background:var(--white);color:var(--green-dark);border:1px solid var(--green-dark);font-weight:700'
+             : 'background:var(--white);border:1px solid var(--border);color:transparent') + '">&#10003;</span>';
   h += '<span style="font-weight:700;color:' + _fbaPctColor(pct) + '">' + pct + '%</span>';
   h += '</div>';
   h += '<div style="height:4px;background:var(--bg);border-radius:2px;overflow:hidden;margin:3px 0 2px;border:1px solid var(--border)"><div style="height:100%;width:' + pct + '%;background:' + _fbaPctColor(pct) + '"></div></div>';
@@ -11998,9 +12002,10 @@ function _fbaGroupsHtml(batchKey, groups) {
                      : sm ? '<b style="color:var(--green-dark)">' + (i === 2 ? 'Boxed' : n) + '</b>'
                      : '<span style="color:' + _fbaPctColor(it.q ? d * 100 / it.q : 0) + '">' + d.toLocaleString() + ' / ' + (it.q || 0).toLocaleString() + '</span>';
             var tip = sm ? n + ' &mdash; ' + escapeHtml(sm.by || '') + ' ' + escapeHtml(_ppStamp(sm.at)) + ' (click to clear)'
+                    : upper || (it.q && d >= it.q) ? n + ' is 100% done'
                     : 'Tick when this SKU is ' + (i === 2 ? 'boxed' : n.toLowerCase());
             cell = '<label style="display:flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap" title="' + tip + '">' +
-                   '<input type="checkbox"' + (sm ? ' checked' : '') + ' onclick="event.preventDefault();fbaToggleMark(\'' + _jsEsc(batchKey) + '\',\'sku_' + _jsEsc(ik) + '\',' + i + ')">' +
+                   '<input type="checkbox"' + (sm || (it.q && d >= it.q) || upper ? ' checked' : '') + ' onclick="event.preventDefault();fbaToggleMark(\'' + _jsEsc(batchKey) + '\',\'sku_' + _jsEsc(ik) + '\',' + i + ')">' +
                    cell + '</label>';
             h += '<td style="font-size:10px">' + cell + '</td>';
           });
