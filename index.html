@@ -11780,7 +11780,8 @@ function _fbaPiece(it) {
 function _fbaGroups(batch) {
   var out = {}, pack = ((_fbaPacking[batch.key] || {}).items) || {}, seen = {};
   function add(m, p, it) {
-    var g = ((out[m] = out[m] || {})[p] = out[m][p] || { pcs: 0, st: [0, 0, 0, 0, 0], f: 0, items: [] });
+    var g = ((out[m] = out[m] || {})[p] = out[m][p] || { pcs: 0, st: [0, 0, 0, 0, 0], f: 0, pj: {}, items: [] });
+    Object.keys(it.pj || {}).forEach(function(c) { g.pj[c] = (g.pj[c] || 0) + it.pj[c]; });
     var st = _fbaItemSteps(batch.key, it);
     g.pcs += it.q || 0;
     st.forEach(function(v, i) { g.st[i] += v; });
@@ -11799,6 +11800,13 @@ function _fbaGroups(batch) {
     add(mp[0], mp[1], { i: pk.i, n: pk.n, q: pk.u || 0, st: [0, 0, 0, 0, 0], f: 0, pk: pk, packOnly: true });
   });
   return out;
+}
+// "PJ-15285 (96) · PJ-15290 (40)" — the print jobs Tempo made for these pcs.
+function _fbaPjHtml(pj, showPcs) {
+  var codes = Object.keys(pj || {}).sort(function(a, b) { return (pj[b] || 0) - (pj[a] || 0) || a.localeCompare(b); });
+  if (!codes.length) return '';
+  return '<div style="font-size:10px;color:var(--blue);margin-top:2px;font-family:monospace;white-space:normal">' +
+    codes.map(function(c) { return escapeHtml(c) + (showPcs ? ' <span style="color:var(--muted)">(' + (pj[c] || 0).toLocaleString() + ')</span>' : ''); }).join(' &middot; ') + '</div>';
 }
 function _fbaTotalPcs(groups) {
   var n = 0;
@@ -11978,7 +11986,8 @@ function _fbaGroupsHtml(batchKey, groups) {
       h += '<tr>';
       h += '<td style="cursor:pointer" onclick="fbaToggleGroup(\'' + _jsEsc(ok) + '\')"><span style="color:var(--muted);font-size:10px">' + (gOpen ? '&#9660;' : '&#9654;') + '</span> <b>' + escapeHtml(p) + '</b>' +
            ' <span style="font-size:11px;color:var(--muted)">' + g.items.length + ' SKU' + (g.items.length !== 1 ? 's' : '') + '</span>' +
-           (g.f ? ' <span title="Flagged in Tempo" style="font-size:10px;font-weight:700;color:var(--red)">&#9873; ' + g.f.toLocaleString() + ' flagged</span>' : '') + '</td>';
+           (g.f ? ' <span title="Flagged in Tempo" style="font-size:10px;font-weight:700;color:var(--red)">&#9873; ' + g.f.toLocaleString() + ' flagged</span>' : '') +
+           _fbaPjHtml(g.pj, true) + '</td>';
       h += '<td style="text-align:right;font-weight:700">' + g.pcs.toLocaleString() + '</td>';
       FBA_STEPS.forEach(function(n, i) { h += '<td>' + _fbaStepCell(batchKey, gk, _fbaGroupDone(batchKey, gk, g, i), g.pcs, i, false) + '</td>'; });
       h += '</tr>';
@@ -11991,9 +12000,11 @@ function _fbaGroupsHtml(batchKey, groups) {
             if (pk.made) info.push('<b style="color:var(--green-dark)">' + pk.made + ' made</b>');
             if (pk.note) info.push(escapeHtml(pk.note));
           }
+          if (it.f) info.push('<span style="color:var(--red);font-weight:700">&#9873; ' + it.f.toLocaleString() + ' flagged, no PJ</span>');
           if (it.packOnly) info.push('<span style="color:var(--amber)">packing list only &mdash; not in Tempo</span>');
           h += '<tr style="background:var(--bg)"><td style="padding-left:26px;font-size:11px"><span style="font-family:monospace;color:var(--muted)">' + escapeHtml(it.i) + '</span> ' + escapeHtml(it.n || '') +
-               (info.length ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + info.join(' &middot; ') + '</div>' : '') + '</td>';
+               (info.length ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + info.join(' &middot; ') + '</div>' : '') +
+               _fbaPjHtml(it.pj, true) + '</td>';
           h += '<td style="text-align:right;font-size:11px">' + (it.q || 0).toLocaleString() + '</td>';
           FBA_STEPS.forEach(function(n, i) {
             var d = st[i], sm = _fbaMark(batchKey, 'sku_' + ik, i);
