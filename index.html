@@ -11757,12 +11757,14 @@ function _fbaPackMachinePiece(pk) {
 function _fbaItemKey(itemId) { return _fbaKey(String(itemId || '').toUpperCase()); }
 
 // One item's step pcs after the packing list and hand marks: "N made" counts
-// as printed (and so nested), a Boxed tick counts the whole SKU as packaged.
+// as printed (and so nested), a tick on the SKU row (e.g. Boxed) counts the
+// whole SKU done for that step.
 function _fbaItemSteps(batchKey, it) {
   var q = it.q || 0, st = (it.st || [0, 0, 0, 0, 0]).slice();
   var made = Math.min(q, (it.pk && it.pk.made) || 0);
   if (made > st[1]) st[1] = made;
-  if (_fbaMark(batchKey, 'sku_' + _fbaItemKey(it.i), 2)) st[2] = q;
+  var sk = 'sku_' + _fbaItemKey(it.i);
+  for (var j = 0; j < st.length; j++) if (_fbaMark(batchKey, sk, j)) st[j] = q;
   for (var i = st.length - 2; i >= 0; i--) if (st[i + 1] > st[i]) st[i] = st[i + 1];  // a later step implies the earlier ones
   return st.map(function(v) { return Math.min(q, v || 0); });
 }
@@ -11846,7 +11848,7 @@ function fbaToggleGroup(key) { _fbaOpenGroup[key] = !_fbaOpenGroup[key]; renderF
 // Tick / untick a hand mark. groupKey '_batch' = the whole batch.
 function fbaToggleMark(batchKey, groupKey, step) {
   var cur = _fbaMark(batchKey, groupKey, step);
-  var label = FBA_STEPS[step] + (groupKey === '_batch' ? ' for the whole batch' : '');
+  var label = (step === 2 && /^sku_/.test(groupKey) ? 'Boxed' : FBA_STEPS[step]) + (groupKey === '_batch' ? ' for the whole batch' : /^sku_/.test(groupKey) ? ' for ' + groupKey.slice(4) : '');
   if (cur && !confirm('Clear "' + label + '" (marked by ' + (cur.by || 'someone') + ')?')) return;
   var val = null;
   if (!cur) {
@@ -11896,7 +11898,7 @@ function renderFba() {
   var showShipped = _fbaView === 'shipped';
   var h = '<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Tempo numbers updated ' +
     escapeHtml(_ppStamp(_fbaData && _fbaData.updatedAt) || 'never') +
-    ' &middot; refreshes every hour &middot; tick a box to mark a step done by hand (that wins over Tempo).</div>';
+    ' &middot; refreshes every hour &middot; tick a box to mark a step done by hand (that wins over Tempo) &mdash; for the whole batch, one piece type, or one SKU (open a piece type to see its SKUs).</div>';
   var shown = 0;
   keys.forEach(function(key) {
     var b = batches[key];
@@ -11990,14 +11992,16 @@ function _fbaGroupsHtml(batchKey, groups) {
                (info.length ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + info.join(' &middot; ') + '</div>' : '') + '</td>';
           h += '<td style="text-align:right;font-size:11px">' + (it.q || 0).toLocaleString() + '</td>';
           FBA_STEPS.forEach(function(n, i) {
-            var d = st[i];
-            var cell = '<span style="color:' + _fbaPctColor(it.q ? d * 100 / it.q : 0) + '">' + d.toLocaleString() + ' / ' + (it.q || 0).toLocaleString() + '</span>';
-            if (i === 2) {
-              var bm = _fbaMark(batchKey, 'sku_' + ik, 2);
-              cell = '<label style="display:flex;align-items:center;gap:4px;cursor:pointer" title="' + (bm ? 'Boxed &mdash; ' + escapeHtml(bm.by || '') + ' ' + escapeHtml(_ppStamp(bm.at)) : 'Tick when this SKU is boxed') + '">' +
-                     '<input type="checkbox"' + (bm ? ' checked' : '') + ' onclick="event.preventDefault();fbaToggleMark(\'' + _jsEsc(batchKey) + '\',\'sku_' + _jsEsc(ik) + '\',2)">' +
-                     (bm ? '<b style="color:var(--green-dark)">Boxed</b>' : cell) + '</label>';
-            }
+            var d = st[i], sm = _fbaMark(batchKey, 'sku_' + ik, i);
+            var upper = _fbaMark(batchKey, '_batch', i) ? 'whole batch' : _fbaMark(batchKey, gk, i) ? 'whole ' + p : '';
+            var cell = upper ? '<span style="color:var(--green-dark)">&#9998; ' + escapeHtml(upper) + '</span>'
+                     : sm ? '<b style="color:var(--green-dark)">' + (i === 2 ? 'Boxed' : n) + '</b>'
+                     : '<span style="color:' + _fbaPctColor(it.q ? d * 100 / it.q : 0) + '">' + d.toLocaleString() + ' / ' + (it.q || 0).toLocaleString() + '</span>';
+            var tip = sm ? n + ' &mdash; ' + escapeHtml(sm.by || '') + ' ' + escapeHtml(_ppStamp(sm.at)) + ' (click to clear)'
+                    : 'Tick when this SKU is ' + (i === 2 ? 'boxed' : n.toLowerCase());
+            cell = '<label style="display:flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap" title="' + tip + '">' +
+                   '<input type="checkbox"' + (sm ? ' checked' : '') + ' onclick="event.preventDefault();fbaToggleMark(\'' + _jsEsc(batchKey) + '\',\'sku_' + _jsEsc(ik) + '\',' + i + ')">' +
+                   cell + '</label>';
             h += '<td style="font-size:10px">' + cell + '</td>';
           });
           h += '</tr>';
