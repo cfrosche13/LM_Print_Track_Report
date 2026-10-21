@@ -11681,7 +11681,11 @@ function _mafStartLiveSync() {
 // shown here even though they're left out of all other reporting (owner OK).
 
 var FBA_STEPS = ['Nested', 'Printed', 'Packaged', 'Palletized', 'Shipped'];
-var FBA_MACHINE_ORDER = ['30', '30+', 'H5', 'Colex', 'Drinkware', 'Clock', 'Wallets'];
+var FBA_MACHINE_ORDER = ['30', '30+', 'H5', 'Colex', 'Drinkware', 'Clock', 'Pick', 'Wallets'];
+// "Pick" = FBA lines Tempo fills from stock (already made): no nesting or
+// printing, so its second step is Picked instead of Printed.
+var FBA_PICK_STEPS = ['Nested', 'Picked', 'Packaged', 'Palletized', 'Shipped'];
+function _fbaStepNames(machine) { return machine === 'Pick' ? FBA_PICK_STEPS : FBA_STEPS; }
 var _fbaPacking = {};       // { batchKey: { fileName, loadedBy, loadedAt, items: { itemKey: {i,n,cat,cpq,cc,u,made,note} } } }
 var _fbaData = null;        // { updatedAt, batches: { key: batch } }
 var _fbaMarks = {};         // { batchKey: { groupKey: { stepIdx: {by, at} } } }
@@ -11728,6 +11732,7 @@ function _fbaKey(s) { return String(s || '').replace(/[.#$\[\]\/]/g, '_'); }
 // and Clock is its own group; everything else uses the Planning tab's routing,
 // with plain coir moved to 30+ when the art files say Full Color.
 function _fbaMachine(it) {
+  if (it.src === 'stock') return 'Pick';
   var s = it.s || it.b || '';
   if (/drinkware|glass|tumbler|cup/i.test(it.b + ' ' + s)) return 'Drinkware';
   if (/clock/i.test(it.b + ' ' + s)) return 'Clock';
@@ -11761,13 +11766,16 @@ function _fbaItemKey(itemId) { return _fbaKey(String(itemId || '').toUpperCase()
 // whole SKU done for that step.
 function _fbaItemSteps(batchKey, it) {
   var q = it.q || 0, st = (it.st || [0, 0, 0, 0, 0]).slice();
-  var made = Math.min(q, (it.pk && it.pk.made) || 0);
+  var stock = it.src === 'stock';
+  var made = stock ? 0 : Math.min(q, (it.pk && it.pk.made) || 0);
   if (made > st[1]) st[1] = made;
-  var sk = 'sku_' + _fbaItemKey(it.i);
-  for (var j = 0; j < st.length; j++) if (_fbaMark(batchKey, sk, j)) st[j] = q;
+  var sk = _fbaSkuMarkKey(it), shared = 'sku_' + _fbaItemKey(it.i);
+  for (var j = 0; j < st.length; j++) if (_fbaMark(batchKey, sk, j) || (stock && j >= 2 && _fbaMark(batchKey, shared, j))) st[j] = q;
   for (var i = st.length - 2; i >= 0; i--) if (st[i + 1] > st[i]) st[i] = st[i + 1];  // a later step implies the earlier ones
   return st.map(function(v) { return Math.min(q, v || 0); });
 }
+
+function _fbaSkuMarkKey(it) { return (it.src === 'stock' ? 'pick_' : 'sku_') + _fbaItemKey(it.i); }
 
 function _fbaPiece(it) {
   var s = it.s || it.b || 'Unknown';
@@ -11788,9 +11796,9 @@ function _fbaGroups(batch) {
     g.f += it.f || 0;
     g.items.push(it);
   }
-  (batch.items || []).forEach(function(raw) {
+  (batch.items || []).slice().sort(function(a, b) { return (a.src === 'stock') - (b.src === 'stock'); }).forEach(function(raw) {
     var k = _fbaItemKey(raw.i);
-    var it = Object.assign({}, raw, { pk: pack[k] || null });
+    var it = Object.assign({}, raw, { pk: seen[k] ? null : (pack[k] || null) });
     seen[k] = true;
     add(_fbaMachine(it), _fbaPiece(it), it);
   });
@@ -11854,9 +11862,9 @@ function fbaToggleBatch(key) { _fbaOpen[key] = !_fbaOpen[key]; renderFba(); }
 function fbaToggleGroup(key) { _fbaOpenGroup[key] = !_fbaOpenGroup[key]; renderFba(); }
 
 // Tick / untick a hand mark. groupKey '_batch' = the whole batch.
-function fbaToggleMark(batchKey, groupKey, step) {
+function fbaToggleMark(batchKey, groupKey, step, stepName) {
   var cur = _fbaMark(batchKey, groupKey, step);
-  var label = (step === 2 && /^sku_/.test(groupKey) ? 'Boxed' : FBA_STEPS[step]) + (groupKey === '_batch' ? ' for the whole batch' : /^sku_/.test(groupKey) ? ' for ' + groupKey.slice(4) : '');
+  var label = (step === 2 && /^(sku|pick)_/.test(groupKey) ? 'Boxed' : stepName || FBA_STEPS[step]) + (groupKey === '_batch' ? ' for the whole batch' : /^(sku|pick)_/.test(groupKey) ? ' for ' + groupKey.replace(/^(sku|pick)_/, '') : '');
   if (cur && !confirm('Clear "' + label + '" (marked by ' + (cur.by || 'someone') + ')?')) return;
   var val = null;
   if (!cur) {
@@ -11876,16 +11884,17 @@ function _fbaDateLabel(iso) {
 function _fbaPctColor(pct) { return pct >= 100 ? 'var(--green-dark)' : pct > 0 ? 'var(--amber)' : 'var(--muted)'; }
 
 // One step cell: done/total, a thin bar, and the hand-mark checkbox.
-function _fbaStepCell(batchKey, groupKey, done, total, step, big) {
+function _fbaStepCell(batchKey, groupKey, done, total, step, big, stepName) {
+  var sn = stepName || FBA_STEPS[step];
   var pct = total > 0 ? Math.round(done * 100 / total) : 0;
   var mark = _fbaMark(batchKey, groupKey, step);
   var batchMark = groupKey !== '_batch' && _fbaMark(batchKey, '_batch', step);
   var h = '<div style="min-width:' + (big ? '120px' : '92px') + '">';
   h += '<div style="display:flex;align-items:center;gap:5px;font-size:' + (big ? '13px' : '11px') + '">';
   var full = !mark && total > 0 && done >= total;
-  h += '<span onclick="fbaToggleMark(\'' + _jsEsc(batchKey) + '\',\'' + _jsEsc(groupKey) + '\',' + step + ')" title="' +
+  h += '<span onclick="fbaToggleMark(\'' + _jsEsc(batchKey) + '\',\'' + _jsEsc(groupKey) + '\',' + step + ',\'' + _jsEsc(sn) + '\')" title="' +
        (mark ? 'Marked by ' + escapeHtml(mark.by || '') + ' ' + escapeHtml(_ppStamp(mark.at)) + ' — click to clear'
-             : full ? FBA_STEPS[step] + ' is 100% done' : 'Click to mark ' + FBA_STEPS[step] + ' done by hand') +
+             : full ? sn + ' is 100% done' : 'Click to mark ' + sn + ' done by hand') +
        '" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:3px;font-size:11px;line-height:1;flex-shrink:0;' +
        (mark ? 'background:var(--green-dark);color:#fff;border:1px solid var(--green-dark)'
              : full ? 'background:var(--white);color:var(--green-dark);border:1px solid var(--green-dark);font-weight:700'
@@ -11976,10 +11985,11 @@ function _fbaGroupsHtml(batchKey, groups) {
     var pieces = Object.keys(groups[m]).sort();
     var mPcs = pieces.reduce(function(n, p) { return n + groups[m][p].pcs; }, 0);
     h += '<div style="margin-top:16px">';
-    h += '<div style="font-size:13px;font-weight:700;color:var(--green-dark);margin-bottom:6px">' + (/^\d|^H5$|^Colex$/.test(m) ? 'Machine ' : '') + escapeHtml(m) +
+    var names = _fbaStepNames(m), pick = m === 'Pick';
+    h += '<div style="font-size:13px;font-weight:700;color:var(--green-dark);margin-bottom:6px">' + (/^\d|^H5$|^Colex$/.test(m) ? 'Machine ' : '') + escapeHtml(pick ? 'Pick (from stock)' : m) +
          ' <span style="font-weight:400;color:var(--muted)">&mdash; ' + mPcs.toLocaleString() + ' pcs</span></div>';
     h += '<div class="table-wrap"><table class="settings-table"><thead><tr><th>Piece type</th><th style="text-align:right">Pcs</th>';
-    FBA_STEPS.forEach(function(n) { h += '<th>' + n + '</th>'; });
+    names.forEach(function(n, i) { h += '<th>' + (pick && i === 0 ? '' : n) + '</th>'; });
     h += '</tr></thead><tbody>';
     pieces.forEach(function(p) {
       var g = groups[m][p], gk = _fbaGroupKey(m, p), ok = batchKey + '|' + gk, gOpen = !!_fbaOpenGroup[ok];
@@ -11988,25 +11998,31 @@ function _fbaGroupsHtml(batchKey, groups) {
            ' <span style="font-size:11px;color:var(--muted)">' + g.items.length + ' SKU' + (g.items.length !== 1 ? 's' : '') + '</span>' +
            (g.f ? ' <span title="Flagged in Tempo" style="font-size:10px;font-weight:700;color:var(--red)">&#9873; ' + g.f.toLocaleString() + ' flagged</span>' : '') + '</td>';
       h += '<td style="text-align:right;font-weight:700">' + g.pcs.toLocaleString() + '</td>';
-      FBA_STEPS.forEach(function(n, i) { h += '<td>' + _fbaStepCell(batchKey, gk, _fbaGroupDone(batchKey, gk, g, i), g.pcs, i, false) + '</td>'; });
+      names.forEach(function(n, i) {
+        h += '<td>' + (pick && i === 0 ? '<span style="font-size:10px;color:var(--muted)">no print needed</span>'
+                                       : _fbaStepCell(batchKey, gk, _fbaGroupDone(batchKey, gk, g, i), g.pcs, i, false, n)) + '</td>';
+      });
       h += '</tr>';
       if (gOpen) {
         g.items.slice().sort(function(a, b) { return (b.q || 0) - (a.q || 0); }).forEach(function(it) {
-          var st = _fbaItemSteps(batchKey, it), pk = it.pk, ik = _fbaItemKey(it.i);
+          var st = _fbaItemSteps(batchKey, it), pk = it.pk, ik = _fbaItemKey(it.i), mk = _fbaSkuMarkKey(it);
           var info = [];
           if (pk) {
             info.push((pk.cc || 0) + ' carton' + (pk.cc !== 1 ? 's' : '') + ' &times; ' + (pk.cpq || 0) + ' = ' + (pk.u || 0).toLocaleString() + ' units');
             if (pk.made) info.push('<b style="color:var(--green-dark)">' + pk.made + ' made</b>');
             if (pk.note) info.push(escapeHtml(pk.note));
           }
-          if (it.f) info.push('<span style="color:var(--red);font-weight:700">&#9873; ' + it.f.toLocaleString() + ' flagged, no PJ</span>');
+          if (it.f) info.push('<span style="color:var(--red);font-weight:700">&#9873; ' + it.f.toLocaleString() + (pick ? ' flagged in Tempo' : ' flagged, no PJ') + '</span>');
+          if (pick) info.push('<span style="color:var(--blue)">from stock &mdash; no print needed</span>');
           if (it.packOnly) info.push('<span style="color:var(--amber)">packing list only &mdash; not in Tempo</span>');
           h += '<tr style="background:var(--bg)"><td style="padding-left:26px;font-size:11px"><span style="font-family:monospace;color:var(--muted)">' + escapeHtml(it.i) + '</span> ' + escapeHtml(it.n || '') +
                (info.length ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + info.join(' &middot; ') + '</div>' : '') +
                _fbaPjHtml(it.pj, true) + '</td>';
           h += '<td style="text-align:right;font-size:11px">' + (it.q || 0).toLocaleString() + '</td>';
-          FBA_STEPS.forEach(function(n, i) {
-            var d = st[i], sm = _fbaMark(batchKey, 'sku_' + ik, i);
+          names.forEach(function(n, i) {
+            if (pick && i === 0) { h += '<td></td>'; return; }
+            var smKey = !_fbaMark(batchKey, mk, i) && pick && i >= 2 && _fbaMark(batchKey, 'sku_' + ik, i) ? 'sku_' + ik : mk;
+            var d = st[i], sm = _fbaMark(batchKey, smKey, i);
             var upper = _fbaMark(batchKey, '_batch', i) ? 'whole batch' : _fbaMark(batchKey, gk, i) ? 'whole ' + p : '';
             var cell = upper ? '<span style="color:var(--green-dark)">&#9998; ' + escapeHtml(upper) + '</span>'
                      : sm ? '<b style="color:var(--green-dark)">' + (i === 2 ? 'Boxed' : n) + '</b>'
@@ -12015,7 +12031,7 @@ function _fbaGroupsHtml(batchKey, groups) {
                     : upper || (it.q && d >= it.q) ? n + ' is 100% done'
                     : 'Tick when this SKU is ' + (i === 2 ? 'boxed' : n.toLowerCase());
             cell = '<label style="display:flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap" title="' + tip + '">' +
-                   '<input type="checkbox"' + (sm || (it.q && d >= it.q) || upper ? ' checked' : '') + ' onclick="event.preventDefault();fbaToggleMark(\'' + _jsEsc(batchKey) + '\',\'sku_' + _jsEsc(ik) + '\',' + i + ')">' +
+                   '<input type="checkbox"' + (sm || (it.q && d >= it.q) || upper ? ' checked' : '') + ' onclick="event.preventDefault();fbaToggleMark(\'' + _jsEsc(batchKey) + '\',\'' + _jsEsc(smKey) + '\',' + i + ',\'' + _jsEsc(n) + '\')">' +
                    cell + '</label>';
             h += '<td style="font-size:10px">' + cell + '</td>';
           });
