@@ -1194,6 +1194,10 @@ input[type="date"]:focus { border-color: var(--green-dark); }
   </div>
 
   <div id="fba-error" style="display:none;margin-bottom:1rem;padding:10px 14px;background:var(--red-bg);border:1px solid var(--red-border);border-radius:var(--radius);color:var(--red);font-size:13px;font-weight:600"></div>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <input type="search" id="fba-search" placeholder="&#128269; Search container #, order #, SKU or PJ" oninput="fbaSearch(this.value)"
+      style="flex:1;min-width:240px;max-width:460px;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px;font-family:inherit">
+  </div>
   <div id="fba-body"></div>
   <input type="file" id="fba-pack-input" accept=".xlsx,.xls,.csv" style="display:none" onchange="fbaLoadPacking(this)">
 
@@ -11920,6 +11924,7 @@ function renderFba() {
   var h = '<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Tempo numbers updated ' +
     escapeHtml(_ppStamp(_fbaData && _fbaData.updatedAt) || 'never') +
     ' &middot; refreshes every hour &middot; tick a box to mark a step done by hand (that wins over Tempo) &mdash; for the whole batch, one piece type, or one SKU (open a piece type to see its SKUs).</div>';
+  h += _fbaSearchHtml();
   var shown = 0;
   keys.forEach(function(key) {
     var b = batches[key];
@@ -12005,42 +12010,50 @@ function _fbaGroupsHtml(batchKey, groups) {
       h += '</tr>';
       if (gOpen) {
         g.items.slice().sort(function(a, b) { return (b.q || 0) - (a.q || 0); }).forEach(function(it) {
-          var st = _fbaItemSteps(batchKey, it), pk = it.pk, ik = _fbaItemKey(it.i), mk = _fbaSkuMarkKey(it);
-          var info = [];
-          if (pk) {
-            info.push((pk.cc || 0) + ' carton' + (pk.cc !== 1 ? 's' : '') + ' &times; ' + (pk.cpq || 0) + ' = ' + (pk.u || 0).toLocaleString() + ' units');
-            if (pk.made) info.push('<b style="color:var(--green-dark)">' + pk.made + ' made</b>');
-            if (pk.note) info.push(escapeHtml(pk.note));
-          }
-          if (it.f) info.push('<span style="color:var(--red);font-weight:700">&#9873; ' + it.f.toLocaleString() + (pick ? ' flagged in Tempo' : ' flagged, no PJ') + '</span>');
-          if (pick) info.push('<span style="color:var(--blue)">from stock &mdash; no print needed</span>');
-          if (it.packOnly) info.push('<span style="color:var(--amber)">packing list only &mdash; not in Tempo</span>');
-          h += '<tr style="background:var(--bg)"><td style="padding-left:26px;font-size:11px"><span style="font-family:monospace;color:var(--muted)">' + escapeHtml(it.i) + '</span> ' + escapeHtml(it.n || '') +
-               (info.length ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + info.join(' &middot; ') + '</div>' : '') +
-               _fbaPjHtml(it.pj, true) + '</td>';
-          h += '<td style="text-align:right;font-size:11px">' + (it.q || 0).toLocaleString() + '</td>';
-          names.forEach(function(n, i) {
-            if (pick && i === 0) { h += '<td></td>'; return; }
-            var smKey = !_fbaMark(batchKey, mk, i) && pick && i >= 2 && _fbaMark(batchKey, 'sku_' + ik, i) ? 'sku_' + ik : mk;
-            var d = st[i], sm = _fbaMark(batchKey, smKey, i);
-            var upper = _fbaMark(batchKey, '_batch', i) ? 'whole batch' : _fbaMark(batchKey, gk, i) ? 'whole ' + p : '';
-            var cell = upper ? '<span style="color:var(--green-dark)">&#9998; ' + escapeHtml(upper) + '</span>'
-                     : sm ? '<b style="color:var(--green-dark)">' + (i === 2 ? 'Boxed' : n) + '</b>'
-                     : '<span style="color:' + _fbaPctColor(it.q ? d * 100 / it.q : 0) + '">' + d.toLocaleString() + ' / ' + (it.q || 0).toLocaleString() + '</span>';
-            var tip = sm ? n + ' &mdash; ' + escapeHtml(sm.by || '') + ' ' + escapeHtml(_ppStamp(sm.at)) + ' (click to clear)'
-                    : upper || (it.q && d >= it.q) ? n + ' is 100% done'
-                    : 'Tick when this SKU is ' + (i === 2 ? 'boxed' : n.toLowerCase());
-            cell = '<label style="display:flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap" title="' + tip + '">' +
-                   '<input type="checkbox"' + (sm || (it.q && d >= it.q) || upper ? ' checked' : '') + ' onclick="event.preventDefault();fbaToggleMark(\'' + _jsEsc(batchKey) + '\',\'' + _jsEsc(smKey) + '\',' + i + ',\'' + _jsEsc(n) + '\')">' +
-                   cell + '</label>';
-            h += '<td style="font-size:10px">' + cell + '</td>';
-          });
-          h += '</tr>';
+          h += _fbaSkuRowHtml(batchKey, m, p, it, '');
         });
       }
     });
     h += '</tbody></table></div></div>';
   });
+  return h;
+}
+
+// One SKU row (used inside a piece type and in search results). ctx = an
+// extra line under the name, e.g. where a search hit lives.
+function _fbaSkuRowHtml(batchKey, m, p, it, ctx) {
+  var names = _fbaStepNames(m), pick = m === 'Pick', gk = _fbaGroupKey(m, p), h = '';
+  var st = _fbaItemSteps(batchKey, it), pk = it.pk, ik = _fbaItemKey(it.i), mk = _fbaSkuMarkKey(it);
+  var info = [];
+  if (pk) {
+    info.push((pk.cc || 0) + ' carton' + (pk.cc !== 1 ? 's' : '') + ' &times; ' + (pk.cpq || 0) + ' = ' + (pk.u || 0).toLocaleString() + ' units');
+    if (pk.made) info.push('<b style="color:var(--green-dark)">' + pk.made + ' made</b>');
+    if (pk.note) info.push(escapeHtml(pk.note));
+  }
+  if (it.f) info.push('<span style="color:var(--red);font-weight:700">&#9873; ' + it.f.toLocaleString() + (pick ? ' flagged in Tempo' : ' flagged, no PJ') + '</span>');
+  if (pick) info.push('<span style="color:var(--blue)">from stock &mdash; no print needed</span>');
+  if (it.packOnly) info.push('<span style="color:var(--amber)">packing list only &mdash; not in Tempo</span>');
+  h += '<tr style="background:var(--bg)"><td style="padding-left:26px;font-size:11px"><span style="font-family:monospace;color:var(--muted)">' + escapeHtml(it.i) + '</span> ' + escapeHtml(it.n || '') +
+       (info.length ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + info.join(' &middot; ') + '</div>' : '') +
+       _fbaPjHtml(it.pj, true) + (ctx || '') + '</td>';
+  h += '<td style="text-align:right;font-size:11px">' + (it.q || 0).toLocaleString() + '</td>';
+  names.forEach(function(n, i) {
+    if (pick && i === 0) { h += '<td></td>'; return; }
+    var smKey = !_fbaMark(batchKey, mk, i) && pick && i >= 2 && _fbaMark(batchKey, 'sku_' + ik, i) ? 'sku_' + ik : mk;
+    var d = st[i], sm = _fbaMark(batchKey, smKey, i);
+    var upper = _fbaMark(batchKey, '_batch', i) ? 'whole batch' : _fbaMark(batchKey, gk, i) ? 'whole ' + p : '';
+    var cell = upper ? '<span style="color:var(--green-dark)">&#9998; ' + escapeHtml(upper) + '</span>'
+             : sm ? '<b style="color:var(--green-dark)">' + (i === 2 ? 'Boxed' : n) + '</b>'
+             : '<span style="color:' + _fbaPctColor(it.q ? d * 100 / it.q : 0) + '">' + d.toLocaleString() + ' / ' + (it.q || 0).toLocaleString() + '</span>';
+    var tip = sm ? n + ' &mdash; ' + escapeHtml(sm.by || '') + ' ' + escapeHtml(_ppStamp(sm.at)) + ' (click to clear)'
+            : upper || (it.q && d >= it.q) ? n + ' is 100% done'
+            : 'Tick when this SKU is ' + (i === 2 ? 'boxed' : n.toLowerCase());
+    cell = '<label style="display:flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap" title="' + tip + '">' +
+           '<input type="checkbox"' + (sm || (it.q && d >= it.q) || upper ? ' checked' : '') + ' onclick="event.preventDefault();fbaToggleMark(\'' + _jsEsc(batchKey) + '\',\'' + _jsEsc(smKey) + '\',' + i + ',\'' + _jsEsc(n) + '\')">' +
+           cell + '</label>';
+    h += '<td style="font-size:10px">' + cell + '</td>';
+  });
+  h += '</tr>';
   return h;
 }
 
@@ -12122,6 +12135,71 @@ function _fbaParsePacking(grid) {
     }
   }
   return items;
+}
+
+// ── Search: container #, order #, SKU or PJ ──
+// Hits show at the top: an order shows its whole batch; a SKU, PJ or
+// container shows the matching SKU rows (with tick boxes) and where they live.
+var _fbaQuery = '';
+var _fbaSearchTimer = null;
+function fbaSearch(v) {
+  clearTimeout(_fbaSearchTimer);
+  _fbaSearchTimer = setTimeout(function() { _fbaQuery = String(v || '').trim(); renderFba(); }, 200);
+}
+function _fbaSearchHtml() {
+  var q = _fbaQuery.toUpperCase().replace(/\s+/g, '');
+  if (!q) return '';
+  var batches = (_fbaData && _fbaData.batches) || {};
+  var digits = /^\d+$/.test(q) ? q : '';
+  var pjNum = (/^PJ-?(\d+)$/.exec(q) || [])[1] || digits;
+  var orderHits = [], rows = [], n = 0;
+  Object.keys(batches).sort().reverse().forEach(function(key) {
+    var b = batches[key], groups = _fbaGroups(b);
+    if (digits && (b.orders || {})[digits]) orderHits.push({ b: b, groups: groups });
+    _fbaMachineList(groups).forEach(function(m) {
+      Object.keys(groups[m]).sort().forEach(function(p) {
+        groups[m][p].items.forEach(function(it) {
+          var why = [];
+          if (digits && (it.cn || []).some(function(c) { return String(c) === digits; })) why.push('container ' + digits);
+          if (pjNum && Object.keys(it.pj || {}).some(function(c) { return c.replace(/\D/g, '') === pjNum; })) why.push('PJ-' + pjNum);
+          if (q.length >= 3 && !digits && String(it.i || '').toUpperCase().indexOf(q) >= 0) why.push('SKU');
+          if (!why.length) return;
+          if (++n > 200) return;
+          var ctx = '<div style="font-size:10px;margin-top:3px;color:var(--text)"><b>Batch ' + escapeHtml(_fbaDateLabel(key)) + '</b> &middot; ' +
+                    escapeHtml(m === 'Pick' ? 'Pick (from stock)' : m) + ' &rsaquo; ' + escapeHtml(p) +
+                    ((it.o || []).length ? ' &middot; order ' + it.o.map(escapeHtml).join(', ') : '') +
+                    ' &middot; <span style="color:var(--blue)">matched ' + escapeHtml(why.join(', ')) + '</span></div>';
+          rows.push(_fbaSkuRowHtml(key, m, p, it, ctx));
+        });
+      });
+    });
+  });
+  var h = '<div style="background:var(--white);border:2px solid var(--blue);border-radius:var(--radius);padding:12px 14px;margin-bottom:18px">';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px">' +
+       '<div style="font-size:14px;font-weight:700;color:var(--text)">&#128269; Results for &ldquo;' + escapeHtml(_fbaQuery) + '&rdquo;</div>' +
+       '<button class="qbtn" onclick="fbaClearSearch()">&#10005; Clear</button></div>';
+  if (!orderHits.length && !rows.length) {
+    h += '<div style="font-size:13px;color:var(--muted)">No FBA order, container, SKU or PJ matches that.' +
+         (q.length < 3 && !digits ? ' Type at least 3 characters of a SKU.' : '') + '</div></div>';
+    return h;
+  }
+  orderHits.forEach(function(o) {
+    h += '<div style="font-size:12px;color:var(--muted);margin-bottom:4px">Order <b style="color:var(--text)">' + escapeHtml(digits) + '</b> is in this batch:</div>';
+    h += _fbaBatchHtml(o.b, o.groups);
+  });
+  if (rows.length) {
+    h += '<div class="table-wrap"><table class="settings-table"><thead><tr><th>SKU</th><th style="text-align:right">Pcs</th>';
+    FBA_STEPS.forEach(function(s) { h += '<th>' + s + '</th>'; });
+    h += '</tr></thead><tbody>' + rows.join('') + '</tbody></table></div>';
+    if (n > 200) h += '<div style="font-size:11px;color:var(--muted);margin-top:4px">Showing the first 200 of ' + n + ' matches &mdash; type more to narrow it down.</div>';
+  }
+  return h + '</div>';
+}
+function fbaClearSearch() {
+  _fbaQuery = '';
+  var el = document.getElementById('fba-search');
+  if (el) el.value = '';
+  renderFba();
 }
 
 function startReportApp() {
