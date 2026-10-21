@@ -1197,7 +1197,9 @@ input[type="date"]:focus { border-color: var(--green-dark); }
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
     <input type="search" id="fba-search" placeholder="&#128269; Search container #, order #, SKU or PJ" oninput="fbaSearch(this.value)"
       style="flex:1;min-width:240px;max-width:460px;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px;font-family:inherit">
+    <button class="qbtn" onclick="fbaToggleReport()" title="Print or save as PDF a list of containers/items that are done (or not done) at one step">&#128424; Print report</button>
   </div>
+  <div id="fba-report-panel" style="display:none;background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:14px"></div>
   <div id="fba-body"></div>
   <input type="file" id="fba-pack-input" accept=".xlsx,.xls,.csv" style="display:none" onchange="fbaLoadPacking(this)">
 
@@ -12201,6 +12203,125 @@ function fbaClearSearch() {
   if (el) el.value = '';
   renderFba();
 }
+
+// ── Print report: items/containers done (or not) at one step, for one batch ──
+// Opens a clean page in a new tab with Print / Save as PDF and Copy buttons.
+// Done = 100% at that step (Tempo or a hand tick on the SKU, piece type or
+// batch). Partly-done SKUs are left off "done" lists (we can't tell which of
+// their containers are finished) and counted in a note instead.
+function fbaToggleReport() {
+  var el = document.getElementById('fba-report-panel');
+  if (!el) return;
+  if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+  var batches = (_fbaData && _fbaData.batches) || {};
+  var keys = Object.keys(batches).sort().reverse();
+  var sel = 'padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit';
+  var h = '<div style="font-size:14px;font-weight:700;margin-bottom:8px">&#128424; Print report</div>';
+  h += '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">';
+  h += '<label style="font-size:12px;color:var(--muted)">Batch<br><select id="fba-rpt-batch" style="' + sel + '">' +
+       keys.map(function(k) { return '<option value="' + escapeHtml(k) + '">' + escapeHtml(_fbaDateLabel(k)) + ' (' + Object.keys(batches[k].orders || {}).length + ' orders)</option>'; }).join('') + '</select></label>';
+  h += '<label style="font-size:12px;color:var(--muted)">Step<br><select id="fba-rpt-step" style="' + sel + '">' +
+       FBA_STEPS.map(function(n, i) { return '<option value="' + i + '"' + (i === 4 ? ' selected' : '') + '>' + (i === 1 ? 'Printed / Picked' : n) + '</option>'; }).join('') + '</select></label>';
+  h += '<label style="font-size:12px;color:var(--muted)">Show<br><select id="fba-rpt-which" style="' + sel + '">' +
+       '<option value="done">100% done</option><option value="open">Not done yet</option></select></label>';
+  h += '<label style="font-size:12px;color:var(--muted)">List by<br><select id="fba-rpt-by" style="' + sel + '">' +
+       '<option value="container">Container</option><option value="sku">SKU</option></select></label>';
+  h += '<button class="qbtn" onclick="fbaPrintReport()" style="font-weight:700">Open report &rarr;</button>';
+  h += '<button class="qbtn" onclick="fbaToggleReport()">Close</button>';
+  h += '</div>';
+  el.innerHTML = h;
+  el.style.display = '';
+}
+
+// [{ m, p, it, done, by }] for one batch + step.
+function _fbaReportRows(batchKey, step) {
+  var b = ((_fbaData && _fbaData.batches) || {})[batchKey];
+  if (!b) return [];
+  var groups = _fbaGroups(b), out = [];
+  _fbaMachineList(groups).forEach(function(m) {
+    Object.keys(groups[m]).sort().forEach(function(p) {
+      var gk = _fbaGroupKey(m, p);
+      groups[m][p].items.forEach(function(it) {
+        var q = it.q || 0, st = _fbaItemSteps(batchKey, it);
+        var bm = _fbaMark(batchKey, '_batch', step), gm = _fbaMark(batchKey, gk, step);
+        var sm = _fbaMark(batchKey, _fbaSkuMarkKey(it), step) || (it.src === 'stock' && step >= 2 && _fbaMark(batchKey, 'sku_' + _fbaItemKey(it.i), step));
+        var mark = sm || gm || bm;
+        var done = !!mark || (q > 0 && st[step] >= q);
+        out.push({ m: m, p: p, it: it, done: done, part: !done && st[step] > 0 ? st[step] : 0,
+                   by: mark ? (mark.by || '') + ' ' + _ppStamp(mark.at) : done ? 'Tempo' : '' });
+      });
+    });
+  });
+  return out;
+}
+
+function fbaPrintReport() {
+  var batchKey = document.getElementById('fba-rpt-batch').value;
+  var step = parseInt(document.getElementById('fba-rpt-step').value, 10);
+  var which = document.getElementById('fba-rpt-which').value;
+  var by = document.getElementById('fba-rpt-by').value;
+  var b = _fbaData.batches[batchKey];
+  var all = _fbaReportRows(batchKey, step);
+  var rows = all.filter(function(r) { return which === 'done' ? r.done : !r.done; });
+  var partial = all.filter(function(r) { return r.part; });
+  var stepName = step === 1 ? 'Printed / Picked' : FBA_STEPS[step];
+  var title = 'FBA ' + stepName + ' \u2014 ' + (which === 'done' ? 'done' : 'not done yet') + ' \u2014 batch ' + _fbaDateLabel(batchKey);
+  var esc = escapeHtml;
+  var pcs = rows.reduce(function(n, r) { return n + (r.it.q || 0); }, 0);
+  var lines = [], containers = 0, body = '';
+
+  if (by === 'container') {
+    var list = [];
+    rows.forEach(function(r) {
+      var cn = r.it.cn || [], co = r.it.co || [];
+      if (!cn.length) list.push({ c: '', o: (r.it.o || []).join(', '), r: r });
+      cn.forEach(function(c, i) { list.push({ c: String(c), o: co[i] || (r.it.o || []).join(', '), r: r }); });
+    });
+    list.sort(function(a, b) { return (a.c ? 0 : 1) - (b.c ? 0 : 1) || a.o.localeCompare(b.o) || a.c.localeCompare(b.c) || String(a.r.it.i).localeCompare(String(b.r.it.i)); });
+    containers = list.filter(function(x) { return x.c; }).length;
+    body += '<table><thead><tr><th>#</th><th>Container</th><th>Order</th><th>SKU</th><th>Item</th><th>Machine &rsaquo; piece type</th><th>' + esc(stepName) + '</th></tr></thead><tbody>';
+    list.forEach(function(x, i) {
+      body += '<tr><td class="n">' + (i + 1) + '</td><td class="mono">' + (x.c ? esc(x.c) : '<span class="muted">no container</span>') + '</td><td class="mono">' + esc(x.o) + '</td><td class="mono">' + esc(x.r.it.i) + '</td><td>' + esc(x.r.it.n || '') +
+              '</td><td>' + esc(x.r.m === 'Pick' ? 'Pick (from stock)' : x.r.m) + ' &rsaquo; ' + esc(x.r.p) + '</td><td>' + esc(x.r.by || '') + '</td></tr>';
+      if (x.c) lines.push(x.c);
+    });
+    body += '</tbody></table>';
+  } else {
+    body += '<table><thead><tr><th>SKU</th><th>Item</th><th>Machine &rsaquo; piece type</th><th class="n">Pcs</th><th class="n">Containers</th><th>Order</th><th>' + esc(stepName) + '</th></tr></thead><tbody>';
+    rows.forEach(function(r) {
+      var n = (r.it.cn || []).length;
+      containers += n;
+      body += '<tr><td class="mono">' + esc(r.it.i) + '</td><td>' + esc(r.it.n || '') + '</td><td>' + esc(r.m === 'Pick' ? 'Pick (from stock)' : r.m) + ' &rsaquo; ' + esc(r.p) +
+              '</td><td class="n">' + (r.it.q || 0).toLocaleString() + (r.part ? ' <span class="muted">(' + r.part.toLocaleString() + ' done)</span>' : '') + '</td><td class="n">' + (n || '&mdash;') + '</td><td class="mono">' + esc((r.it.o || []).join(', ')) + '</td><td>' + esc(r.by || '') + '</td></tr>';
+      lines.push(r.it.i + '\t' + (r.it.n || '') + '\t' + (r.it.q || 0));
+    });
+    body += '</tbody></table>';
+  }
+
+  var note = which === 'done' && partial.length
+    ? '<p class="muted">' + partial.length + ' more SKU' + (partial.length !== 1 ? 's are' : ' is') + ' partly ' + esc(stepName.toLowerCase()) + ' and not listed (we can only list containers once a whole SKU is done).</p>' : '';
+  var html = '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(title) + '</title><style>' +
+    'body{font-family:Segoe UI,Arial,sans-serif;color:#222;margin:24px;font-size:12px}' +
+    'h1{font-size:20px;margin:0 0 4px}.sub{color:#555;margin-bottom:12px}' +
+    '.bar{margin:0 0 14px;display:flex;gap:8px}.bar button{padding:7px 14px;font-size:13px;cursor:pointer;border:1px solid #888;border-radius:6px;background:#f4f4f4}' +
+    'table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:4px 6px;text-align:left;vertical-align:top}th{background:#eef3ee;font-size:11px;text-transform:uppercase}' +
+    'tr:nth-child(even) td{background:#fafafa}.n{text-align:right}.mono{font-family:Consolas,monospace}.muted{color:#777}' +
+    '@media print{.bar{display:none}body{margin:10mm}thead{display:table-header-group}tr{page-break-inside:avoid}}' +
+    '</style></head><body>' +
+    '<div class="bar"><button onclick="window.print()">&#128424; Print / Save as PDF</button><button id="cp">&#128203; Copy ' + (by === 'container' ? 'container numbers' : 'SKU list') + '</button></div>' +
+    '<h1>' + esc(title) + '</h1>' +
+    '<div class="sub">Orders: ' + esc(Object.keys(b.orders || {}).sort().join(', ')) + ' &middot; ' +
+    rows.length + ' SKU' + (rows.length !== 1 ? 's' : '') + ' &middot; ' + containers.toLocaleString() + ' container' + (containers !== 1 ? 's' : '') + ' &middot; ' + pcs.toLocaleString() + ' pcs' +
+    ' &middot; printed ' + esc(new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })) + (_ppUserNameQuiet() ? ' by ' + esc(_ppUserNameQuiet()) : '') + '</div>' +
+    note + (rows.length ? body : '<p>Nothing matches.</p>') +
+    '<script>document.getElementById("cp").onclick=function(){var t=' + JSON.stringify(lines.join('\n')).replace(/</g, '\\u003c') + ';' +
+    'navigator.clipboard.writeText(t).then(function(){document.getElementById("cp").textContent="\u2713 Copied"},function(){prompt("Copy:",t)})};<\/script>' +
+    '</body></html>';
+  var w = window.open('', '_blank');
+  if (!w) { alert('Your browser blocked the report window. Allow pop-ups for this site and try again.'); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+}
+function _ppUserNameQuiet() { try { return localStorage.getItem('ppUserName') || ''; } catch (e) { return ''; } }
 
 function startReportApp() {
   document.getElementById('report-login-btn').addEventListener('click', doLogin);
