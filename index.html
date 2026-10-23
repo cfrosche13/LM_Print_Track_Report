@@ -12174,7 +12174,7 @@ function _fbaSkuRowHtml(batchKey, m, p, it, ctx) {
            '<input type="checkbox"' + (on ? ' checked' : '') + ' onclick="event.preventDefault();fbaToggleMark(\'' + _jsEsc(batchKey) + '\',\'' + _jsEsc(smKey) + '\',' + i + ',\'' + _jsEsc(n) + '\',' + (it.q || 0) + ')">' +
            cell + '</label>';
     // Printed / Picked: type how many are done  [ ___ ] / 16
-    if (i === 1 && !upper && !it.packOnly) {
+    if (i === 1 && !upper) {
       var typed = smAny ? (smAny.n != null ? Math.min(smAny.n, it.q || 0) : (it.q || 0)) : null;
       cell = '<div style="display:flex;align-items:center;gap:4px;white-space:nowrap">' +
              '<input type="checkbox" title="' + tip + '"' + (on ? ' checked' : '') + ' style="cursor:pointer" onclick="event.preventDefault();fbaToggleMark(\'' + _jsEsc(batchKey) + '\',\'' + _jsEsc(smKey) + '\',' + i + ',\'' + _jsEsc(n) + '\',' + (it.q || 0) + ')">' +
