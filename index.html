@@ -11709,6 +11709,11 @@ var _fbaLiveStarted = false;
 var _fbaFlagShips = {};     // { batchKey: { itemKey: [{o, po, q, oq, dt, to, sh, cf}] } }
 var _fbaFlagShipsAt = null;
 var _fbaShipments = {};     // { batchKey: { itemKey: {list, by, at} } }
+// Palletized in portions (owner, 2026-10-23): each time part of a SKU is
+// palletized it's saved as its own portion, preProduction/fba/pallets/{batch}/
+// {itemKey}/{id} = {n, by, at, sh: {by, at} | null}, shown as rows under the
+// SKU, and each portion is ticked Shipped on its own so the split stays visible.
+var _fbaPallets = {};
 
 function _fbaStartLiveSync() {
   if (_fbaLiveStarted) return;
@@ -11745,6 +11750,10 @@ function _fbaStartLiveSync() {
     _fbaFlagShipsAt = v.updatedAt || null;
     rerenderIfOpen();
   }, onErr('preProduction/fba/flagShips'));
+  firebase.database().ref('preProduction/fba/pallets').on('value', function(snap) {
+    _fbaPallets = snap.val() || {};
+    rerenderIfOpen();
+  }, onErr('preProduction/fba/pallets'));
   firebase.database().ref('preProduction/fba/shipments').on('value', function(snap) {
     _fbaShipments = snap.val() || {};
     rerenderIfOpen();
@@ -11796,6 +11805,11 @@ function _fbaItemSteps(batchKey, it) {
   for (var j = 0; j < st.length; j++) {
     var mk = _fbaSkuMarkAny(batchKey, it, j);
     if (mk) st[j] = mk.n != null ? Math.min(q, mk.n) : q;   // a typed count replaces Tempo's number
+  }
+  var pt = _fbaPalletTotals(batchKey, it);
+  if (pt.count) {
+    if (!_fbaSkuMark(batchKey, it, 3)) st[3] = pt.pal;      // the portions are the palletized count
+    if (pt.shp > st[4]) st[4] = pt.shp;
   }
   for (var i = st.length - 2; i >= 0; i--) if (st[i + 1] > st[i]) st[i] = st[i + 1];  // a later step implies the earlier ones
   return st.map(function(v) { return Math.min(q, v || 0); });
@@ -11927,6 +11941,8 @@ function _fbaHandMarkFrom(batchKey, key, step) {
 }
 function _fbaSkuHandDone(batchKey, gk, it, step) {
   if (_fbaHandMarkFrom(batchKey, '_batch', step) || _fbaHandMarkFrom(batchKey, gk, step)) return true;
+  var pt = _fbaPalletTotals(batchKey, it), q = it.q || 0;
+  if (q > 0 && ((step <= 3 && pt.pal >= q) || (step <= 4 && pt.shp >= q))) return true;
   for (var j = step; j < FBA_STEPS.length; j++) if (_fbaSkuMark(batchKey, it, j)) return true;
   return false;
 }
@@ -12192,10 +12208,12 @@ function _fbaSkuRowHtml(batchKey, m, p, it, ctx) {
               (sp.pq ? 'printed ' + Math.min(sp.pd, sp.pq).toLocaleString() + '/' + sp.pq.toLocaleString() + ' &middot; ' : '') +
               'picked ' + Math.min(sp.kd, sp.kq).toLocaleString() + '/' + sp.kq.toLocaleString() + '</div>';
     }
+    if (i === 3 && !upper) cell = _fbaPalletCellHtml(batchKey, it, d, on, tip, smKey, n);
     if (i === 4 && !it.packOnly) cell += _fbaShipSummaryHtml(batchKey, it);
     h += '<td style="font-size:10px">' + cell + '</td>';
   });
   h += '</tr>';
+  h += _fbaPalletRowsHtml(batchKey, it);
   return h;
 }
 
@@ -12423,17 +12441,18 @@ function fbaPrintReport() {
     var tot = { q: 0, d: 0, s: 0, a: 0 };
     rows.sort(function(a, b) { return String(a.it.i).localeCompare(String(b.it.i)); });
     body += '<table><thead><tr><th>#</th><th>SKU</th><th>Item</th><th class="n">' + (which === 'done' ? esc(stepName) : 'Not ' + esc(stepName.toLowerCase()) + ' yet') + '</th>' +
-            (showShip ? '<th class="n">Already shipped</th><th class="n">Ready to ship</th>' : '') + '<th class="n">SKU total</th></tr></thead><tbody>';
+            (showShip ? '<th class="n">Already shipped</th><th class="n">Ready to ship</th>' : '') + '<th class="n">SKU total</th>' + (step === 3 ? '<th>Pallet portions</th>' : '') + '</tr></thead><tbody>';
     rows.forEach(function(r, i) {
       var q = r.it.q || 0, d = which === 'done' ? r.pcsDone : q - r.pcsDone, sh = Math.min(r.pcsShipped, r.pcsDone), a = Math.max(0, r.pcsDone - sh);
       tot.q += q; tot.d += d; tot.s += sh; tot.a += a;
       body += '<tr><td class="n">' + (i + 1) + '</td><td class="mono">' + esc(r.it.i) + '</td><td>' + esc(r.it.n || '') + '</td><td class="n"><b>' + d.toLocaleString() + '</b></td>' +
               (showShip ? '<td class="n">' + sh.toLocaleString() + '</td><td class="n"><b>' + a.toLocaleString() + '</b></td>' : '') +
-              '<td class="n muted">' + q.toLocaleString() + '</td></tr>';
+              '<td class="n muted">' + q.toLocaleString() + '</td>' +
+              (step === 3 ? '<td>' + _fbaPalletTotals(batchKey, r.it).list.map(function(x, k) { return '#' + (k + 1) + ': ' + x.n + ' (' + esc(_ppStamp(x.at)) + (x.sh ? ', shipped' : '') + ')'; }).join('<br>') + '</td>' : '') + '</tr>';
       lines.push(r.it.i + '\t' + (showShip ? a : d));
     });
     body += '</tbody><tfoot><tr><th></th><th>Total</th><th>' + rows.length + ' SKUs</th><th class="n">' + tot.d.toLocaleString() + '</th>' +
-            (showShip ? '<th class="n">' + tot.s.toLocaleString() + '</th><th class="n">' + tot.a.toLocaleString() + '</th>' : '') + '<th class="n">' + tot.q.toLocaleString() + '</th></tr></tfoot></table>';
+            (showShip ? '<th class="n">' + tot.s.toLocaleString() + '</th><th class="n">' + tot.a.toLocaleString() + '</th>' : '') + '<th class="n">' + tot.q.toLocaleString() + '</th>' + (step === 3 ? '<th></th>' : '') + '</tr></tfoot></table>';
     containers = -1;
   } else if (by === 'container') {
     var list = [];
@@ -12678,6 +12697,107 @@ function fbaOpenPj(batchKey, itemId) {
   h += '</div>';
   el.innerHTML = h;
   document.body.appendChild(el);
+}
+
+// ── Palletized in portions ──
+function _fbaPortions(batchKey, it) {
+  var o = (_fbaPallets[batchKey] || {})[_fbaItemKey(it.i)] || {};
+  return Object.keys(o).map(function(id) { var x = o[id] || {}; return { id: id, n: parseInt(x.n, 10) || 0, by: x.by, at: x.at, sh: x.sh || null }; })
+    .filter(function(x) { return x.n > 0; })
+    .sort(function(a, b) { return String(a.at || '').localeCompare(String(b.at || '')); });
+}
+function _fbaPalletTotals(batchKey, it) {
+  var pp = _fbaPortions(batchKey, it), pal = 0, shp = 0;
+  pp.forEach(function(x) { pal += x.n; if (x.sh) shp += x.n; });
+  return { count: pp.length, pal: pal, shp: shp, list: pp };
+}
+function _fbaPalletCellHtml(batchKey, it, d, on, tip, smKey, stepName) {
+  var q = it.q || 0, pt = _fbaPalletTotals(batchKey, it), rem = Math.max(0, q - pt.pal);
+  var full = _fbaSkuMark(batchKey, it, 3);
+  var click = pt.count
+    ? 'fbaAddPallet(\'' + _jsEsc(batchKey) + '\',\'' + _jsEsc(it.i) + '\',' + rem + ',' + q + ')'
+    : 'fbaToggleMark(\'' + _jsEsc(batchKey) + '\',\'' + _jsEsc(smKey) + '\',3,\'' + _jsEsc(stepName) + '\',' + q + ')';
+  var h = '<div style="display:flex;align-items:center;gap:4px;white-space:nowrap">' +
+          '<input type="checkbox" title="' + (pt.count ? (rem ? 'Tick to palletize the last ' + rem + ' pcs' : 'All palletized') : tip) + '"' + (on ? ' checked' : '') +
+          ' style="cursor:pointer" onclick="event.preventDefault();' + click + '">';
+  if (pt.count) {
+    h += '<span style="font-weight:700;color:' + _fbaPctColor(q ? d * 100 / q : 0) + '">' + d.toLocaleString() + ' / ' + q.toLocaleString() + '</span></div>' +
+         '<div style="font-size:9px;color:var(--muted);margin-top:1px">' + pt.count + ' portion' + (pt.count !== 1 ? 's' : '') + ' below' + (full ? ' &middot; ticked all' : '') + '</div>';
+  } else if (full) {
+    h += '<b style="color:var(--green-dark)">' + escapeHtml(stepName) + '</b></div>' +
+         '<div style="font-size:9px;color:var(--muted);margin-top:1px">&#9998; ' + escapeHtml(full.by || '') + ' ' + escapeHtml(_ppStamp(full.at)) + '</div>';
+  } else {
+    h += '<input type="number" min="1" max="' + q + '" placeholder="' + d + '"' +
+         ' title="Type how many you palletized &mdash; a part saves as its own portion and you can add more later"' +
+         ' onkeydown="if(event.key===\'Enter\')this.blur()"' +
+         ' onchange="fbaAddPallet(\'' + _jsEsc(batchKey) + '\',\'' + _jsEsc(it.i) + '\',this.value,' + q + ')"' +
+         ' style="width:48px;padding:1px 4px;font-family:inherit;font-size:11px;font-weight:700;border:1px solid var(--border);border-radius:4px">' +
+         '<span style="color:var(--muted)">/ ' + q.toLocaleString() + '</span></div>' +
+         '<div style="font-size:9px;color:var(--muted);margin-top:1px">Tempo ' + d.toLocaleString() + '</div>';
+  }
+  return h;
+}
+// One row per portion under the SKU, then a "still to palletize" row.
+function _fbaPalletRowsHtml(batchKey, it) {
+  var pt = _fbaPalletTotals(batchKey, it);
+  if (!pt.count) return '';
+  var q = it.q || 0, rem = Math.max(0, q - pt.pal), ik = _fbaItemKey(it.i), h = '';
+  var bk = _jsEsc(batchKey), ikj = _jsEsc(ik);
+  pt.list.forEach(function(x, k) {
+    h += '<tr style="background:var(--white)">' +
+         '<td style="padding-left:44px;font-size:11px">&#8627; <b>Pallet portion ' + (k + 1) + '</b> <span style="color:var(--muted)">&middot; palletized by ' + escapeHtml(x.by || '') + ' ' + escapeHtml(_ppStamp(x.at)) + '</span>' +
+         ' <a href="#" title="Remove this portion" onclick="event.preventDefault();fbaDelPallet(\'' + bk + '\',\'' + ikj + '\',\'' + _jsEsc(x.id) + '\',' + x.n + ')" style="color:var(--red);text-decoration:none;margin-left:4px">&#10005;</a></td>' +
+         '<td style="text-align:right;font-size:11px;font-weight:700">' + x.n.toLocaleString() + '</td>' +
+         '<td></td><td></td><td></td>' +
+         '<td style="font-size:10px;color:var(--green-dark);font-weight:700">&#10003; ' + x.n.toLocaleString() + ' palletized</td>' +
+         '<td style="font-size:10px"><label style="display:flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap" title="' + (x.sh ? 'Shipped &mdash; ' + escapeHtml(x.sh.by || '') + ' ' + escapeHtml(_ppStamp(x.sh.at)) + ' (click to clear)' : 'Tick when this portion ships') + '">' +
+         '<input type="checkbox"' + (x.sh ? ' checked' : '') + ' onclick="event.preventDefault();fbaPalletShip(\'' + bk + '\',\'' + ikj + '\',\'' + _jsEsc(x.id) + '\')">' +
+         (x.sh ? '<b style="color:var(--green-dark)">Shipped</b> <span style="color:var(--muted)">' + escapeHtml(x.sh.by || '') + ' ' + escapeHtml(_ppStamp(x.sh.at)) + '</span>' : '<span style="color:var(--muted)">Not shipped</span>') +
+         '</label></td></tr>';
+  });
+  if (rem > 0) {
+    h += '<tr style="background:var(--white)">' +
+         '<td style="padding-left:44px;font-size:11px;color:var(--amber)">&#8627; <b>Still to palletize</b></td>' +
+         '<td style="text-align:right;font-size:11px;font-weight:700;color:var(--amber)">' + rem.toLocaleString() + '</td>' +
+         '<td></td><td></td><td></td>' +
+         '<td style="font-size:10px"><div style="display:flex;align-items:center;gap:4px;white-space:nowrap">' +
+         '<input type="number" min="1" max="' + rem + '" value="' + rem + '" id="fba-pal-' + escapeHtml(batchKey + '-' + ik) + '"' +
+         ' onkeydown="if(event.key===\'Enter\'){event.preventDefault();fbaAddPallet(\'' + bk + '\',\'' + _jsEsc(it.i) + '\',this.value,' + q + ');}"' +
+         ' style="width:48px;padding:1px 4px;font-family:inherit;font-size:11px;font-weight:700;border:1px solid var(--border);border-radius:4px">' +
+         '<button class="qbtn" style="padding:2px 8px;font-size:11px" onclick="fbaAddPallet(\'' + bk + '\',\'' + _jsEsc(it.i) + '\',document.getElementById(\'fba-pal-' + _jsEsc(batchKey + '-' + ik) + '\').value,' + q + ')">Confirm</button></div></td>' +
+         '<td></td></tr>';
+  }
+  return h;
+}
+function fbaAddPallet(batchKey, itemId, value, q) {
+  var n = parseInt(value, 10);
+  if (isNaN(n) || n <= 0) { renderFba(); return; }
+  var it = { i: itemId, q: q }, pt = _fbaPalletTotals(batchKey, it), rem = q - pt.pal;
+  if (rem <= 0) { alert(itemId + ' is already all palletized (' + pt.pal + ' / ' + q + '). Remove a portion first to change it.'); renderFba(); return; }
+  if (n > rem && !confirm('Only ' + rem + ' of ' + itemId + ' are left to palletize. Save ' + rem + '?')) { renderFba(); return; }
+  n = Math.min(n, rem);
+  var by = _ppUserName();
+  if (!by) { renderFba(); return; }
+  _mafWithTimeout(firebase.database().ref('preProduction/fba/pallets/' + batchKey + '/' + _fbaItemKey(itemId)).push({ n: n, by: by, at: new Date().toISOString(), sh: null }), 10000)
+    .catch(function(err) { alert('Could not save: ' + (err && err.message ? err.message : err)); renderFba(); });
+}
+function fbaPalletShip(batchKey, itemKey, id) {
+  var x = (((_fbaPallets[batchKey] || {})[itemKey] || {})[id]) || {};
+  var val = null;
+  if (x.sh) {
+    if (!confirm('Clear "Shipped" on this pallet portion (marked by ' + (x.sh.by || 'someone') + ')?')) return;
+  } else {
+    var by = _ppUserName();
+    if (!by) return;
+    val = { by: by, at: new Date().toISOString() };
+  }
+  _mafWithTimeout(firebase.database().ref('preProduction/fba/pallets/' + batchKey + '/' + itemKey + '/' + id + '/sh').set(val), 10000)
+    .catch(function(err) { alert('Could not save: ' + (err && err.message ? err.message : err)); });
+}
+function fbaDelPallet(batchKey, itemKey, id, n) {
+  if (!confirm('Remove this pallet portion (' + n + ' pcs)?')) return;
+  _mafWithTimeout(firebase.database().ref('preProduction/fba/pallets/' + batchKey + '/' + itemKey + '/' + id).set(null), 10000)
+    .catch(function(err) { alert('Could not save: ' + (err && err.message ? err.message : err)); });
 }
 
 function startReportApp() {
