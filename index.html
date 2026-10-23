@@ -12366,7 +12366,7 @@ function fbaToggleReport() {
   h += '<label style="font-size:12px;color:var(--muted)">Show<br><select id="fba-rpt-which" style="' + sel + '">' +
        '<option value="done">100% done</option><option value="open">Not done yet</option></select></label>';
   h += '<label style="font-size:12px;color:var(--muted)">List by<br><select id="fba-rpt-by" style="' + sel + '">' +
-       '<option value="container">Container</option><option value="sku">SKU</option></select></label>';
+       '<option value="container">Container</option><option value="sku">SKU</option><option value="totals">SKU totals (just counts)</option></select></label>';
   h += '<button class="qbtn" onclick="fbaPrintReport()" style="font-weight:700">Open report &rarr;</button>';
   h += '<button class="qbtn" onclick="fbaToggleReport()">Close</button>';
   h += '</div>';
@@ -12389,6 +12389,7 @@ function _fbaReportRows(batchKey, step) {
         var mark = sm || gm || bm;
         var done = !!mark || (q > 0 && st[step] >= q);
         out.push({ m: m, p: p, it: it, done: done, part: !done && st[step] > 0 ? st[step] : 0,
+                   pcsDone: done ? q : Math.min(q, st[step] || 0), pcsShipped: _fbaMark(batchKey, '_batch', 4) || _fbaMark(batchKey, gk, 4) || _fbaSkuMark(batchKey, it, 4) ? q : Math.min(q, st[4] || 0),
                    by: mark ? (mark.by || '') + ' ' + _ppStamp(mark.at) : done ? 'Tempo' : '' });
       });
     });
@@ -12403,15 +12404,38 @@ function fbaPrintReport() {
   var by = document.getElementById('fba-rpt-by').value;
   var b = _fbaData.batches[batchKey];
   var all = _fbaReportRows(batchKey, step);
-  var rows = all.filter(function(r) { return which === 'done' ? r.done : !r.done; });
+  var rows = by === 'totals'
+    ? all.filter(function(r) { return which === 'done' ? r.pcsDone > 0 : r.pcsDone < (r.it.q || 0); })
+    : all.filter(function(r) { return which === 'done' ? r.done : !r.done; });
   var partial = all.filter(function(r) { return r.part; });
   var stepName = FBA_STEPS[step];
   var title = 'FBA ' + stepName + ' \u2014 ' + (which === 'done' ? 'done' : 'not done yet') + ' \u2014 batch ' + _fbaDateLabel(batchKey);
   var esc = escapeHtml;
-  var pcs = rows.reduce(function(n, r) { return n + (r.it.q || 0); }, 0);
+  var pcs = by === 'totals'
+    ? rows.reduce(function(n, r) { return n + (which === 'done' ? r.pcsDone : (r.it.q || 0) - r.pcsDone); }, 0)
+    : rows.reduce(function(n, r) { return n + (r.it.q || 0); }, 0);
   var lines = [], containers = 0, body = '';
 
-  if (by === 'container') {
+  if (by === 'totals') {
+    // One line per SKU with just the count (owner, 2026-10-23): e.g. Palletized
+    // -> how many of each SKU are ready to ship. Partly-done SKUs count too.
+    var showShip = which === 'done' && step < 4;
+    var tot = { q: 0, d: 0, s: 0, a: 0 };
+    rows.sort(function(a, b) { return String(a.it.i).localeCompare(String(b.it.i)); });
+    body += '<table><thead><tr><th>#</th><th>SKU</th><th>Item</th><th class="n">' + (which === 'done' ? esc(stepName) : 'Not ' + esc(stepName.toLowerCase()) + ' yet') + '</th>' +
+            (showShip ? '<th class="n">Already shipped</th><th class="n">Ready to ship</th>' : '') + '<th class="n">SKU total</th></tr></thead><tbody>';
+    rows.forEach(function(r, i) {
+      var q = r.it.q || 0, d = which === 'done' ? r.pcsDone : q - r.pcsDone, sh = Math.min(r.pcsShipped, r.pcsDone), a = Math.max(0, r.pcsDone - sh);
+      tot.q += q; tot.d += d; tot.s += sh; tot.a += a;
+      body += '<tr><td class="n">' + (i + 1) + '</td><td class="mono">' + esc(r.it.i) + '</td><td>' + esc(r.it.n || '') + '</td><td class="n"><b>' + d.toLocaleString() + '</b></td>' +
+              (showShip ? '<td class="n">' + sh.toLocaleString() + '</td><td class="n"><b>' + a.toLocaleString() + '</b></td>' : '') +
+              '<td class="n muted">' + q.toLocaleString() + '</td></tr>';
+      lines.push(r.it.i + '\t' + (showShip ? a : d));
+    });
+    body += '</tbody><tfoot><tr><th></th><th>Total</th><th>' + rows.length + ' SKUs</th><th class="n">' + tot.d.toLocaleString() + '</th>' +
+            (showShip ? '<th class="n">' + tot.s.toLocaleString() + '</th><th class="n">' + tot.a.toLocaleString() + '</th>' : '') + '<th class="n">' + tot.q.toLocaleString() + '</th></tr></tfoot></table>';
+    containers = -1;
+  } else if (by === 'container') {
     var list = [];
     rows.forEach(function(r) {
       var cn = r.it.cn || [], co = r.it.co || [];
@@ -12439,20 +12463,20 @@ function fbaPrintReport() {
     body += '</tbody></table>';
   }
 
-  var note = which === 'done' && partial.length
+  var note = which === 'done' && partial.length && by !== 'totals'
     ? '<p class="muted">' + partial.length + ' more SKU' + (partial.length !== 1 ? 's are' : ' is') + ' partly ' + esc(stepName.toLowerCase()) + ' and not listed (we can only list containers once a whole SKU is done).</p>' : '';
   var html = '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(title) + '</title><style>' +
     'body{font-family:Segoe UI,Arial,sans-serif;color:#222;margin:24px;font-size:12px}' +
     'h1{font-size:20px;margin:0 0 4px}.sub{color:#555;margin-bottom:12px}' +
     '.bar{margin:0 0 14px;display:flex;gap:8px}.bar button{padding:7px 14px;font-size:13px;cursor:pointer;border:1px solid #888;border-radius:6px;background:#f4f4f4}' +
     'table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:4px 6px;text-align:left;vertical-align:top}th{background:#eef3ee;font-size:11px;text-transform:uppercase}' +
-    'tr:nth-child(even) td{background:#fafafa}.n{text-align:right}.mono{font-family:Consolas,monospace}.muted{color:#777}' +
+    'tfoot th{background:#e4ebe4;font-size:12px;text-transform:none}tr:nth-child(even) td{background:#fafafa}.n{text-align:right}.mono{font-family:Consolas,monospace}.muted{color:#777}' +
     '@media print{.bar{display:none}body{margin:10mm}thead{display:table-header-group}tr{page-break-inside:avoid}}' +
     '</style></head><body>' +
-    '<div class="bar"><button onclick="window.print()">&#128424; Print / Save as PDF</button><button id="cp">&#128203; Copy ' + (by === 'container' ? 'container numbers' : 'SKU list') + '</button></div>' +
+    '<div class="bar"><button onclick="window.print()">&#128424; Print / Save as PDF</button><button id="cp">&#128203; Copy ' + (by === 'container' ? 'container numbers' : by === 'totals' ? 'SKU + qty' : 'SKU list') + '</button></div>' +
     '<h1>' + esc(title) + '</h1>' +
     '<div class="sub">Orders: ' + esc(Object.keys(b.orders || {}).sort().join(', ')) + ' &middot; ' +
-    rows.length + ' SKU' + (rows.length !== 1 ? 's' : '') + ' &middot; ' + containers.toLocaleString() + ' container' + (containers !== 1 ? 's' : '') + ' &middot; ' + pcs.toLocaleString() + ' pcs' +
+    rows.length + ' SKU' + (rows.length !== 1 ? 's' : '') + (containers >= 0 ? ' &middot; ' + containers.toLocaleString() + ' container' + (containers !== 1 ? 's' : '') : '') + ' &middot; ' + pcs.toLocaleString() + ' pcs' +
     ' &middot; printed ' + esc(new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })) + (_ppUserNameQuiet() ? ' by ' + esc(_ppUserNameQuiet()) : '') + '</div>' +
     note + (rows.length ? body : '<p>Nothing matches.</p>') +
     '<script>document.getElementById("cp").onclick=function(){var t=' + JSON.stringify(lines.join('\n')).replace(/</g, '\\u003c') + ';' +
