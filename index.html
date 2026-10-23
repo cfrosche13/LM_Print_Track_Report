@@ -12152,7 +12152,7 @@ function _fbaSkuRowHtml(batchKey, m, p, it, ctx) {
        '<a href="#" onclick="event.preventDefault();fbaOpenShip(\'' + _jsEsc(batchKey) + '\',\'' + _jsEsc(it.i) + '\',' + (it.q || 0) + ',\'' + _jsEsc(it.n || '') + '\')" title="Shipping detail: which ship orders these go out on" style="color:inherit;text-decoration:none">' +
        '<span style="font-family:monospace;color:var(--blue);text-decoration:underline">' + escapeHtml(it.i) + '</span> ' + escapeHtml(it.n || '') + '</a>' +
        (info.length ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + info.join(' &middot; ') + '</div>' : '') +
-       _fbaPjHtml(it.pj, true) + (ctx || '') + '</td>';
+       _fbaPjLinkHtml(batchKey, it) + (ctx || '') + '</td>';
   h += '<td style="text-align:right;font-size:11px">' + (it.q || 0).toLocaleString() + '</td>';
   FBA_STEPS.forEach(function(n, i) {
     var smKey = _fbaSkuMarkKeyAt(batchKey, it, i);
@@ -12632,6 +12632,52 @@ function fbaShipClear() {
   _mafWithTimeout(firebase.database().ref('preProduction/fba/shipments/' + S.batchKey + '/' + _fbaItemKey(S.itemId)).set(null), 10000)
     .then(function() { fbaCloseShip(); })
     .catch(function(err) { alert('Could not save: ' + (err && err.message ? err.message : err)); });
+}
+
+// ── Associated PJs: a link on the SKU row that pops up the detail (owner, 2026-10-23) ──
+function _fbaPjLinkHtml(batchKey, it) {
+  var n = Object.keys(it.pj || {}).length;
+  if (!n) return '';
+  return '<div style="margin-top:2px"><a href="#" onclick="event.preventDefault();fbaOpenPj(\'' + _jsEsc(batchKey) + '\',\'' + _jsEsc(it.i) + '\')"' +
+         ' style="font-size:10px;color:var(--blue);text-decoration:underline">Associated PJs (' + n + ')</a></div>';
+}
+function _fbaFindItem(batchKey, itemId) {
+  var b = ((_fbaData && _fbaData.batches) || {})[batchKey], hit = null;
+  if (!b) return null;
+  var g = _fbaGroups(b);
+  Object.keys(g).forEach(function(m) { Object.keys(g[m]).forEach(function(p) { g[m][p].items.forEach(function(it) { if (!hit && it.i === itemId) hit = { m: m, p: p, it: it }; }); }); });
+  return hit;
+}
+function fbaClosePj() { var el = document.getElementById('fba-pj-modal'); if (el) el.remove(); }
+function fbaOpenPj(batchKey, itemId) {
+  var hit = _fbaFindItem(batchKey, itemId);
+  if (!hit) return;
+  var it = hit.it, sp = it.sp || {}, pj = it.pj || {};
+  var codes = Object.keys(pj).sort(function(a, b) { return (pj[b] || 0) - (pj[a] || 0) || a.localeCompare(b); });
+  var onPj = codes.reduce(function(n, c) { return n + (pj[c] || 0); }, 0);
+  fbaClosePj();
+  var el = document.createElement('div');
+  el.id = 'fba-pj-modal';
+  el.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto';
+  el.onclick = function(e) { if (e.target === el) fbaClosePj(); };
+  var h = '<div style="background:var(--white);border-radius:var(--radius);max-width:520px;width:100%;padding:18px 20px;box-shadow:0 10px 40px rgba(0,0,0,0.3)">';
+  h += '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">' +
+       '<div><div style="font-family:\'Lora\',serif;font-size:18px;font-weight:700;color:var(--text)">Associated PJs</div>' +
+       '<div style="font-size:13px;margin-top:2px"><b style="font-family:monospace">' + escapeHtml(it.i) + '</b> ' + escapeHtml(it.n || '') + '</div>' +
+       '<div style="font-size:12px;color:var(--muted);margin-top:2px">Batch ' + escapeHtml(_fbaDateLabel(batchKey)) + ' &middot; ' + escapeHtml(hit.m) + ' &rsaquo; ' + escapeHtml(hit.p) + ' &middot; ' + (it.q || 0).toLocaleString() + ' pcs</div></div>' +
+       '<button class="qbtn" onclick="fbaClosePj()">&#10005;</button></div>';
+  h += '<div class="table-wrap" style="margin-top:14px"><table class="settings-table" style="font-size:13px"><thead><tr><th>Print job</th><th style="text-align:right">Pcs</th></tr></thead><tbody>';
+  codes.forEach(function(c) { h += '<tr><td style="font-family:monospace;font-weight:700">' + escapeHtml(c) + '</td><td style="text-align:right">' + (pj[c] || 0).toLocaleString() + '</td></tr>'; });
+  h += '</tbody><tfoot><tr><th>Total on PJs</th><th style="text-align:right">' + onPj.toLocaleString() + '</th></tr></tfoot></table></div>';
+  var notes = [];
+  if (sp.kq) notes.push(sp.kq.toLocaleString() + ' pcs are picked from stock (no PJ needed)');
+  if (sp.fp) notes.push('<span style="color:var(--red)">' + sp.fp.toLocaleString() + ' pcs flagged in Tempo with no PJ</span>');
+  if (sp.fk) notes.push('<span style="color:var(--red)">' + sp.fk.toLocaleString() + ' pcs flagged on the pick (not found in stock &mdash; may need printing)</span>');
+  h += '<div style="font-size:12px;color:var(--muted);margin-top:10px;line-height:1.5">' + (notes.length ? notes.join('<br>') + '<br>' : '') +
+       'From Tempo, refreshed every hour.</div>';
+  h += '</div>';
+  el.innerHTML = h;
+  document.body.appendChild(el);
 }
 
 function startReportApp() {
