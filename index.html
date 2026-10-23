@@ -11700,6 +11700,15 @@ var _fbaView = 'active';
 var _fbaOpen = {};          // { batchKey: true } expanded batches
 var _fbaOpenGroup = {};     // { batchKey|groupKey: true } expanded item lists
 var _fbaLiveStarted = false;
+// Ship orders (owner, 2026-10-23): after production, the FBA SKUs go out on
+// new FLAG "Drop Ship" orders (one per Amazon warehouse), and one SKU can be
+// split across several. FLAG has no link back to the production order, so
+// fba_ship_sync.py matches them by SKU (preProduction/fba/flagShips) and the
+// team can type their own list per SKU (preProduction/fba/shipments/{batch}/
+// {itemKey} = {list:[{o,q}], by, at}), which replaces FLAG's for that SKU.
+var _fbaFlagShips = {};     // { batchKey: { itemKey: [{o, po, q, oq, dt, to, sh, cf}] } }
+var _fbaFlagShipsAt = null;
+var _fbaShipments = {};     // { batchKey: { itemKey: {list, by, at} } }
 
 function _fbaStartLiveSync() {
   if (_fbaLiveStarted) return;
@@ -11730,6 +11739,17 @@ function _fbaStartLiveSync() {
     _fbaLoaded.packing = true;
     rerenderIfOpen();
   }, onErr('preProduction/fba/packing'));
+  firebase.database().ref('preProduction/fba/flagShips').on('value', function(snap) {
+    var v = snap.val() || {};
+    _fbaFlagShips = v.batches || {};
+    _fbaFlagShipsAt = v.updatedAt || null;
+    rerenderIfOpen();
+  }, onErr('preProduction/fba/flagShips'));
+  firebase.database().ref('preProduction/fba/shipments').on('value', function(snap) {
+    _fbaShipments = snap.val() || {};
+    rerenderIfOpen();
+    if (_fbaShipOpen) _fbaShipRender();
+  }, onErr('preProduction/fba/shipments'));
 }
 
 function _fbaKey(s) { return String(s || '').replace(/[.#$\[\]\/]/g, '_'); }
@@ -12128,7 +12148,9 @@ function _fbaSkuRowHtml(batchKey, m, p, it, ctx) {
   if (sp.fp) info.push('<span style="color:var(--red);font-weight:700">&#9873; ' + sp.fp.toLocaleString() + ' flagged, no PJ</span>');
   if (sp.fk) info.push('<span style="color:var(--red);font-weight:700">&#9873; ' + sp.fk.toLocaleString() + ' flagged on the pick (not found in stock &mdash; may need printing)</span>');
   if (it.packOnly) info.push('<span style="color:var(--amber)">packing list only &mdash; not in Tempo</span>');
-  h += '<tr style="background:var(--bg)"><td style="padding-left:26px;font-size:11px"><span style="font-family:monospace;color:var(--muted)">' + escapeHtml(it.i) + '</span> ' + escapeHtml(it.n || '') +
+  h += '<tr style="background:var(--bg)"><td style="padding-left:26px;font-size:11px">' +
+       '<a href="#" onclick="event.preventDefault();fbaOpenShip(\'' + _jsEsc(batchKey) + '\',\'' + _jsEsc(it.i) + '\',' + (it.q || 0) + ',\'' + _jsEsc(it.n || '') + '\')" title="Shipping detail: which ship orders these go out on" style="color:inherit;text-decoration:none">' +
+       '<span style="font-family:monospace;color:var(--blue);text-decoration:underline">' + escapeHtml(it.i) + '</span> ' + escapeHtml(it.n || '') + '</a>' +
        (info.length ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + info.join(' &middot; ') + '</div>' : '') +
        _fbaPjHtml(it.pj, true) + (ctx || '') + '</td>';
   h += '<td style="text-align:right;font-size:11px">' + (it.q || 0).toLocaleString() + '</td>';
@@ -12170,6 +12192,7 @@ function _fbaSkuRowHtml(batchKey, m, p, it, ctx) {
               (sp.pq ? 'printed ' + Math.min(sp.pd, sp.pq).toLocaleString() + '/' + sp.pq.toLocaleString() + ' &middot; ' : '') +
               'picked ' + Math.min(sp.kd, sp.kq).toLocaleString() + '/' + sp.kq.toLocaleString() + '</div>';
     }
+    if (i === 4 && !it.packOnly) cell += _fbaShipSummaryHtml(batchKey, it);
     h += '<td style="font-size:10px">' + cell + '</td>';
   });
   h += '</tr>';
@@ -12280,6 +12303,7 @@ function _fbaSearchHtml() {
         groups[m][p].items.forEach(function(it) {
           var why = [];
           if (digits && (it.cn || []).some(function(c) { return String(c) === digits; })) why.push('container ' + digits);
+          if (digits && _fbaShipList(key, it.i).list.some(function(x) { return String(x.o) === digits; })) why.push('ship order ' + digits);
           if (pjNum && Object.keys(it.pj || {}).some(function(c) { return c.replace(/\D/g, '') === pjNum; })) why.push('PJ-' + pjNum);
           if (q.length >= 3 && !digits && String(it.i || '').toUpperCase().indexOf(q) >= 0) why.push('SKU');
           if (!why.length) return;
@@ -12439,6 +12463,152 @@ function fbaPrintReport() {
   w.document.open(); w.document.write(html); w.document.close();
 }
 function _ppUserNameQuiet() { try { return localStorage.getItem('ppUserName') || ''; } catch (e) { return ''; } }
+
+// ── Ship orders per SKU ──
+// The team's list wins; otherwise FLAG's SKU match. list = [{o, q, ...}].
+function _fbaShipList(batchKey, itemId) {
+  var k = _fbaItemKey(itemId);
+  var man = (_fbaShipments[batchKey] || {})[k];
+  if (man && man.list) {
+    var l = Array.isArray(man.list) ? man.list : Object.keys(man.list).map(function(x) { return man.list[x]; });
+    return { list: l.filter(function(x) { return x && x.o; }), manual: true, by: man.by, at: man.at };
+  }
+  return { list: ((_fbaFlagShips[batchKey] || {})[k] || []).slice(), manual: false };
+}
+function _fbaShipSummaryHtml(batchKey, it) {
+  var sl = _fbaShipList(batchKey, it.i);
+  if (!sl.list.length) return '';
+  var tot = sl.list.reduce(function(n, x) { return n + (parseInt(x.q, 10) || 0); }, 0), q = it.q || 0;
+  return '<div style="font-size:10px;margin-top:3px;white-space:normal;line-height:1.35">' +
+    sl.list.map(function(x) { return '&rarr; <b style="font-family:monospace">' + escapeHtml(x.o) + '</b> &times;' + (parseInt(x.q, 10) || 0); }).join('<br>') +
+    '<div style="color:' + (tot > q ? 'var(--red)' : tot === q ? 'var(--green-dark)' : 'var(--amber)') + '">' + tot + ' / ' + q + ' on ship orders' +
+    (sl.manual ? '' : ' <span style="color:var(--muted);font-style:italic">(FLAG match)</span>') + '</div></div>';
+}
+
+var _fbaShipOpen = null;   // { batchKey, itemId, q, name, rows:[{o,q}] }
+function fbaOpenShip(batchKey, itemId, q, name) {
+  var sl = _fbaShipList(batchKey, itemId);
+  _fbaShipOpen = { batchKey: batchKey, itemId: itemId, q: q, name: name,
+                   rows: sl.manual ? sl.list.map(function(x) { return { o: String(x.o), q: String(x.q || '') }; }) : [] };
+  if (!sl.manual && sl.list.length) _fbaShipOpen.rows = sl.list.map(function(x) { return { o: String(x.o), q: String(x.q || '') }; });
+  if (!_fbaShipOpen.rows.length) _fbaShipOpen.rows.push({ o: '', q: '' });
+  _fbaShipRender();
+}
+function fbaCloseShip() {
+  _fbaShipOpen = null;
+  var el = document.getElementById('fba-ship-modal');
+  if (el) el.remove();
+}
+function _fbaShipRead() {
+  if (!_fbaShipOpen) return;
+  document.querySelectorAll('#fba-ship-modal [data-r]').forEach(function(inp) {
+    var r = _fbaShipOpen.rows[+inp.getAttribute('data-r')];
+    if (r) r[inp.getAttribute('data-f')] = inp.value.trim();
+  });
+}
+function fbaShipAddRow() { _fbaShipRead(); _fbaShipOpen.rows.push({ o: '', q: '' }); _fbaShipRender(); }
+function fbaShipDelRow(i) { _fbaShipRead(); _fbaShipOpen.rows.splice(i, 1); if (!_fbaShipOpen.rows.length) _fbaShipOpen.rows.push({ o: '', q: '' }); _fbaShipRender(); }
+function fbaShipUseFlag() {
+  var f = (_fbaFlagShips[_fbaShipOpen.batchKey] || {})[_fbaItemKey(_fbaShipOpen.itemId)] || [];
+  _fbaShipOpen.rows = f.map(function(x) { return { o: String(x.o), q: String(x.q || '') }; });
+  if (!_fbaShipOpen.rows.length) _fbaShipOpen.rows.push({ o: '', q: '' });
+  _fbaShipRender();
+}
+function _fbaShipRender() {
+  var S = _fbaShipOpen;
+  if (!S) return;
+  var el = document.getElementById('fba-ship-modal');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'fba-ship-modal';
+    el.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto';
+    el.onclick = function(e) { if (e.target === el) fbaCloseShip(); };
+    document.body.appendChild(el);
+  }
+  var k = _fbaItemKey(S.itemId), sl = _fbaShipList(S.batchKey, S.itemId);
+  var flag = (_fbaFlagShips[S.batchKey] || {})[k] || [];
+  var tot = S.rows.reduce(function(n, r) { return n + (parseInt(r.q, 10) || 0); }, 0);
+  var inp = 'padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-family:inherit;font-size:13px';
+  var h = '<div style="background:var(--white);border-radius:var(--radius);max-width:640px;width:100%;padding:18px 20px;box-shadow:0 10px 40px rgba(0,0,0,0.3)">';
+  h += '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">' +
+       '<div><div style="font-family:\'Lora\',serif;font-size:18px;font-weight:700;color:var(--text)">Shipping detail</div>' +
+       '<div style="font-size:13px;margin-top:2px"><b style="font-family:monospace">' + escapeHtml(S.itemId) + '</b> ' + escapeHtml(S.name) + '</div>' +
+       '<div style="font-size:12px;color:var(--muted);margin-top:2px">Batch ' + escapeHtml(_fbaDateLabel(S.batchKey)) + ' &middot; ' + S.q.toLocaleString() + ' pcs</div></div>' +
+       '<button class="qbtn" onclick="fbaCloseShip()">&#10005;</button></div>';
+
+  // FLAG matches
+  h += '<div style="margin-top:14px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted)">Found in FLAG (matched by SKU)</div>';
+  if (flag.length) {
+    h += '<div class="table-wrap"><table class="settings-table" style="font-size:12px;margin-top:4px"><thead><tr><th>Ship order</th><th>PO</th><th>Ship to</th><th>Ordered</th><th style="text-align:right">This batch</th><th>Status</th></tr></thead><tbody>';
+    flag.forEach(function(x) {
+      h += '<tr><td style="font-family:monospace;font-weight:700">' + escapeHtml(x.o) + '</td><td style="font-family:monospace;font-size:11px">' + escapeHtml(x.po || '') + '</td>' +
+           '<td>' + escapeHtml(x.to || '') + '</td><td>' + escapeHtml(_fbaDateLabel(x.dt)) + '</td>' +
+           '<td style="text-align:right">' + (x.q || 0) + (x.oq && x.oq !== x.q ? ' <span style="color:var(--muted)">of ' + x.oq + '</span>' : '') + '</td>' +
+           '<td>' + (x.cf ? '<span style="color:var(--green-dark);font-weight:700">Confirmed ' + escapeHtml(_fbaDateLabel(x.cf.slice(0, 10))) + '</span>' : x.sh ? x.sh + ' shipped' : '<span style="color:var(--muted)">open</span>') + '</td></tr>';
+    });
+    h += '</tbody></table></div>';
+    h += '<div style="font-size:11px;color:var(--muted);margin-top:4px">FLAG doesn\'t link ship orders to the production order, so these are matched by SKU (newest batch first). Check them and correct below if needed.' +
+         (_fbaFlagShipsAt ? ' Updated ' + escapeHtml(_ppStamp(_fbaFlagShipsAt)) + '.' : '') + '</div>';
+  } else {
+    h += '<div style="font-size:12px;color:var(--muted);margin-top:4px">No FBA ship order in FLAG has this SKU yet.</div>';
+  }
+
+  // editable list
+  h += '<div style="margin-top:16px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted)">Ship orders for these ' + S.q.toLocaleString() + ' pcs</div>';
+  h += '<div style="font-size:11px;color:' + (sl.manual ? 'var(--green-dark)' : 'var(--amber)') + ';margin:2px 0 6px">' +
+       (sl.manual ? '&#9998; Saved by ' + escapeHtml(sl.by || '') + ' ' + escapeHtml(_ppStamp(sl.at)) : 'Not saved yet &mdash; showing FLAG\'s match. Save to confirm it.') + '</div>';
+  S.rows.forEach(function(r, i) {
+    h += '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">' +
+         '<input data-r="' + i + '" data-f="o" placeholder="Ship order ID" value="' + escapeHtml(r.o) + '" inputmode="numeric" style="' + inp + ';width:160px;font-family:monospace">' +
+         '<input data-r="' + i + '" data-f="q" type="number" min="0" placeholder="Qty" value="' + escapeHtml(r.q) + '" oninput="_fbaShipTotal()" style="' + inp + ';width:90px">' +
+         '<span style="font-size:12px;color:var(--muted)">pcs</span>' +
+         '<button class="qbtn" title="Remove" onclick="fbaShipDelRow(' + i + ')">&#10005;</button></div>';
+  });
+  h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px"><button class="qbtn" onclick="fbaShipAddRow()">+ Add ship order</button>' +
+       (flag.length ? '<button class="qbtn" onclick="fbaShipUseFlag()">&#8635; Fill from FLAG</button>' : '') + '</div>';
+  h += '<div id="fba-ship-total" style="font-size:13px;font-weight:700;margin-top:10px"></div>';
+  h += '<div style="display:flex;justify-content:space-between;gap:8px;margin-top:16px;flex-wrap:wrap">' +
+       '<div>' + (sl.manual ? '<button class="qbtn" onclick="fbaShipClear()" title="Delete the saved list and go back to FLAG\'s match">Clear saved list</button>' : '') + '</div>' +
+       '<div style="display:flex;gap:8px"><button class="qbtn" onclick="fbaCloseShip()">Cancel</button>' +
+       '<button class="qbtn" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark)" onclick="fbaShipSave()">Save</button></div></div>';
+  h += '</div>';
+  el.innerHTML = h;
+  _fbaShipTotal();
+}
+function _fbaShipTotal() {
+  var S = _fbaShipOpen, el = document.getElementById('fba-ship-total');
+  if (!S || !el) return;
+  _fbaShipRead();
+  var tot = S.rows.reduce(function(n, r) { return n + (parseInt(r.q, 10) || 0); }, 0);
+  el.style.color = tot > S.q ? 'var(--red)' : tot === S.q ? 'var(--green-dark)' : 'var(--amber)';
+  el.textContent = tot + ' / ' + S.q + ' pcs on ship orders' + (tot > S.q ? ' — more than this batch has' : tot < S.q ? ' — ' + (S.q - tot) + ' not on a ship order yet' : ' — all accounted for');
+}
+function fbaShipSave() {
+  var S = _fbaShipOpen;
+  _fbaShipRead();
+  var list = [], bad = '';
+  S.rows.forEach(function(r) {
+    var o = String(r.o || '').replace(/\s+/g, ''), q = parseInt(r.q, 10);
+    if (!o && !r.q) return;
+    if (!/^\d+$/.test(o)) { bad = 'Ship order ID "' + (r.o || '') + '" should be numbers only.'; return; }
+    if (isNaN(q) || q <= 0) { bad = 'Enter how many pcs go on order ' + o + '.'; return; }
+    list.push({ o: o, q: q });
+  });
+  if (bad) { alert(bad); return; }
+  var by = _ppUserName();
+  if (!by) return;
+  var path = 'preProduction/fba/shipments/' + S.batchKey + '/' + _fbaItemKey(S.itemId);
+  _mafWithTimeout(firebase.database().ref(path).set({ list: list, by: by, at: new Date().toISOString() }), 10000)
+    .then(function() { fbaCloseShip(); })
+    .catch(function(err) { alert('Could not save: ' + (err && err.message ? err.message : err)); });
+}
+function fbaShipClear() {
+  var S = _fbaShipOpen;
+  if (!confirm('Delete the saved ship order list for ' + S.itemId + ' and go back to FLAG\'s match?')) return;
+  _mafWithTimeout(firebase.database().ref('preProduction/fba/shipments/' + S.batchKey + '/' + _fbaItemKey(S.itemId)).set(null), 10000)
+    .then(function() { fbaCloseShip(); })
+    .catch(function(err) { alert('Could not save: ' + (err && err.message ? err.message : err)); });
+}
 
 function startReportApp() {
   document.getElementById('report-login-btn').addEventListener('click', doLogin);
