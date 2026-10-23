@@ -12380,7 +12380,7 @@ function fbaToggleReport() {
   h += '<label style="font-size:12px;color:var(--muted)">Batch<br><select id="fba-rpt-batch" style="' + sel + '">' +
        keys.map(function(k) { return '<option value="' + escapeHtml(k) + '">' + escapeHtml(_fbaDateLabel(k)) + ' (' + Object.keys(batches[k].orders || {}).length + ' orders)</option>'; }).join('') + '</select></label>';
   h += '<label style="font-size:12px;color:var(--muted)">Step<br><select id="fba-rpt-step" style="' + sel + '">' +
-       FBA_STEPS.map(function(n, i) { return '<option value="' + i + '"' + (i === 4 ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></label>';
+       FBA_STEPS.map(function(n, i) { return '<option value="' + i + '"' + (i === 3 ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></label>';
   h += '<label style="font-size:12px;color:var(--muted)">Show<br><select id="fba-rpt-which" style="' + sel + '">' +
        '<option value="done">100% done</option><option value="open">Not done yet</option></select></label>';
   // Breakdown vs Consolidated toggle (owner, 2026-10-23): consolidated = one line per SKU with just the count.
