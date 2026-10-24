@@ -11977,9 +11977,10 @@ function fbaSetView(v) {
 }
 function fbaToggleBatch(key, mode) { mode = mode || 'open'; _fbaOpen[key] = _fbaOpen[key] === mode ? false : mode; renderFba(); }
 
-// Shipped vs unshipped split inside a batch (owner, 2026-10-24). A SKU's pieces
-// count as shipped once they're marked shipped (tick, pallet portion tick or
-// Tempo) AND the SKU has a ship order # (team-entered or FLAG match).
+// Shipped vs unshipped split inside a batch (owner, 2026-10-24). A SKU moves to
+// Shipped items only when ALL its pieces are marked shipped (tick, pallet
+// portion ticks or Tempo) AND it has a ship order # (team-entered or FLAG
+// match). A partly shipped SKU stays under Unshipped items with all its portions.
 function _fbaSkuShipState(batchKey, gk, it) {
   var q = it.q || 0, st = _fbaItemSteps(batchKey, it);
   var all = !!(_fbaMark(batchKey, '_batch', 4) || _fbaMark(batchKey, gk, 4) || _fbaSkuMark(batchKey, it, 4));
@@ -11987,7 +11988,7 @@ function _fbaSkuShipState(batchKey, gk, it) {
   var hasOrder = _fbaShipList(batchKey, it.i).list.length > 0;
   var counted = hasOrder ? shipped : 0;
   return { q: q, shipped: shipped, hasOrder: hasOrder, counted: counted, open: q - counted,
-           inOpen: counted < q || q === 0, inShipped: counted > 0 };
+           inOpen: counted < q || q === 0, inShipped: q > 0 && counted >= q };
 }
 function _fbaSplitCounts(batchKey, groups) {
   var c = { open: 0, shipped: 0, openPcs: 0, shippedPcs: 0 };
@@ -11996,7 +11997,7 @@ function _fbaSplitCounts(batchKey, groups) {
     groups[m][p].items.forEach(function(it) {
       var s = _fbaSkuShipState(batchKey, gk, it);
       if (s.inOpen) { c.open++; c.openPcs += s.open; }
-      if (s.inShipped) { c.shipped++; c.shippedPcs += s.counted; }
+      if (s.inShipped) { c.shipped++; c.shippedPcs += s.q; }
     });
   }); });
   return c;
@@ -12151,7 +12152,7 @@ function _fbaBatchHtml(b, groups) {
   if (open) {
     h += '<div style="margin-top:12px;font-size:12px;font-weight:700;color:' + (open === 'shipped' ? 'var(--green-dark)' : 'var(--text)') + '">' +
          (open === 'shipped' ? '&#10003; Shipped items &mdash; ' + split.shipped + ' SKUs, ' + split.shippedPcs.toLocaleString() + ' pcs on ship orders'
-                             : 'Unshipped items &mdash; ' + split.open + ' SKUs, ' + split.openPcs.toLocaleString() + ' pcs still to ship') +
+                             : 'Unshipped items &mdash; ' + split.open + ' SKUs, ' + split.openPcs.toLocaleString() + ' pcs still to ship (partly shipped SKUs stay here until the whole SKU ships)') +
          ' <span style="font-weight:400;color:var(--muted)">&middot; the piece type rows show the whole piece type</span></div>';
     h += _fbaGroupsHtml(key, groups, open);
   }
@@ -12217,8 +12218,7 @@ function _fbaSkuRowHtml(batchKey, m, p, it, ctx, mode) {
   if (it.packOnly) info.push('<span style="color:var(--amber)">packing list only &mdash; not in Tempo</span>');
   var ss = _fbaSkuShipState(batchKey, gk, it);
   if (ss.shipped > 0 && !ss.hasOrder) info.push('<span style="color:var(--amber);font-weight:700">' + ss.shipped.toLocaleString() + ' shipped &mdash; add the ship order # (click the SKU) to move ' + (ss.shipped < ss.q ? 'them' : 'it') + ' to Shipped items</span>');
-  else if (mode === 'open' && ss.counted > 0) info.push('<span style="color:var(--green-dark)">' + ss.counted.toLocaleString() + ' already shipped &mdash; listed under Shipped items</span>');
-  else if (mode === 'shipped' && ss.open > 0) info.push('<span style="color:var(--amber)">' + ss.open.toLocaleString() + ' still to ship &mdash; listed under Unshipped items</span>');
+  else if (ss.counted > 0 && ss.counted < ss.q) info.push('<span style="color:var(--green-dark)">' + ss.counted.toLocaleString() + ' of ' + ss.q.toLocaleString() + ' shipped &mdash; moves to Shipped items when all ' + ss.q.toLocaleString() + ' ship</span>');
   h += '<tr style="background:var(--bg)"><td style="padding-left:26px;font-size:11px">' +
        '<a href="#" onclick="event.preventDefault();fbaOpenShip(\'' + _jsEsc(batchKey) + '\',\'' + _jsEsc(it.i) + '\',' + (it.q || 0) + ',\'' + _jsEsc(it.n || '') + '\')" title="SKU detail: ship orders, print jobs and notes" style="color:inherit;text-decoration:none">' +
        '<span style="font-family:monospace;color:var(--blue);text-decoration:underline">' + escapeHtml(it.i) + '</span> ' + escapeHtml(it.n || '') + '</a>' +
@@ -12860,9 +12860,6 @@ function _fbaPalletRowsHtml(batchKey, it, mode) {
   var hasOrder = _fbaShipList(batchKey, it.i).list.length > 0, po = _fbaPortionOrders(batchKey, it);
   if (mode === 'shipped') rem = 0;   // the still-to-palletize row lives under Unshipped items
   pt.list.forEach(function(x, k) {
-    // Portion numbers stay the same in both views; each view skips the other's portions.
-    if (mode === 'shipped' && !(x.sh && hasOrder)) return;
-    if (mode === 'open' && x.sh && hasOrder) return;
     h += '<tr style="background:var(--white)">' +
          '<td style="padding-left:44px;font-size:11px">&#8627; <b>Pallet portion ' + (k + 1) + '</b> <span style="color:var(--muted)">&middot; palletized by ' + escapeHtml(x.by || '') + ' ' + escapeHtml(_ppStamp(x.at)) + '</span>' +
          ' <a href="#" title="Remove this portion" onclick="event.preventDefault();fbaDelPallet(\'' + bk + '\',\'' + ikj + '\',\'' + _jsEsc(x.id) + '\',' + x.n + ')" style="color:var(--red);text-decoration:none;margin-left:4px">&#10005;</a></td>' +
