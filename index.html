@@ -12258,7 +12258,7 @@ function _fbaSkuRowHtml(batchKey, m, p, it, ctx, mode) {
               'picked ' + Math.min(sp.kd, sp.kq).toLocaleString() + '/' + sp.kq.toLocaleString() + '</div>';
     }
     if (i === 3 && !upper) cell = _fbaPalletCellHtml(batchKey, it, d, on, tip, smKey, n);
-    if (i === 4 && !it.packOnly) cell += _fbaShipSummaryHtml(batchKey, it);
+    if (i === 4) cell += _fbaShipSummaryHtml(batchKey, it);
     h += '<td style="font-size:10px">' + cell + '</td>';
   });
   h += '</tr>';
@@ -12587,12 +12587,27 @@ function _fbaShipList(batchKey, itemId) {
   }
   return { list: ((_fbaFlagShips[batchKey] || {})[k] || []).slice(), manual: false };
 }
+// Ship orders that belong to one shipped pallet portion (owner, 2026-10-24): a
+// ship order whose qty equals a shipped portion's qty sits on that portion's
+// row instead of the SKU row. Oldest shipped portion takes the first match.
+function _fbaPortionOrders(batchKey, it) {
+  var sl = _fbaShipList(batchKey, it.i), used = {}, byId = {};
+  _fbaPortions(batchKey, it).forEach(function(x) {
+    if (!x.sh) return;
+    for (var j = 0; j < sl.list.length; j++) {
+      if (!used[j] && (parseInt(sl.list[j].q, 10) || 0) === x.n) { used[j] = true; byId[x.id] = sl.list[j]; return; }
+    }
+  });
+  return { byId: byId, rest: sl.list.filter(function(x, j) { return !used[j]; }), manual: sl.manual };
+}
 function _fbaShipSummaryHtml(batchKey, it) {
   var sl = _fbaShipList(batchKey, it.i);
   if (!sl.list.length) return '';
   var tot = sl.list.reduce(function(n, x) { return n + (parseInt(x.q, 10) || 0); }, 0), q = it.q || 0;
+  var po = _fbaPortionOrders(batchKey, it), onP = sl.list.length - po.rest.length;
   return '<div style="font-size:10px;margin-top:3px;white-space:normal;line-height:1.35">' +
-    sl.list.map(function(x) { return '&rarr; <b style="font-family:monospace">' + escapeHtml(x.o) + '</b> &times;' + (parseInt(x.q, 10) || 0); }).join('<br>') +
+    po.rest.map(function(x) { return '&rarr; <b style="font-family:monospace">' + escapeHtml(x.o) + '</b> &times;' + (parseInt(x.q, 10) || 0); }).join('<br>') +
+    (onP ? '<div style="color:var(--muted)">' + onP + ' ship order' + (onP !== 1 ? 's' : '') + ' on the pallet portion' + (onP !== 1 ? 's' : '') + ' below</div>' : '') +
     '<div style="color:' + (tot > q ? 'var(--red)' : tot === q ? 'var(--green-dark)' : 'var(--amber)') + '">' + tot + ' / ' + q + ' on ship orders' +
     (sl.manual ? '' : ' <span style="color:var(--muted);font-style:italic">(FLAG match)</span>') + '</div></div>';
 }
@@ -12812,7 +12827,7 @@ function _fbaPalletRowsHtml(batchKey, it, mode) {
   if (!pt.count) return '';
   var q = it.q || 0, rem = Math.max(0, q - pt.pal), ik = _fbaItemKey(it.i), h = '';
   var bk = _jsEsc(batchKey), ikj = _jsEsc(ik);
-  var hasOrder = _fbaShipList(batchKey, it.i).list.length > 0;
+  var hasOrder = _fbaShipList(batchKey, it.i).list.length > 0, po = _fbaPortionOrders(batchKey, it);
   if (mode === 'shipped') rem = 0;   // the still-to-palletize row lives under Unshipped items
   pt.list.forEach(function(x, k) {
     // Portion numbers stay the same in both views; each view skips the other's portions.
@@ -12827,7 +12842,10 @@ function _fbaPalletRowsHtml(batchKey, it, mode) {
          '<td style="font-size:10px"><label style="display:flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap" title="' + (x.sh ? 'Shipped &mdash; ' + escapeHtml(x.sh.by || '') + ' ' + escapeHtml(_ppStamp(x.sh.at)) + ' (click to clear)' : 'Tick when this portion ships') + '">' +
          '<input type="checkbox"' + (x.sh ? ' checked' : '') + ' onclick="event.preventDefault();fbaPalletShip(\'' + bk + '\',\'' + ikj + '\',\'' + _jsEsc(x.id) + '\')">' +
          (x.sh ? '<b style="color:var(--green-dark)">Shipped</b> <span style="color:var(--muted)">' + escapeHtml(x.sh.by || '') + ' ' + escapeHtml(_ppStamp(x.sh.at)) + '</span>' : '<span style="color:var(--muted)">Not shipped</span>') +
-         '</label></td></tr>';
+         '</label>' +
+         (po.byId[x.id] ? '<div style="margin-top:2px">&rarr; <b style="font-family:monospace">' + escapeHtml(po.byId[x.id].o) + '</b> &times;' + (parseInt(po.byId[x.id].q, 10) || 0) +
+           (po.manual ? '' : ' <span style="color:var(--muted);font-style:italic">(FLAG match)</span>') + '</div>' : '') +
+         '</td></tr>';
   });
   if (rem > 0) {
     h += '<tr style="background:var(--white)">' +
