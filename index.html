@@ -12814,12 +12814,24 @@ function _fbaPalletCellHtml(batchKey, it, d, on, tip, smKey, stepName) {
     h += '<input type="number" min="1" max="' + q + '" placeholder="' + d + '"' +
          ' title="Type how many you palletized &mdash; a part saves as its own portion and you can add more later"' +
          ' onkeydown="if(event.key===\'Enter\')this.blur()"' +
-         ' onchange="fbaAddPallet(\'' + _jsEsc(batchKey) + '\',\'' + _jsEsc(it.i) + '\',this.value,' + q + ')"' +
+         ' onchange="fbaPalletTyped(\'' + _jsEsc(batchKey) + '\',\'' + _jsEsc(it.i) + '\',\'' + _jsEsc(smKey) + '\',this.value,' + q + ')"' +
          ' style="width:48px;padding:1px 4px;font-family:inherit;font-size:11px;font-weight:700;border:1px solid var(--border);border-radius:4px">' +
          '<span style="color:var(--muted)">/ ' + q.toLocaleString() + '</span></div>' +
          '<div style="font-size:9px;color:var(--muted);margin-top:1px">Tempo ' + d.toLocaleString() + '</div>';
   }
   return h;
+}
+// Typed in the Palletized box before any portion exists (owner, 2026-10-24):
+// the full qty is a plain Palletized tick (no portion rows); only a part
+// starts portions.
+function fbaPalletTyped(batchKey, itemId, smKey, value, q) {
+  var n = parseInt(value, 10);
+  if (isNaN(n) || n <= 0) { renderFba(); return; }
+  if (n < q) { fbaAddPallet(batchKey, itemId, n, q); return; }
+  var by = _ppUserName();
+  if (!by) { renderFba(); return; }
+  _mafWithTimeout(firebase.database().ref('preProduction/fba/marks/' + batchKey + '/' + smKey + '/3').set({ by: by, at: new Date().toISOString() }), 10000)
+    .catch(function(err) { alert('Could not save: ' + (err && err.message ? err.message : err)); renderFba(); });
 }
 // One row per portion under the SKU, then a "still to palletize" row.
 function _fbaPalletRowsHtml(batchKey, it, mode) {
