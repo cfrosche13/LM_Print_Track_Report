@@ -645,7 +645,8 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     #missing-files-print .mf-print-table th { background: var(--green-light); padding: 5px 8px; font-weight: 600; color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); text-align: left; }
     #missing-files-print .mf-print-table td { padding: 5px 8px; border-bottom: 1px solid #eee; }
   }
-#page-reprints tr.rpr-row { cursor: pointer; }
+#page-reprints .rpr-hist-link { cursor: pointer; display: inline-block; }
+#page-reprints .rpr-hist-link:hover .maf-status-pill { box-shadow: 0 0 0 2px var(--green-dark); }
 #page-reprints tr.rpr-row:hover td { background: #f3f8f5; }
 </style>
 </head>
@@ -3208,9 +3209,11 @@ function renderReprints() {
     var status = e.status || 'Requested';
     var sc = _rprStatusColor(status);
     if (attn && groupOf[id] !== lastGroup) { lastGroup = groupOf[id]; h += sectionRow(lastGroup); }
-    h += '<tr class="rpr-row" onclick="rprRowClick(event, \'' + id + '\')" title="Click for the full history">';
+    h += '<tr class="rpr-row">';
     h += '<td style="text-align:center"><input type="checkbox" class="rpr-row-cb"' + (_rprUnchecked[id] ? '' : ' checked') + ' onchange="rprToggleRow(\'' + id + '\', this.checked)"></td>';
-    h += '<td style="white-space:nowrap">' + _rprAgeHtml(e) + '</td>';
+    // Only the date bubble opens the history (owner, 2026-10-26) so the rest
+    // of the row can be selected and copied.
+    h += '<td style="white-space:nowrap"><span class="rpr-hist-link" onclick="rprOpenHistory(\'' + id + '\')" title="Click for the full history">' + _rprAgeHtml(e) + '</span></td>';
     h += '<td style="white-space:nowrap;font-weight:600">' + escapeHtml(e.containerNumber || '—') + '</td>';
     h += '<td>' + escapeHtml(e.orderId || '—') + '</td>';
     h += '<td>' + _rprOrderKindHtml(e) + '</td>';
