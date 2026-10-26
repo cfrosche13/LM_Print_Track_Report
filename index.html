@@ -12660,7 +12660,7 @@ function fbaToggleReport() {
   h += '<label style="font-size:12px;color:var(--muted)">Step<br><select id="fba-rpt-step" style="' + sel + '">' +
        FBA_STEPS.map(function(n, i) { return '<option value="' + i + '"' + (i === 3 ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></label>';
   h += '<label style="font-size:12px;color:var(--muted)">Show<br><select id="fba-rpt-which" style="' + sel + '">' +
-       '<option value="done">100% done</option><option value="open">Not done yet</option></select></label>';
+       '<option value="done">100% done</option><option value="ready">Ready to ship only (done, not shipped)</option><option value="open">Not done yet</option></select></label>';
   // Breakdown vs Consolidated toggle (owner, 2026-10-23): consolidated = one line per SKU with just the count.
   var tb = 'padding:6px 12px;border:1px solid var(--border);font-size:13px;font-family:inherit;cursor:pointer;';
   h += '<div style="font-size:12px;color:var(--muted)">Report type<br><div style="display:inline-flex">' +
@@ -12717,35 +12717,44 @@ function fbaPrintReport() {
   var step = parseInt(document.getElementById('fba-rpt-step').value, 10);
   var which = document.getElementById('fba-rpt-which').value;
   var by = document.getElementById('fba-rpt-by').value;
+  // Ready to ship only (owner, 2026-10-26): done at this step, minus what has
+  // already shipped — shipped SKUs/pieces are left off the list.
+  var ready = which === 'ready';
+  if (ready) {
+    if (FBA_STEPS[step] === 'Shipped') { alert('Pick a step before Shipped (e.g. Palletized) for a ready-to-ship list.'); return; }
+    which = 'done';
+  }
   var b = _fbaData.batches[batchKey];
   var all = _fbaReportRows(batchKey, step);
+  function readyPcs(r) { return Math.max(0, r.pcsDone - Math.min(r.pcsShipped, r.pcsDone)); }
   var rows = by === 'totals'
-    ? all.filter(function(r) { return which === 'done' ? r.pcsDone > 0 : r.pcsDone < (r.it.q || 0); })
-    : all.filter(function(r) { return which === 'done' ? r.done : !r.done; });
+    ? all.filter(function(r) { return ready ? readyPcs(r) > 0 : which === 'done' ? r.pcsDone > 0 : r.pcsDone < (r.it.q || 0); })
+    : all.filter(function(r) { return ready ? r.done && r.pcsShipped < (r.it.q || 0) : which === 'done' ? r.done : !r.done; });
   var partial = all.filter(function(r) { return r.part; });
   var stepName = FBA_STEPS[step];
-  var title = 'FBA ' + stepName + ' \u2014 ' + (which === 'done' ? 'done' : 'not done yet') + ' \u2014 batch ' + _fbaDateLabel(batchKey);
+  var title = ready ? 'FBA ready to ship (' + stepName.toLowerCase() + ', not shipped yet) \u2014 batch ' + _fbaDateLabel(batchKey)
+    : 'FBA ' + stepName + ' \u2014 ' + (which === 'done' ? 'done' : 'not done yet') + ' \u2014 batch ' + _fbaDateLabel(batchKey);
   var esc = escapeHtml;
   var pcs = by === 'totals'
-    ? rows.reduce(function(n, r) { return n + (which === 'done' ? r.pcsDone : (r.it.q || 0) - r.pcsDone); }, 0)
+    ? rows.reduce(function(n, r) { return n + (ready ? readyPcs(r) : which === 'done' ? r.pcsDone : (r.it.q || 0) - r.pcsDone); }, 0)
     : rows.reduce(function(n, r) { return n + (r.it.q || 0); }, 0);
   var lines = [], containers = 0, body = '';
 
   if (by === 'totals') {
     // One line per SKU with just the count (owner, 2026-10-23): e.g. Palletized
     // -> how many of each SKU are ready to ship. Partly-done SKUs count too.
-    var showShip = which === 'done' && step < 4;
+    var showShip = which === 'done' && step < 4 && !ready;
     var tot = { q: 0, d: 0, s: 0, a: 0 };
     rows.sort(function(a, b) { return String(a.it.i).localeCompare(String(b.it.i)); });
-    body += '<table><thead><tr><th>#</th><th>SKU</th><th>Item</th><th class="n">' + (which === 'done' ? esc(stepName) : 'Not ' + esc(stepName.toLowerCase()) + ' yet') + '</th>' +
+    body += '<table><thead><tr><th>#</th><th>SKU</th><th>Item</th><th class="n">' + (ready ? 'Ready to ship' : which === 'done' ? esc(stepName) : 'Not ' + esc(stepName.toLowerCase()) + ' yet') + '</th>' +
             (showShip ? '<th class="n">Already shipped</th><th class="n">Ready to ship</th>' : '') + '<th class="n">SKU total</th>' + (step === 3 ? '<th>Pallet portions</th>' : '') + (step === 4 && which === 'done' ? '<th>Ship orders</th>' : '') + '</tr></thead><tbody>';
     rows.forEach(function(r, i) {
-      var q = r.it.q || 0, d = which === 'done' ? r.pcsDone : q - r.pcsDone, sh = Math.min(r.pcsShipped, r.pcsDone), a = Math.max(0, r.pcsDone - sh);
+      var q = r.it.q || 0, d = ready ? readyPcs(r) : which === 'done' ? r.pcsDone : q - r.pcsDone, sh = Math.min(r.pcsShipped, r.pcsDone), a = Math.max(0, r.pcsDone - sh);
       tot.q += q; tot.d += d; tot.s += sh; tot.a += a;
       body += '<tr><td class="n">' + (i + 1) + '</td><td class="mono">' + esc(r.it.i) + '</td><td>' + esc(r.it.n || '') + '</td><td class="n"><b>' + d.toLocaleString() + '</b></td>' +
               (showShip ? '<td class="n">' + sh.toLocaleString() + '</td><td class="n"><b>' + a.toLocaleString() + '</b></td>' : '') +
               '<td class="n muted">' + q.toLocaleString() + '</td>' +
-              (step === 3 ? '<td>' + _fbaPalletTotals(batchKey, r.it).list.map(function(x, k) { return '#' + (k + 1) + ': ' + x.n + ' (' + esc(_ppStamp(x.at)) + (x.sh ? ', shipped' : '') + ')'; }).join('<br>') + '</td>' : '') +
+              (step === 3 ? '<td>' + _fbaPalletTotals(batchKey, r.it).list.map(function(x, k) { return ready && x.sh ? '' : '#' + (k + 1) + ': ' + x.n + ' (' + esc(_ppStamp(x.at)) + (x.sh ? ', shipped' : '') + ')'; }).filter(Boolean).join('<br>') + '</td>' : '') +
               (step === 4 && which === 'done' ? '<td>' + _fbaShipList(batchKey, r.it.i).list.map(function(x) { return esc(String(x.o)) + ' &times;' + (parseInt(x.q, 10) || 0); }).join('<br>') + '</td>' : '') + '</tr>';
       lines.push(r.it.i + '\t' + (showShip ? a : d));
     });
