@@ -1239,6 +1239,25 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     <div id="rpr-hist-body" style="padding:14px 18px 18px"></div>
   </div>
 </div>
+<!-- "→ Nested" pop-up: who the reprint was nested for (added 2026-10-26) -->
+<div id="rpr-nest-modal" onclick="if(event.target===this)rprCloseNest()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:510;overflow-y:auto;padding:4rem 1rem">
+  <div style="max-width:380px;margin:0 auto;background:var(--white);border-radius:var(--radius);box-shadow:0 8px 32px rgba(0,0,0,0.18);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);background:var(--green-light)">
+      <span style="font-size:14px;font-weight:700;color:var(--green-dark)">Mark as Nested</span>
+      <button onclick="rprCloseNest()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted);line-height:1">&#x2715;</button>
+    </div>
+    <div style="padding:18px;display:flex;flex-direction:column;gap:8px">
+      <div id="rpr-nest-what" style="font-size:12px;color:var(--muted)"></div>
+      <label for="rpr-nest-for" style="font-size:11px;font-weight:600;color:var(--muted)">Nested for (who the reprint was given to)</label>
+      <input type="text" id="rpr-nest-for" list="rpr-nest-for-list" placeholder="Type a name" onkeydown="if(event.key==='Enter'){event.preventDefault();rprSaveNest();}" style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:100%;font-family:inherit;box-sizing:border-box">
+      <datalist id="rpr-nest-for-list"></datalist>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:0 18px 18px">
+      <button onclick="rprCloseNest()" style="background:none;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 16px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;font-family:inherit">Cancel</button>
+      <button onclick="rprSaveNest()" style="background:var(--green-dark);color:#fff;border:none;border-radius:var(--radius-sm);padding:8px 20px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">&rarr; Nested</button>
+    </div>
+  </div>
+</div>
 <div id="rpr-modal" onclick="if(event.target===this)rprCloseModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:500;overflow-y:auto;padding:2rem 1rem">
   <div style="max-width:600px;margin:0 auto;background:var(--white);border-radius:var(--radius);box-shadow:0 8px 32px rgba(0,0,0,0.18);overflow:hidden">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);background:var(--green-light)">
@@ -2594,7 +2613,8 @@ function _rprStampsHtml(e) {
   var st = e.stamps || {};
   var lines = [];
   RPR_STEPS.concat(RPR_TEMPO_STEPS).forEach(function(s) {
-    if (st[s] && s !== 'Requested') lines.push(s + ' &middot; ' + escapeHtml(st[s].by || '?') + ' ' + escapeHtml(_rprShortStamp(st[s].at)));
+    if (st[s] && s !== 'Requested') lines.push(s + ' &middot; ' + escapeHtml(st[s].by || '?') + ' ' + escapeHtml(_rprShortStamp(st[s].at)) +
+      (s === 'Nested' && e.nestedFor ? ' &middot; for ' + escapeHtml(e.nestedFor) : ''));
   });
   if (e.status === 'Shipped' && e.shippedAt) {
     lines.push('container shipped ' + escapeHtml(_rprShortStamp(e.shippedAt)));
@@ -2624,6 +2644,9 @@ function _mafTempoHtml(e) {
 // The one status bubble on the main table. Turns red with a warning sign when
 // Tempo flagged the item again after the request (and nothing good since).
 function _rprStatusBubble(e) {
+  return _rprStatusPill(e) + (e.nestedFor ? '<div style="font-size:10px;color:var(--muted);margin-top:2px;white-space:nowrap">nested for <b>' + escapeHtml(e.nestedFor) + '</b></div>' : '');
+}
+function _rprStatusPill(e) {
   var status = e.status || 'Requested';
   var sc = _rprStatusColor(status);
   var f = e.tempo && e.tempo.flag && !_rprIsArchived(e) ? e.tempo.flag : null;
@@ -2682,7 +2705,7 @@ function _rprAppEvents(e) {
     [e.reason, reqBy ? 'by ' + reqBy : ''].filter(Boolean).join(' · '), { request: true, dateOnly: !(req.at || e.createdAt) });
   ['Nested', 'Printed'].concat(RPR_TEMPO_STEPS).forEach(function(s) {
     // Tempo-made stamps repeat a Tempo scan that's already in the history.
-    if (st[s] && st[s].by !== 'Tempo') add(st[s].at, 'rpr', 'Marked ' + s, 'by ' + (st[s].by || '?'));
+    if (st[s] && st[s].by !== 'Tempo') add(st[s].at, 'rpr', 'Marked ' + s, 'by ' + (st[s].by || '?') + (s === 'Nested' && e.nestedFor ? ' · for ' + e.nestedFor : ''));
   });
   if (e.status === 'Shipped' && e.shippedAt) add(e.shippedAt, 'swms', 'Container ship-confirmed', 'request closed as Shipped');
   if (e.status === 'Cancelled' && e.dateClosed) add(_rprDateOnly(e.dateClosed), 'rpr', 'Request cancelled', e.cancelledBy ? 'by ' + e.cancelledBy : '', { dateOnly: true });
@@ -3007,7 +3030,7 @@ function _rprFilteredIds(exceptCol) {
     if (_rprView === 'archive' ? !_rprIsArchived(e) : _rprIsArchived(e)) return false;
     if (_rprView === 'active' && _rprStatusFilter && (e.status || 'Requested') !== _rprStatusFilter) return false;
     if (_rprSearch) {
-      var hay = [e.containerNumber, e.orderId, e.item, e.sizeMedia, e.pjNumber, e.requestedBy, e.notes].join(' ').toLowerCase();
+      var hay = [e.containerNumber, e.orderId, e.item, e.sizeMedia, e.pjNumber, e.requestedBy, e.nestedFor, e.notes].join(' ').toLowerCase();
       if (hay.indexOf(_rprSearch) === -1) return false;
     }
     for (var k in _rprColFilters) {
@@ -3146,12 +3169,47 @@ function rprAdvance(id) {
     var el = document.getElementById('rpr-user-name'); if (el) el.focus();
     return;
   }
-  var updates = {};
+  if (next === 'Nested') { rprOpenNest(id); return; }
+  _rprSaveStep(id, next, {});
+}
+function _rprSaveStep(id, next, extra) {
+  var updates = Object.assign({}, extra);
   updates['status'] = next;
-  updates['stamps/' + next] = { by: by, at: new Date().toISOString() };
+  updates['stamps/' + next] = { by: _rprUserName(), at: new Date().toISOString() };
   _mafWithTimeout(firebase.database().ref('reprintRequests/entries/' + id).update(updates), 10000).catch(function(err) {
     alert('✗ Not saved — ' + (err && err.message ? err.message : err));
   });
+}
+function _rprNestedForNames() {
+  var names = {};
+  Object.keys(_rprEntries).forEach(function(k) { var n = _rprEntries[k] && _rprEntries[k].nestedFor; if (n) names[n] = 1; });
+  return Object.keys(names).sort();
+}
+
+// "→ Nested" asks who the reprint was nested for (owner, 2026-10-26: preflight
+// logs who it was given to). Saved as entry.nestedFor; blank is allowed.
+var _rprNestId = null;
+function rprOpenNest(id) {
+  var e = _rprEntries[id];
+  if (!e) return;
+  _rprNestId = id;
+  document.getElementById('rpr-nest-what').innerHTML = escapeHtml([e.containerNumber, e.item, e.sizeMedia].filter(Boolean).join(' · '));
+  document.getElementById('rpr-nest-for-list').innerHTML = _rprNestedForNames().map(function(n) { return '<option value="' + escapeHtml(n) + '">'; }).join('');
+  var inp = document.getElementById('rpr-nest-for');
+  inp.value = e.nestedFor || '';
+  document.getElementById('rpr-nest-modal').style.display = 'block';
+  setTimeout(function() { inp.focus(); }, 50);
+}
+function rprCloseNest() {
+  _rprNestId = null;
+  document.getElementById('rpr-nest-modal').style.display = 'none';
+}
+function rprSaveNest() {
+  var id = _rprNestId;
+  if (!id) return;
+  var who = (document.getElementById('rpr-nest-for').value || '').trim();
+  rprCloseNest();
+  _rprSaveStep(id, 'Nested', { nestedFor: who });
 }
 
 function rprAddReason() {
@@ -3224,6 +3282,8 @@ function rprOpenModal(id) {
   h += row('Date Requested', '<input type="date" id="rpr-f-requested" value="' + escapeHtml(e.dateRequested || '') + '" style="' + fs + '">');
   h += row('Status', '<select id="rpr-f-status" style="' + fs + '">' + RPR_STATUSES.map(function(s) { return '<option value="' + s + '"' + (s === (e.status || 'Requested') ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select>');
   h += '</div>';
+  h += row('Nested For', '<input type="text" id="rpr-f-nestedfor" list="rpr-nest-for-names" value="' + escapeHtml(e.nestedFor || '') + '" placeholder="Who the reprint was given to" style="' + fs + '">');
+  h += '<datalist id="rpr-nest-for-names">' + _rprNestedForNames().map(function(n) { return '<option value="' + escapeHtml(n) + '">'; }).join('') + '</datalist>';
   h += '<datalist id="rpr-name-list">' + Object.keys(names).sort().map(function(n) { return '<option value="' + escapeHtml(n) + '">'; }).join('') + '</datalist>';
   h += row('Notes', '<textarea id="rpr-f-notes" rows="2" placeholder="e.g. flagged 10 hours, sorted 7 days…" style="' + fs + ';resize:vertical">' + escapeHtml(e.notes || '') + '</textarea>');
   h += '<div id="rpr-maf-box" style="font-size:12px;border-top:1px solid var(--border);padding-top:10px">' +
@@ -3353,6 +3413,7 @@ function rprSaveFromModal() {
     requestedBy:   val('rpr-f-by'),
     dateRequested: val('rpr-f-requested'),
     status:    status,
+    nestedFor: val('rpr-f-nestedfor'),
     notes:     val('rpr-f-notes')
   });
   if (!data.containerNumber && !data.orderId && !data.item) { alert('Enter at least a container number, order ID, or item ID.'); return; }
