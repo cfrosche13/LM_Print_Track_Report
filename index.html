@@ -5267,8 +5267,21 @@ var PLAN_GROUP = 'standard';
 // hours doesn't reshuffle work you've already placed. See runPlan()'s
 // "Locked machines" block and togglePlanMachineLock().
 var _lockedMachines = {}; // { machine: true }
+// "Load for editing" (owner, 2026-10-26): a machine locked from a loaded plan
+// keeps that plan's Today's Plan number instead of being re-scaled to the
+// shift time left right now (a full-shift plan loaded at 1:30 showed 39
+// instead of 105). Unlocking drops back to the live calculation.
+window._loadedPlanTargets = null; // { planDate, group, shift, planned: { machine: pcs incl. made } }
+function _lockedPlanTarget(planDate, m) {
+  var t = window._loadedPlanTargets;
+  if (!t || !_lockedMachines[m] || t.planDate !== planDate || t.group !== PLAN_GROUP || t.shift !== ACTIVE_SHIFT) return null;
+  return t.planned[m] != null ? t.planned[m] : null;
+}
 function togglePlanMachineLock(m) {
-  if (_lockedMachines[m]) delete _lockedMachines[m];
+  if (_lockedMachines[m]) {
+    delete _lockedMachines[m];
+    if (window._loadedPlanTargets) delete window._loadedPlanTargets.planned[m];
+  }
   else _lockedMachines[m] = true;
   if (window._planOrders) runPlan(window._planOrders);
   // No orders loaded yet (e.g. right after "Load for editing" on a fresh
@@ -8713,6 +8726,9 @@ function loadSavedPlanForEditing() {
 
   var gm = GROUP_MACHINES[PLAN_GROUP];
   gm.forEach(function(m) { _lockedMachines[m] = true; });
+  var _targets = {};
+  gm.forEach(function(m) { _targets[m] = _savedMachineStat(raw, m).made; });
+  window._loadedPlanTargets = { planDate: raw.planDate, group: PLAN_GROUP, shift: ACTIVE_SHIFT, planned: _targets };
 
   var rows = raw.rows.map(function(r) { return Object.assign({}, r); });
   function _z() { var o = {}; gm.forEach(function(m){ o[m] = 0; }); return o; }
@@ -10531,6 +10547,8 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
     var _mFrac   = _mDenom > 0 ? Math.min(1, _remainingHrs / _mDenom) : 0;
     var remainingCap = Math.round(cap * _mFrac);
     var open = load[m] || 0;
+    var _tgt = _lockedPlanTarget(planDate, m);
+    if (_tgt != null) remainingCap = Math.max(0, _tgt - ((machineActualToday && machineActualToday[m]) || 0));
     totalCap   += remainingCap;
     totalCanDo += Math.min(open, remainingCap);
     totalDS    += (dsLoad[m] || 0);
@@ -10731,6 +10749,11 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
     var manual   = manualLoad[m] || 0;
     var canDo    = Math.min(open, remainingCap);
     var leftOver = Math.max(0, open - remainingCap);
+    var _loadedTgt = _lockedPlanTarget(planDate, m);
+    if (_loadedTgt != null) {
+      canDo    = Math.min(open, Math.max(0, _loadedTgt - (machineActualToday[m] || 0)));
+      leftOver = Math.max(0, open - canDo);
+    }
     // Owner-set Today's Plan limit (see _planCapOverride): caps what's left to
     // print so a roll doesn't pull the next item in to fill the gap.
     var _autoPlanTotal = (machineActualToday[m] || 0) + canDo;
