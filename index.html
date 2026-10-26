@@ -1123,6 +1123,7 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     <button class="qbtn" onclick="rprOpenModal(null)" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark);align-self:flex-end">+ Add Reprint Request</button>
     <button class="qbtn" onclick="rprOpenImport()" style="align-self:flex-end">&#128229; Import List</button>
     <button class="qbtn" onclick="printReprintsReport()" style="align-self:flex-end">&#128424; Print / Export</button>
+    <button class="qbtn" onclick="exportReprintsExcel()" style="align-self:flex-end" title="Download the rows on screen (checked ones) as an Excel file">&#128202; Export to Excel</button>
     <button class="qbtn" onclick="rprToggleManage()" style="align-self:flex-end">&#9881; Manage Reasons</button>
     <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
       <label for="rpr-user-name">Your name</label>
@@ -3592,6 +3593,42 @@ function rprDeleteEntry() {
 
 // Print / Save as PDF — reuses the Missing Files print layout (#missing-files-print,
 // body.print-missing-files) and prints whatever the table is showing now.
+// Excel export (owner, 2026-10-26): same rows as Print — what's on screen,
+// in screen order, minus unchecked rows.
+function exportReprintsExcel() {
+  var ids = _rprSelectedIds();
+  if (!ids.length) { alert('No rows are checked — tick the rows you want to export.'); return; }
+  var attn = _rprView === 'active' && _rprStatusFilter === 'attention';
+  var sectionName = { requested: 'Requested', stuck: 'Stuck', moving: 'Moving' };
+  function stamp(st) { return st ? ((st.by || '') + ' ' + _rprShortStamp(st.at)).trim() : ''; }
+  var head = ['Wave Date', 'Age (days)', 'Container #', 'Order ID', 'Order Type', 'Item Id', 'Size / Media', 'Qty', 'Reason',
+              'Requested By', 'Date Requested', 'PJ #', 'Status', 'Nested For', 'Nested By / When', 'Printed By / When',
+              'Tempo Step', 'No Movement (working days)', 'Notes'];
+  if (attn) head.unshift('Section');
+  if (_rprView === 'archive') head.push('Closed');
+  var data = [head];
+  ids.forEach(function(id) {
+    var e = _rprEntries[id];
+    var st = e.stamps || {};
+    var base = _rprAgeBase(e);
+    var stuck = !_rprIsArchived(e) && _rprAttnGroup(e) === 'stuck' ? _rprWorkDaysSince(_rprLastTouch(e)) : '';
+    var qty = parseInt(e.qty, 10);
+    var row = [e.waveDate || '', base ? _mafDaysSince(base) : '', e.containerNumber || '', e.orderId || '', _rprOrderKind(e),
+      e.item || '', e.sizeMedia || '', isNaN(qty) ? (e.qty || '') : qty, e.reason || '',
+      e.requestedBy || '', e.dateRequested || '', e.pjNumber || '', e.status || 'Requested', e.nestedFor || '',
+      stamp(st.Nested), stamp(st.Printed), (e.tempo && e.tempo.stage) || '', stuck, e.notes || ''];
+    if (attn) row.unshift(sectionName[_rprAttnGroup(e)] || '');
+    if (_rprView === 'archive') row.push(e.dateClosed || '');
+    data.push(row);
+  });
+  var ws = XLSX.utils.aoa_to_sheet(data);
+  ws['!cols'] = head.map(function(h) { return { wch: Math.max(10, Math.min(40, h.length + 2)) }; });
+  var wb = XLSX.utils.book_new();
+  var title = _rprView === 'archive' ? 'Shipped - Cancelled' : attn ? 'Needs Attention' : (_rprStatusFilter || 'All Open');
+  XLSX.utils.book_append_sheet(wb, ws, title.slice(0, 31));
+  XLSX.writeFile(wb, 'Reprints ' + title + ' ' + _mmddyy(new Date().toISOString().slice(0, 10)) + '.xlsx');
+}
+
 function printReprintsReport() {
   // Exactly what's on screen (filters + sort), minus unchecked rows.
   var ids = _rprSelectedIds();
