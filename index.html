@@ -2544,7 +2544,8 @@ var _rprEntries = {};
 var _rprReasons = RPR_REASONS_DEFAULT.slice();
 var _rprLoaded  = false;
 var _rprView    = 'active';  // 'active' | 'archive'
-var _rprStatusFilter = '';   // '' = all active statuses
+var _rprStatusFilter = 'attention'; // 'attention' = Needs attention (default), '' = all open, else one status
+var _rprMovingOpen = false;  // Needs attention: is the "Moving" section unfolded?
 var _rprSearch  = '';
 var _rprEditId  = null;
 var _rprManageOpen = false;
@@ -2858,6 +2859,53 @@ var RPR_COLS = [
   { k: 'notes',     label: 'Notes',        v: function(e) { return e.notes; } },
   { k: 'closed',    label: 'Closed',       v: function(e) { return _rprMD(e.dateClosed); }, sort: function(e) { return e.dateClosed || ''; }, archiveOnly: true }
 ];
+// ── Needs attention (owner, 2026-10-26) ──
+// The default screen: Requested on top (most important), then anything past
+// Requested with no movement for RPR_STUCK_WORKDAYS working days (paperwork
+// lost after nesting, etc.), then "Moving" folded away. Movement = a step
+// ticked here or a Tempo step scanned after the request (entry.stamps,
+// entry.tempo.at / newPjAt). A Tempo re-flag is not movement.
+var RPR_STUCK_WORKDAYS = 3;
+function _rprLastTouch(e) {
+  var t = [e.createdAt, e.tempo && e.tempo.at, e.tempo && e.tempo.newPjAt, _rprDateOnly(e.dateRequested)];
+  var st = e.stamps || {};
+  Object.keys(st).forEach(function(k) { t.push(st[k] && st[k].at); });
+  var best = 0;
+  t.forEach(function(x) { var ms = x ? new Date(x).getTime() : NaN; if (!isNaN(ms) && ms > best) best = ms; });
+  return best;
+}
+// Weekdays from the day after `ms` through today (Fri -> Mon = 1).
+function _rprWorkDaysSince(ms) {
+  if (!ms) return 0;
+  var d = new Date(ms); d.setHours(0, 0, 0, 0);
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+  var n = 0;
+  while (d < today) {
+    d.setDate(d.getDate() + 1);
+    var w = d.getDay();
+    if (w !== 0 && w !== 6) n++;
+  }
+  return n;
+}
+function _rprAttnGroup(e) {
+  var s = e.status || 'Requested';
+  if (s === 'Requested' || s === 'Needs Info') return 'requested';
+  return _rprWorkDaysSince(_rprLastTouch(e)) >= RPR_STUCK_WORKDAYS ? 'stuck' : 'moving';
+}
+function _rprStuckTagHtml(e) {
+  if (_rprIsArchived(e) || _rprAttnGroup(e) !== 'stuck') return '';
+  var n = _rprWorkDaysSince(_rprLastTouch(e));
+  var red = n >= RPR_STUCK_WORKDAYS * 2;
+  return '<div style="margin-top:3px"><span class="maf-status-pill" style="font-size:10px;background:' + (red ? '#fde8e8' : '#fff3d6') + ';color:' + (red ? 'var(--red)' : '#a8760a') +
+    '" title="No step ticked or scanned in Tempo for ' + n + ' working days">no movement ' + n + 'd</span></div>';
+}
+var RPR_ATTN_SECTIONS = {
+  requested: { label: 'Requested &mdash; waiting to be nested', color: 'var(--green-dark)', bg: 'var(--green-light)' },
+  stuck:     { label: 'Stuck &mdash; no movement in ' + RPR_STUCK_WORKDAYS + '+ working days', color: 'var(--red)', bg: '#fde8e8' },
+  moving:    { label: 'Moving &mdash; recent steps or Tempo scans', color: '#17706a', bg: '#dff3f1' }
+};
+function rprToggleMoving() { _rprMovingOpen = !_rprMovingOpen; renderReprints(); }
+
 // Order type (owner, 2026-10-26): FBA / Sample / Mixed / Dropship / Other.
 // tempo_progress.py fills entry.orderKind hourly from Tempo; it can also be
 // picked in the Edit form. Requests the team logged with "Sample" typed in
@@ -3045,7 +3093,7 @@ function _rprFilteredIds(exceptCol) {
     var e = _rprEntries[id];
     if (!e) return false;
     if (_rprView === 'archive' ? !_rprIsArchived(e) : _rprIsArchived(e)) return false;
-    if (_rprView === 'active' && _rprStatusFilter && (e.status || 'Requested') !== _rprStatusFilter) return false;
+    if (_rprView === 'active' && _rprStatusFilter && _rprStatusFilter !== 'attention' && (e.status || 'Requested') !== _rprStatusFilter) return false;
     if (_rprSearch) {
       var hay = [e.containerNumber, e.orderId, e.item, e.sizeMedia, e.pjNumber, e.requestedBy, e.nestedFor, e.notes].join(' ').toLowerCase();
       if (hay.indexOf(_rprSearch) === -1) return false;
@@ -3081,19 +3129,20 @@ function renderReprints() {
   var chips = document.getElementById('rpr-status-chips');
   if (chips) {
     if (_rprView === 'active') {
-      var counts = { '': 0 };
+      var counts = { '': 0, attention: 0 };
       Object.keys(_rprEntries).forEach(function(id) {
         var e = _rprEntries[id];
         if (!e || _rprIsArchived(e)) return;
         var s = e.status || 'Requested';
         counts[''] += 1;
         counts[s] = (counts[s] || 0) + 1;
+        if (_rprAttnGroup(e) !== 'moving') counts.attention += 1;
       });
       var ch = '';
-      ['', 'Needs Info'].concat(RPR_STEPS, RPR_TEMPO_STEPS.filter(function(s) { return counts[s]; })).forEach(function(s) {
+      ['attention', 'Needs Info'].concat(RPR_STEPS, RPR_TEMPO_STEPS.filter(function(s) { return counts[s]; }), ['']).forEach(function(s) {
         var on = _rprStatusFilter === s;
         ch += '<button class="qbtn" onclick="rprSetStatusFilter(\'' + s + '\')" style="' + (on ? 'background:var(--green-dark);color:#fff;border-color:var(--green-dark)' : '') + '">' +
-          (s || 'All open') + ' (' + (counts[s] || 0) + ')</button>';
+          (s === 'attention' ? '&#9888; Needs attention' : s || 'All open') + ' (' + (counts[s] || 0) + ')</button>';
       });
       chips.innerHTML = ch;
       chips.style.display = '';
@@ -3114,6 +3163,27 @@ function renderReprints() {
     return wa < wb ? -1 : wa > wb ? 1 : 0;
   });
 
+  // Needs attention: Requested, then Stuck (longest without movement first),
+  // then Moving (only when unfolded).
+  var attn = _rprView === 'active' && _rprStatusFilter === 'attention';
+  var groupOf = {}, movingCount = 0;
+  if (attn) {
+    var g = { requested: [], stuck: [], moving: [] };
+    ids.forEach(function(id) { var k = _rprAttnGroup(_rprEntries[id]); groupOf[id] = k; g[k].push(id); });
+    g.stuck.sort(function(a, b) { return _rprLastTouch(_rprEntries[a]) - _rprLastTouch(_rprEntries[b]); });
+    movingCount = g.moving.length;
+    ids = g.requested.concat(g.stuck, _rprMovingOpen ? g.moving : []);
+    var groupCount = { requested: g.requested.length, stuck: g.stuck.length, moving: movingCount };
+  }
+  function sectionRow(k) {
+    var sec = RPR_ATTN_SECTIONS[k];
+    var fold = k === 'moving';
+    return '<tr class="rpr-section-row"' + (fold ? ' onclick="rprToggleMoving()" style="cursor:pointer"' : '') + '><td colspan="' + (_rprColsForView().length + 2) +
+      '" style="background:' + sec.bg + ';color:' + sec.color + ';font-weight:700;font-size:12px;padding:7px 10px">' +
+      (fold ? (_rprMovingOpen ? '&#9662; ' : '&#9656; ') : '') + sec.label + ' (' + groupCount[k] + ')' +
+      (fold && !_rprMovingOpen ? ' <span style="font-weight:400;color:var(--muted)">&middot; click to show</span>' : '') + '</td></tr>';
+  }
+
   _rprVisibleIds = ids;
   var filteredCols = Object.keys(_rprColFilters).map(function(k) { var c = _rprCol(k); return c ? c.label : k; });
   var bar = '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:8px;font-size:12px">' +
@@ -3121,9 +3191,9 @@ function renderReprints() {
     (filteredCols.length ? '<span style="color:var(--muted)">Filtered by: <b>' + escapeHtml(filteredCols.join(', ')) + '</b></span>' +
       '<button class="qbtn" onclick="rprClearColFilters()" style="font-size:11px;padding:3px 8px">&#10005; Clear all filters</button>' : '') + '</div>';
 
-  if (!ids.length) {
+  if (!ids.length && !movingCount) {
     wrap.innerHTML = (filteredCols.length ? bar : '') + '<p style="color:var(--muted);font-size:14px;padding:20px 0">' +
-      (_rprSearch || _rprStatusFilter || filteredCols.length ? 'Nothing matches that filter.' :
+      (_rprSearch || (_rprStatusFilter && !attn) || filteredCols.length ? 'Nothing matches that filter.' :
         _rprView === 'archive' ? 'No shipped or cancelled requests yet.' : 'No open reprint requests — click "+ Add Reprint Request" to log one.') + '</p>';
     return;
   }
@@ -3132,10 +3202,12 @@ function renderReprints() {
   h += '<th style="width:28px;text-align:center"><input type="checkbox" id="rpr-cb-all" title="Check / uncheck every row shown" onchange="rprToggleAllRows(this.checked)"></th>';
   h += _rprColsForView().map(_rprHeaderCell).join('');
   h += '<th></th></tr></thead><tbody>';
+  var lastGroup = null;
   ids.forEach(function(id) {
     var e = _rprEntries[id];
     var status = e.status || 'Requested';
     var sc = _rprStatusColor(status);
+    if (attn && groupOf[id] !== lastGroup) { lastGroup = groupOf[id]; h += sectionRow(lastGroup); }
     h += '<tr class="rpr-row" onclick="rprRowClick(event, \'' + id + '\')" title="Click for the full history">';
     h += '<td style="text-align:center"><input type="checkbox" class="rpr-row-cb"' + (_rprUnchecked[id] ? '' : ' checked') + ' onchange="rprToggleRow(\'' + id + '\', this.checked)"></td>';
     h += '<td style="white-space:nowrap">' + _rprAgeHtml(e) + '</td>';
@@ -3150,7 +3222,7 @@ function renderReprints() {
     h += '<td>' + escapeHtml(e.pjNumber || '—') + '</td>';
     // Owner 2026-10-08: just the latest status here; who/when, Tempo scans
     // and re-flags live in the history pop-up (click the row).
-    h += '<td>' + _rprStatusBubble(e) + _rprMafBadgeHtml(e) + '</td>';
+    h += '<td>' + _rprStatusBubble(e) + _rprStuckTagHtml(e) + _rprMafBadgeHtml(e) + '</td>';
     // overflow-wrap: long no-space notes (e.g. a \\fs2\... file path) would
     // otherwise force the whole table wider than the screen.
     h += '<td style="font-size:11px;min-width:140px;max-width:200px;overflow-wrap:anywhere">' + escapeHtml(e.notes || '') + '</td>';
@@ -3169,6 +3241,10 @@ function renderReprints() {
     h += '<button class="qbtn" onclick="rprOpenModal(\'' + id + '\')">Edit</button></div></td>';
     h += '</tr>';
   });
+  if (attn) {
+    if (!groupCount.stuck) h += sectionRow('stuck');
+    if (movingCount && !_rprMovingOpen) h += sectionRow('moving');
+  }
   h += '</tbody></table></div>';
   wrap.innerHTML = h;
   _rprUpdateSelUI();
@@ -3517,7 +3593,7 @@ function printReprintsReport() {
   // Exactly what's on screen (filters + sort), minus unchecked rows.
   var ids = _rprSelectedIds();
   if (!ids.length) { alert('No rows are checked — tick the rows you want to print.'); return; }
-  var title = _rprView === 'archive' ? 'Shipped / Cancelled' : (_rprStatusFilter || 'Open Requests');
+  var title = _rprView === 'archive' ? 'Shipped / Cancelled' : _rprStatusFilter === 'attention' ? 'Needs Attention' : (_rprStatusFilter || 'Open Requests');
   var h = '<div class="mf-print-header"><div class="mf-print-eyebrow">EG Studio &middot; Reprint Requests</div>';
   h += '<div class="mf-print-title">' + escapeHtml(title) + '</div>';
   h += '<div class="mf-print-sub">' + new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) +
@@ -3913,7 +3989,7 @@ function rprImportSave() {
   go.textContent = 'Saving…';
   _mafWithTimeout(firebase.database().ref().update(updates), 20000).then(function() {
     rprCloseImport();
-    _rprStatusFilter = '';
+    _rprStatusFilter = 'attention';
     rprSetView('active');
   }).catch(function(err) {
     go.disabled = false;
