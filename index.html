@@ -2847,6 +2847,7 @@ var RPR_COLS = [
   { k: 'wave',      label: 'Waved / Age',  v: function(e) { var b = _rprAgeBase(e); return b ? _rprMD(b) + (e.waveDate ? '' : ' (requested)') : ''; }, sort: function(e) { return _rprAgeBase(e); } },
   { k: 'container', label: 'Container #',  v: function(e) { return e.containerNumber; } },
   { k: 'order',     label: 'Order ID',     v: function(e) { return e.orderId; } },
+  { k: 'kind',      label: 'Order Type',   v: function(e) { return _rprOrderKind(e); } },
   { k: 'item',      label: 'Item Id',      v: function(e) { return e.item; } },
   { k: 'size',      label: 'Size / Media', v: function(e) { return e.sizeMedia; } },
   { k: 'qty',       label: 'Qty',          v: function(e) { return e.qty; }, num: true },
@@ -2857,6 +2858,22 @@ var RPR_COLS = [
   { k: 'notes',     label: 'Notes',        v: function(e) { return e.notes; } },
   { k: 'closed',    label: 'Closed',       v: function(e) { return _rprMD(e.dateClosed); }, sort: function(e) { return e.dateClosed || ''; }, archiveOnly: true }
 ];
+// Order type (owner, 2026-10-26): FBA / Sample / Mixed / Dropship / Other.
+// tempo_progress.py fills entry.orderKind hourly from Tempo; it can also be
+// picked in the Edit form. Requests the team logged with "Sample" typed in
+// place of a container / order number count as Sample straight away.
+var RPR_ORDER_KINDS = ['FBA', 'Sample', 'Mixed', 'Dropship', 'Other'];
+var RPR_KIND_COLORS = { FBA: ['#fff3d6', '#a8760a'], Sample: ['#efe7f8', '#6b3fa0'], Mixed: ['#e4eefc', '#2a5ea8'], Dropship: ['#dff3f1', '#17706a'], Other: ['#eeeeee', '#555'] };
+function _rprOrderKind(e) {
+  if (e.orderKind) return e.orderKind;
+  return /sampl/i.test((e.containerNumber || '') + ' ' + (e.orderId || '')) ? 'Sample' : '';
+}
+function _rprOrderKindHtml(e) {
+  var k = _rprOrderKind(e);
+  if (!k) return '<span style="color:var(--muted)">&mdash;</span>';
+  var c = RPR_KIND_COLORS[k] || RPR_KIND_COLORS.Other;
+  return '<span class="maf-status-pill" style="background:' + c[0] + ';color:' + c[1] + '">' + escapeHtml(k) + '</span>';
+}
 var RPR_BLANK = '(Blanks)';
 var _rprColFilters = {};   // { colKey: { value: true, ... } } — only the values to SHOW
 var _rprUnchecked  = {};   // { entryId: true } — rows unticked for printing
@@ -3124,6 +3141,7 @@ function renderReprints() {
     h += '<td style="white-space:nowrap">' + _rprAgeHtml(e) + '</td>';
     h += '<td style="white-space:nowrap;font-weight:600">' + escapeHtml(e.containerNumber || '—') + '</td>';
     h += '<td>' + escapeHtml(e.orderId || '—') + '</td>';
+    h += '<td>' + _rprOrderKindHtml(e) + '</td>';
     h += '<td style="white-space:nowrap">' + escapeHtml(e.item || '—') + '</td>';
     h += '<td>' + escapeHtml(e.sizeMedia || '—') + '</td>';
     h += '<td>' + escapeHtml(e.qty || '—') + '</td>';
@@ -3282,7 +3300,11 @@ function rprOpenModal(id) {
   h += row('Date Requested', '<input type="date" id="rpr-f-requested" value="' + escapeHtml(e.dateRequested || '') + '" style="' + fs + '">');
   h += row('Status', '<select id="rpr-f-status" style="' + fs + '">' + RPR_STATUSES.map(function(s) { return '<option value="' + s + '"' + (s === (e.status || 'Requested') ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select>');
   h += '</div>';
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
+  h += row('Order Type', '<select id="rpr-f-kind" style="' + fs + '"><option value="">' + (_rprOrderKind(e) && !e.orderKind ? 'Auto (' + _rprOrderKind(e) + ')' : 'Auto — filled in from Tempo') + '</option>' +
+    RPR_ORDER_KINDS.map(function(k) { return '<option value="' + k + '"' + (e.orderKind === k ? ' selected' : '') + '>' + k + '</option>'; }).join('') + '</select>');
   h += row('Nested For', '<input type="text" id="rpr-f-nestedfor" list="rpr-nest-for-names" value="' + escapeHtml(e.nestedFor || '') + '" placeholder="Who the reprint was given to" style="' + fs + '">');
+  h += '</div>';
   h += '<datalist id="rpr-nest-for-names">' + _rprNestedForNames().map(function(n) { return '<option value="' + escapeHtml(n) + '">'; }).join('') + '</datalist>';
   h += '<datalist id="rpr-name-list">' + Object.keys(names).sort().map(function(n) { return '<option value="' + escapeHtml(n) + '">'; }).join('') + '</datalist>';
   h += row('Notes', '<textarea id="rpr-f-notes" rows="2" placeholder="e.g. flagged 10 hours, sorted 7 days…" style="' + fs + ';resize:vertical">' + escapeHtml(e.notes || '') + '</textarea>');
@@ -3414,6 +3436,7 @@ function rprSaveFromModal() {
     dateRequested: val('rpr-f-requested'),
     status:    status,
     nestedFor: val('rpr-f-nestedfor'),
+    orderKind: val('rpr-f-kind'),
     notes:     val('rpr-f-notes')
   });
   if (!data.containerNumber && !data.orderId && !data.item) { alert('Enter at least a container number, order ID, or item ID.'); return; }
@@ -3502,11 +3525,11 @@ function printReprintsReport() {
   if (!ids.length) {
     h += '<p style="font-size:13px;color:#666">Nothing to show.</p>';
   } else {
-    h += '<table class="mf-print-table"><thead><tr><th>Waved / Age</th><th>Container #</th><th>Order ID</th><th>Item Id</th><th>Size / Media</th><th>Qty</th><th>Reason</th><th>Requested</th><th>PJ #</th><th>Status</th><th>Notes</th></tr></thead><tbody>';
+    h += '<table class="mf-print-table"><thead><tr><th>Waved / Age</th><th>Container #</th><th>Order ID</th><th>Order Type</th><th>Item Id</th><th>Size / Media</th><th>Qty</th><th>Reason</th><th>Requested</th><th>PJ #</th><th>Status</th><th>Notes</th></tr></thead><tbody>';
     ids.forEach(function(id) {
       var e = _rprEntries[id];
       h += '<tr><td style="white-space:nowrap">' + _rprAgeHtml(e, true) + '</td>';
-      h += '<td>' + escapeHtml(e.containerNumber || '—') + '</td><td>' + escapeHtml(e.orderId || '—') + '</td>';
+      h += '<td>' + escapeHtml(e.containerNumber || '—') + '</td><td>' + escapeHtml(e.orderId || '—') + '</td><td>' + escapeHtml(_rprOrderKind(e) || '—') + '</td>';
       h += '<td>' + escapeHtml(e.item || '—') + '</td><td>' + escapeHtml(e.sizeMedia || '—') + '</td><td>' + escapeHtml(e.qty || '—') + '</td>';
       h += '<td>' + escapeHtml(e.reason || '—') + '</td><td>' + escapeHtml(e.requestedBy || '—') + ' ' + escapeHtml(_rprMD(e.dateRequested)) + '</td>';
       h += '<td>' + escapeHtml(e.pjNumber || '—') + '</td><td>' + escapeHtml(e.status || 'Requested') + _rprStampsHtml(e) + '</td>';
