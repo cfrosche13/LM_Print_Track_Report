@@ -2590,7 +2590,15 @@ function rprSaveUserName(v) {
   var b = document.getElementById('pp-user-name');  if (b && b.value !== v) b.value = v || '';
 }
 
-function _rprIsArchived(e) { return RPR_ARCHIVED_STATUSES.indexOf(e.status) !== -1; }
+// Owner, 2026-10-27: an item moved to "Sent to AMR" by hand (Edit) goes to the
+// archive too; it is out of the team's hands. Tempo reaching that step on its
+// own does not archive it. entry.handArchived marks it, and the hourly Tempo
+// sync leaves those alone; ship-confirm can still move it on to Shipped.
+var RPR_HAND_ARCHIVE_STATUSES = ['Sent to AMR'];
+function _rprIsArchived(e) {
+  return RPR_ARCHIVED_STATUSES.indexOf(e.status) !== -1 ||
+    (!!e.handArchived && RPR_HAND_ARCHIVE_STATUSES.indexOf(e.status) !== -1);
+}
 
 function _rprStatusColor(status) {
   if (status === 'Needs Info') return { bg: '#fde8e8', fg: 'var(--red)' };
@@ -3562,7 +3570,9 @@ function rprSaveFromModal() {
   // Anything missing → it can only be saved as "Needs Info"; once complete,
   // a "Needs Info" request moves on to Requested by itself.
   var missing = _rprMissingFields(data);
-  if (RPR_ARCHIVED_STATUSES.indexOf(status) === -1) {
+  var closing = RPR_ARCHIVED_STATUSES.indexOf(status) !== -1 ||
+    (RPR_HAND_ARCHIVE_STATUSES.indexOf(status) !== -1 && (!prev || prev.status !== status || prev.handArchived));
+  if (!closing) {
     if (missing.length && status !== 'Needs Info') {
       if (!confirm('Still missing: ' + missing.join(', ') + '.\n\nSave it as "Needs Info" so it can be filled in later?')) return;
       status = 'Needs Info';
@@ -3571,7 +3581,7 @@ function rprSaveFromModal() {
     }
     data.status = status;
   }
-  if (RPR_ARCHIVED_STATUSES.indexOf(status) === -1) {
+  if (!closing) {
     var d = _rprDupCheck(data.orderId, data.item, data.containerNumber, _rprEditId);
     if (d.block) { rprRefreshDupBox(); return; }
   }
@@ -3585,7 +3595,8 @@ function rprSaveFromModal() {
     // Floor steps picked by hand get a stamp too, so the history shows who
     // set it and when (owner, 2026-10-27: a hand-set Packed left no trace).
     if ((RPR_STEPS.indexOf(status) > 0 || RPR_TEMPO_STEPS.indexOf(status) !== -1) && !stamps[status]) stamps[status] = { by: _rprUserName() || data.requestedBy, at: nowIso };
-    if (RPR_ARCHIVED_STATUSES.indexOf(status) !== -1) {
+    data.handArchived = closing && RPR_ARCHIVED_STATUSES.indexOf(status) === -1 ? true : null;
+    if (closing) {
       data.dateClosed = data.dateClosed || nowIso.slice(0, 10);
       if (status === 'Cancelled') data.cancelledBy = _rprUserName() || '';
     } else {
