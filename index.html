@@ -648,6 +648,11 @@ input[type="date"]:focus { border-color: var(--green-dark); }
 #page-reprints .rpr-hist-link { cursor: pointer; display: inline-block; }
 #page-reprints .rpr-hist-link:hover .maf-status-pill { box-shadow: 0 0 0 2px var(--green-dark); }
 #page-reprints tr.rpr-row:hover td { background: #f3f8f5; }
+/* FBA view-only sign-in (owner, 2026-10-27): only the FBA tab, no editing */
+body.fba-viewer .subnav-item:not(#tab-fba), body.fba-viewer .topbar-right button,
+body.fba-viewer #fba-user-name, body.fba-viewer label[for="fba-user-name"] { display: none !important; }
+#fba-viewer-bar { display: none; }
+body.fba-viewer #fba-viewer-bar { display: flex; }
 </style>
 </head>
 <body>
@@ -665,6 +670,17 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     Unlock
   </button>
   <div id="report-login-error" style="color:#b83232;font-size:12px;min-height:16px;"></div>
+  <a href="#" id="viewer-login-link" onclick="showViewerLogin();return false;" style="font-size:12px;color:#6b8577;">View-only sign-in (email)</a>
+  <div id="viewer-login" style="display:none;flex-direction:column;align-items:center;gap:8px;">
+    <input id="viewer-email" type="email" placeholder="Email" autocomplete="username"
+      style="padding:9px 14px;border:1.5px solid #a8cdb8;border-radius:4px;font-size:14px;outline:none;width:240px;font-family:'Source Sans 3',sans-serif;" />
+    <input id="viewer-password" type="password" placeholder="Password" autocomplete="current-password"
+      style="padding:9px 14px;border:1.5px solid #a8cdb8;border-radius:4px;font-size:14px;outline:none;width:240px;font-family:'Source Sans 3',sans-serif;" />
+    <button id="viewer-login-btn" onclick="doViewerLogin()"
+      style="padding:9px 0;width:240px;background:#fff;color:#1a5c3a;border:1.5px solid #1a5c3a;border-radius:4px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Source Sans 3',sans-serif;">
+      Sign in (view only)
+    </button>
+  </div>
 </div>
 
 <div class="topbar">
@@ -1195,6 +1211,10 @@ input[type="date"]:focus { border-color: var(--green-dark); }
     </div>
   </div>
 
+  <div id="fba-viewer-bar" style="align-items:center;gap:10px;margin-bottom:12px;padding:8px 12px;background:var(--green-light);border-radius:var(--radius-sm);font-size:13px;color:var(--green-dark)">
+    <span>&#128065; <b>View only</b> &mdash; signed in as <span id="fba-viewer-email"></span></span>
+    <button class="qbtn" style="margin-left:auto" onclick="firebase.auth().signOut().then(function(){ location.reload(); })">Sign out</button>
+  </div>
   <div id="fba-error" style="display:none;margin-bottom:1rem;padding:10px 14px;background:var(--red-bg);border:1px solid var(--red-border);border-radius:var(--radius);color:var(--red);font-size:13px;font-weight:600"></div>
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
     <input type="search" id="fba-search" placeholder="&#128269; Search container #, order #, SKU or PJ" oninput="fbaSearch(this.value)"
@@ -13202,6 +13222,7 @@ function startReportApp() {
   document.getElementById('report-login-btn').addEventListener('click', doLogin);
   document.getElementById('report-passcode').addEventListener('keydown', function(e) { if (e.key === 'Enter') doLogin(); });
   firebase.auth().onAuthStateChanged(function(user) {
+    if (user && (user.email || '').toLowerCase() !== TEAM_EMAIL) { startFbaViewer(user); return; }
     if (user) {
       hideLoginScreen();
       _fbStartKeepAlive();   // before the first fetch, so both share one download
@@ -13238,6 +13259,40 @@ function doLogin() {
     document.getElementById('report-passcode').value = '';
     document.getElementById('report-passcode').focus();
   });
+}
+// ── FBA view-only sign-in (owner, 2026-10-27) ──
+// Anyone signed in with their own email (not the team passcode) gets only the
+// FBA tab, read-only. The database rules are what actually block their
+// writes and every other section; this just keeps the page tidy for them.
+function showViewerLogin() {
+  document.getElementById('viewer-login').style.display = 'flex';
+  document.getElementById('viewer-login-link').style.display = 'none';
+  setTimeout(function() { document.getElementById('viewer-email').focus(); }, 50);
+}
+function doViewerLogin() {
+  var email = document.getElementById('viewer-email').value.trim();
+  var pw = document.getElementById('viewer-password').value;
+  var btn = document.getElementById('viewer-login-btn');
+  document.getElementById('report-login-error').textContent = '';
+  if (!email || !pw) { document.getElementById('report-login-error').textContent = 'Enter your email and password.'; return; }
+  btn.textContent = 'Signing in…';
+  firebase.auth().signInWithEmailAndPassword(email, pw).catch(function() {
+    document.getElementById('report-login-error').textContent = 'Email or password is incorrect.';
+    btn.textContent = 'Sign in (view only)';
+    document.getElementById('viewer-password').value = '';
+  });
+}
+function startFbaViewer(user) {
+  document.body.classList.add('fba-viewer');
+  document.getElementById('fba-viewer-email').textContent = user.email || '';
+  hideLoginScreen();
+  hideLoading();
+  ['fbaToggleMark', 'fbaSetCount', 'fbaAddPallet', 'fbaDelPallet', 'fbaPalletShip', 'fbaPalletTyped',
+   'fbaSaveNote', 'fbaShipSave', 'fbaShipClear', 'fbaLoadPacking', 'fbaPickPacking'].forEach(function(fn) {
+    window[fn] = function() { alert('This is a view-only sign-in, so changes can\'t be made here.'); };
+  });
+  _fbaStartLiveSync();
+  showTab('fba');
 }
 function showLoginScreen() {
   document.getElementById('login-screen').style.display = 'flex';
