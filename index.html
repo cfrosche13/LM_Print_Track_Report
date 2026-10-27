@@ -13389,7 +13389,13 @@ function _fbPollTick() {
   if (document.hidden) return;
   if (Date.now() - _lastUserActivity > FB_IDLE_MS) return;
   if (Date.now() - _lastFbFetch < 290000) return;
-  fetchFirebaseData();
+  // Owner, 2026-10-27: typing in a Reprints note got wiped when the refresh
+  // flashed the loading screen. Wait while someone is typing in a box (the
+  // next 60-second tick tries again), and refresh quietly in the background.
+  var a = document.activeElement;
+  if (a && (a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable ||
+      (a.tagName === 'INPUT' && !/^(button|checkbox|radio|submit|reset|file)$/i.test(a.type)))) return;
+  fetchFirebaseData(true);
 }
 ['mousemove', 'mousedown', 'keydown', 'wheel', 'touchstart'].forEach(function(ev) {
   document.addEventListener(ev, function() {
@@ -13400,9 +13406,9 @@ function _fbPollTick() {
 });
 document.addEventListener('visibilitychange', function() { if (!document.hidden && _autoRefreshStarted) _fbPollTick(); });
 
-function fetchFirebaseData() {
+function fetchFirebaseData(quiet) {
   _lastFbFetch = Date.now();
-  showLoading();
+  if (!quiet) showLoading();
   var oeeParamsPromise = firebase.database().ref('oeeParams').once('value')
     .then(function(s){ return s.val() || {}; })
     .catch(function(){ return {}; });
