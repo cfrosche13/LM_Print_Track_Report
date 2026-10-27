@@ -12590,9 +12590,14 @@ function fbaLoadPacking(input) {
     try {
       var wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
       var grid = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
-      var items = _fbaParsePacking(grid);
-      var n = Object.keys(items).length;
-      if (!n) throw new Error('No rows with an Item ID and carton counts were found.');
+      var ship = _fbaParseShipFile(grid);
+      var items = null;
+      try { items = _fbaParsePacking(grid); } catch (pe) { if (!ship) throw pe; }
+      if (ship) _fbaShipFilePreview(batchKey, ship, file.name, by);
+      if (!items || !Object.keys(items).length) {
+        if (ship) return;   // a shipments-only file (no carton columns)
+        throw new Error('No rows with an Item ID and carton counts were found.');
+      }
       if (_fbaPacking[batchKey] && !confirm('Replace the packing list already loaded for this batch? (Boxed ticks are kept.)')) return;
       _mafWithTimeout(firebase.database().ref('preProduction/fba/packing/' + batchKey).set({
         fileName: file.name, loadedBy: by, loadedAt: new Date().toISOString(), items: items
@@ -12646,6 +12651,148 @@ function _fbaParsePacking(grid) {
     }
   }
   return items;
+}
+
+// ── Shipments file (coworker, 2026-10-27) ──
+// The coworker who builds the Amazon shipments and the FLAG Drop Ship orders
+// adds Amazon Shipment ID, FLAG Ship Order, Production Order, SKU and Qty
+// columns (one row per SKU per shipment). Loading it through "Load packing
+// list" saves those ship orders as the team list for each SKU in the file —
+// the same list the SKU pop-up saves — and leaves every other SKU alone.
+// A preview shows what each SKU had before and warns when the file's total
+// is more than that SKU has palletized (to catch typos).
+function _fbaParseShipFile(grid) {
+  var hi = -1, cols = {};
+  for (var r = 0; r < Math.min(grid.length, 15) && hi < 0; r++) {
+    var row = grid[r].map(function(c) { return String(c).trim().toLowerCase(); });
+    if (!row.some(function(c) { return /flag ship order/.test(c); })) continue;
+    hi = r;
+    row.forEach(function(c, i) {
+      if (/amazon shipment/.test(c)) cols.a = i;
+      else if (/flag ship order/.test(c)) cols.o = i;
+      else if (/production order/.test(c)) cols.po = i;
+      else if (c === 'item id') cols.id = i;
+      else if (c === 'sku') cols.sku = i;
+      else if (c === 'qty' || c === 'quantity' || /^(ship )?qty/.test(c)) cols.q = i;
+    });
+  }
+  if (hi < 0) return null;
+  if (cols.q == null) throw new Error('Found "FLAG Ship Order" but no "Qty" column.');
+  var rows = [];
+  for (var r2 = hi + 1; r2 < grid.length; r2++) {
+    var g = grid[r2];
+    var id = String((cols.id != null ? g[cols.id] : '') || (cols.sku != null ? g[cols.sku] : '') || '').trim().toUpperCase();
+    var o = String(g[cols.o] || '').replace(/\s+/g, '');
+    if (!id && !o) continue;
+    rows.push({ line: r2 + 1, id: id, o: o, q: parseInt(g[cols.q], 10),
+                a: cols.a != null ? String(g[cols.a] || '').trim() : '', po: cols.po != null ? String(g[cols.po] || '').trim() : '' });
+  }
+  return rows;
+}
+var _fbaShipFile = null;   // { batchKey, fileName, by, skus: [...], bad: [...] }
+function _fbaShipFilePreview(batchKey, rows, fileName, by) {
+  var bySku = {}, order = [], bad = [];
+  rows.forEach(function(x) {
+    if (!x.id) { bad.push('Row ' + x.line + ': no SKU'); return; }
+    if (!/^\d+$/.test(x.o)) { bad.push('Row ' + x.line + ' (' + x.id + '): FLAG ship order "' + x.o + '" should be numbers only'); return; }
+    if (isNaN(x.q) || x.q <= 0) { bad.push('Row ' + x.line + ' (' + x.id + '): no qty'); return; }
+    var k = _fbaItemKey(x.id);
+    if (!bySku[k]) { bySku[k] = { k: k, id: x.id, list: [] }; order.push(k); }
+    var e = { o: x.o, q: x.q };
+    if (x.a) e.a = x.a;
+    if (x.po) e.po = x.po;
+    bySku[k].list.push(e);
+  });
+  var skus = order.map(function(k) {
+    var S = bySku[k], hit = _fbaFindItem(batchKey, S.id), old = (_fbaShipments[batchKey] || {})[k];
+    S.tot = S.list.reduce(function(n, x) { return n + x.q; }, 0);
+    S.found = !!hit;
+    S.q = hit ? hit.it.q || 0 : 0;
+    S.pal = hit ? _fbaItemSteps(batchKey, hit.it)[3] : 0;
+    S.old = old && old.list ? (Array.isArray(old.list) ? old.list : Object.keys(old.list).map(function(x) { return old.list[x]; })).filter(function(x) { return x && x.o; }) : null;
+    S.oldBy = old ? old.by : '';
+    S.oldAt = old ? old.at : '';
+    return S;
+  });
+  _fbaShipFile = { batchKey: batchKey, fileName: fileName, by: by, skus: skus, bad: bad };
+  _fbaShipFileRender();
+}
+function fbaCloseShipFile() {
+  _fbaShipFile = null;
+  var el = document.getElementById('fba-shipfile-modal');
+  if (el) el.remove();
+}
+function _fbaShipFileRender() {
+  var F = _fbaShipFile, esc = escapeHtml;
+  var el = document.getElementById('fba-shipfile-modal');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'fba-shipfile-modal';
+    el.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:10000;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto';
+    el.onclick = function(e) { if (e.target === el) fbaCloseShipFile(); };
+    document.body.appendChild(el);
+  }
+  function orders(list) {
+    return list.map(function(x) {
+      return '<b style="font-family:monospace">' + esc(x.o) + '</b> &times;' + (parseInt(x.q, 10) || 0) +
+             (x.a ? ' <span style="color:var(--muted);font-size:11px">' + esc(x.a) + '</span>' : '');
+    }).join('<br>');
+  }
+  var warn = 0, missing = 0;
+  var h = '<div style="background:var(--white);border-radius:var(--radius);max-width:880px;width:100%;padding:18px 20px;box-shadow:0 10px 40px rgba(0,0,0,0.3)">';
+  h += '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">' +
+       '<div><div style="font-family:\'Lora\',serif;font-size:18px;font-weight:700;color:var(--text)">Load ship orders from file</div>' +
+       '<div style="font-size:12px;color:var(--muted);margin-top:2px">' + esc(F.fileName) + ' &middot; batch ' + esc(_fbaDateLabel(F.batchKey)) + ' &middot; ' +
+       F.skus.length + ' SKU' + (F.skus.length !== 1 ? 's' : '') + '. Only these SKUs change; every other SKU keeps what it has.</div></div>' +
+       '<button class="qbtn" onclick="fbaCloseShipFile()">&#10005;</button></div>';
+  if (F.bad.length) {
+    h += '<div style="margin-top:12px;padding:8px 10px;background:#fdecec;border-radius:var(--radius-sm);font-size:12px;color:var(--red)"><b>Skipped rows</b> (fix the file and load it again to include them):<br>' +
+         F.bad.map(esc).join('<br>') + '</div>';
+  }
+  h += '<div class="table-wrap" style="margin-top:12px"><table class="settings-table" style="font-size:12px"><thead><tr>' +
+       '<th>SKU</th><th>From the file</th><th style="text-align:right">File total</th><th style="text-align:right">Palletized</th><th>Replaces</th></tr></thead><tbody>';
+  F.skus.forEach(function(S) {
+    var flags = [];
+    if (!S.found) { missing++; flags.push('Not in this batch'); }
+    else {
+      if (S.tot > S.pal) { warn++; flags.push('File total ' + S.tot + ' is more than the ' + S.pal + ' palletized'); }
+      if (S.tot > S.q) flags.push('More than the ' + S.q + ' pcs in this batch');
+    }
+    var pos = {};
+    S.list.forEach(function(x) { if (x.po) pos[x.po] = 1; });
+    h += '<tr' + (flags.length ? ' style="background:#fff6e5"' : '') + '><td><b style="font-family:monospace">' + esc(S.id) + '</b>' +
+         (Object.keys(pos).length ? '<div style="font-size:11px;color:var(--muted)">Prod. order ' + esc(Object.keys(pos).join(', ')) + '</div>' : '') +
+         (flags.length ? '<div style="font-size:11px;color:var(--red);font-weight:700">&#9888; ' + flags.map(esc).join('<br>&#9888; ') + '</div>' : '') + '</td>' +
+         '<td>' + orders(S.list) + '</td>' +
+         '<td style="text-align:right">' + S.tot + (S.found ? ' <span style="color:var(--muted)">of ' + S.q + '</span>' : '') + '</td>' +
+         '<td style="text-align:right">' + (S.found ? S.pal : '&mdash;') + '</td>' +
+         '<td>' + (S.old && S.old.length ? orders(S.old) + '<div style="font-size:11px;color:var(--muted)">saved by ' + esc(S.oldBy || '') + ' ' + esc(_ppStamp(S.oldAt)) + '</div>'
+                  : '<span style="color:var(--muted)">nothing saved (FLAG match)</span>') + '</td></tr>';
+  });
+  h += '</tbody></table></div>';
+  if (warn || missing) {
+    h += '<div style="font-size:12px;color:var(--red);margin-top:8px">' +
+         (warn ? warn + ' SKU' + (warn !== 1 ? 's have' : ' has') + ' more on ship orders than palletized &mdash; check for a typo. ' : '') +
+         (missing ? missing + ' SKU' + (missing !== 1 ? 's aren\'t' : ' isn\'t') + ' in this batch (wrong batch, or a typo in the SKU) and will be skipped.' : '') + '</div>';
+  }
+  var n = F.skus.filter(function(S) { return S.found; }).length;
+  h += '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">' +
+       '<button class="qbtn" onclick="fbaCloseShipFile()">Cancel</button>' +
+       (n ? '<button class="qbtn" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark)" onclick="fbaShipFileSave()">Save ship orders for ' + n + ' SKU' + (n !== 1 ? 's' : '') + '</button>' : '') +
+       '</div></div>';
+  el.innerHTML = h;
+}
+function fbaShipFileSave() {
+  var F = _fbaShipFile;
+  if (!F) return;
+  var at = new Date().toISOString(), upd = {};
+  F.skus.forEach(function(S) {
+    if (!S.found) return;
+    upd[S.k] = { list: S.list, by: F.by, at: at, file: F.fileName, prev: S.old && S.old.length ? { list: S.old, by: S.oldBy || '', at: S.oldAt || '' } : null };
+  });
+  _mafWithTimeout(firebase.database().ref('preProduction/fba/shipments/' + F.batchKey).update(upd), 15000)
+    .then(function() { fbaCloseShipFile(); })
+    .catch(function(err) { alert('Could not save: ' + (err && err.message ? err.message : err)); });
 }
 
 // ── Search: container #, order #, SKU or PJ ──
@@ -12894,7 +13041,7 @@ function _fbaShipList(batchKey, itemId) {
   var man = (_fbaShipments[batchKey] || {})[k];
   if (man && man.list) {
     var l = Array.isArray(man.list) ? man.list : Object.keys(man.list).map(function(x) { return man.list[x]; });
-    return { list: l.filter(function(x) { return x && x.o; }), manual: true, by: man.by, at: man.at };
+    return { list: l.filter(function(x) { return x && x.o; }), manual: true, by: man.by, at: man.at, file: man.file || '', prev: man.prev || null };
   }
   return { list: ((_fbaFlagShips[batchKey] || {})[k] || []).slice(), manual: false };
 }
@@ -12917,7 +13064,8 @@ function _fbaShipSummaryHtml(batchKey, it) {
   var tot = sl.list.reduce(function(n, x) { return n + (parseInt(x.q, 10) || 0); }, 0), q = it.q || 0;
   var po = _fbaPortionOrders(batchKey, it), onP = sl.list.length - po.rest.length;
   return '<div style="font-size:10px;margin-top:3px;white-space:normal;line-height:1.35">' +
-    po.rest.map(function(x) { return '&rarr; <b style="font-family:monospace">' + escapeHtml(x.o) + '</b> &times;' + (parseInt(x.q, 10) || 0); }).join('<br>') +
+    po.rest.map(function(x) { return '&rarr; <b style="font-family:monospace">' + escapeHtml(x.o) + '</b> &times;' + (parseInt(x.q, 10) || 0) +
+      (x.a ? ' <span style="color:var(--muted)">' + escapeHtml(x.a) + '</span>' : ''); }).join('<br>') +
     (onP ? '<div style="color:var(--muted)">' + onP + ' ship order' + (onP !== 1 ? 's' : '') + ' on the pallet portion' + (onP !== 1 ? 's' : '') + ' below</div>' : '') +
     '<div style="color:' + (tot > q ? 'var(--red)' : tot === q ? 'var(--green-dark)' : 'var(--amber)') + '">' + tot + ' / ' + q + ' on ship orders' +
     (sl.manual ? '' : ' <span style="color:var(--muted);font-style:italic">(FLAG match)</span>') + '</div></div>';
@@ -12927,7 +13075,7 @@ var _fbaShipOpen = null;   // { batchKey, itemId, q, name, rows:[{o,q}] }
 function fbaOpenShip(batchKey, itemId, q, name) {
   var sl = _fbaShipList(batchKey, itemId);
   _fbaShipOpen = { batchKey: batchKey, itemId: itemId, q: q, name: name,
-                   rows: sl.manual ? sl.list.map(function(x) { return { o: String(x.o), q: String(x.q || '') }; }) : [] };
+                   rows: sl.manual ? sl.list.map(function(x) { return { o: String(x.o), q: String(x.q || ''), a: x.a || '', po: x.po || '' }; }) : [] };
   if (!sl.manual && sl.list.length) _fbaShipOpen.rows = sl.list.map(function(x) { return { o: String(x.o), q: String(x.q || '') }; });
   if (!_fbaShipOpen.rows.length) _fbaShipOpen.rows.push({ o: '', q: '' });
   _fbaShipRender();
@@ -12997,13 +13145,17 @@ function _fbaShipRender() {
   // editable list
   h += '<div style="margin-top:16px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted)">Ship orders for these ' + S.q.toLocaleString() + ' pcs</div>';
   h += '<div style="font-size:11px;color:' + (sl.manual ? 'var(--green-dark)' : 'var(--amber)') + ';margin:2px 0 6px">' +
-       (sl.manual ? '&#9998; Saved by ' + escapeHtml(sl.by || '') + ' ' + escapeHtml(_ppStamp(sl.at)) : 'Not saved yet &mdash; showing FLAG\'s match. Save to confirm it.') + '</div>';
+       (sl.manual ? '&#9998; Saved by ' + escapeHtml(sl.by || '') + ' ' + escapeHtml(_ppStamp(sl.at)) + (sl.file ? ' from ' + escapeHtml(sl.file) : '') : 'Not saved yet &mdash; showing FLAG\'s match. Save to confirm it.') + '</div>' +
+       (sl.manual && sl.prev && sl.prev.list ? '<div style="font-size:11px;color:var(--muted);margin:-2px 0 6px">Replaced: ' +
+         (Array.isArray(sl.prev.list) ? sl.prev.list : Object.keys(sl.prev.list).map(function(x) { return sl.prev.list[x]; })).map(function(x) { return escapeHtml(x.o) + ' &times;' + (parseInt(x.q, 10) || 0); }).join(', ') +
+         ' (saved by ' + escapeHtml(sl.prev.by || '') + ' ' + escapeHtml(_ppStamp(sl.prev.at)) + ')</div>' : '');
   S.rows.forEach(function(r, i) {
     h += '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">' +
          '<input data-r="' + i + '" data-f="o" placeholder="Ship order ID" value="' + escapeHtml(r.o) + '" inputmode="numeric" style="' + inp + ';width:160px;font-family:monospace">' +
          '<input data-r="' + i + '" data-f="q" type="number" min="0" placeholder="Qty" value="' + escapeHtml(r.q) + '" oninput="_fbaShipTotal()" style="' + inp + ';width:90px">' +
          '<span style="font-size:12px;color:var(--muted)">pcs</span>' +
-         '<button class="qbtn" title="Remove" onclick="fbaShipDelRow(' + i + ')">&#10005;</button></div>';
+         '<button class="qbtn" title="Remove" onclick="fbaShipDelRow(' + i + ')">&#10005;</button>' +
+         (r.a || r.po ? '<span style="font-size:11px;color:var(--muted)">' + escapeHtml([r.a, r.po ? 'prod. order ' + r.po : ''].filter(Boolean).join(' · ')) + '</span>' : '') + '</div>';
   });
   h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px"><button class="qbtn" onclick="fbaShipAddRow()">+ Add ship order</button>' +
        (flag.length ? '<button class="qbtn" onclick="fbaShipUseFlag()">&#8635; Fill from FLAG</button>' : '') + '</div>';
@@ -13042,14 +13194,17 @@ function fbaShipSave() {
     if (!o && !r.q) return;
     if (!/^\d+$/.test(o)) { bad = 'Ship order ID "' + (r.o || '') + '" should be numbers only.'; return; }
     if (isNaN(q) || q <= 0) { bad = 'Enter how many pcs go on order ' + o + '.'; return; }
-    list.push({ o: o, q: q });
+    var e = { o: o, q: q };
+    if (r.a) e.a = r.a;
+    if (r.po) e.po = r.po;
+    list.push(e);
   });
   if (bad) { alert(bad); return; }
   var by = _ppUserName();
   if (!by) return;
   var path = 'preProduction/fba/shipments/' + S.batchKey + '/' + _fbaItemKey(S.itemId);
   _mafWithTimeout(firebase.database().ref(path).set({ list: list, by: by, at: new Date().toISOString() }), 10000)
-    .then(function() { if (_fbaShipOpen) { _fbaShipRead(); _fbaShipOpen.rows = list.length ? list.map(function(x) { return { o: x.o, q: String(x.q) }; }) : [{ o: '', q: '' }]; _fbaShipRender(); } })
+    .then(function() { if (_fbaShipOpen) { _fbaShipRead(); _fbaShipOpen.rows = list.length ? list.map(function(x) { return { o: x.o, q: String(x.q), a: x.a || '', po: x.po || '' }; }) : [{ o: '', q: '' }]; _fbaShipRender(); } })
     .catch(function(err) { alert('Could not save: ' + (err && err.message ? err.message : err)); });
 }
 function fbaShipClear() {
