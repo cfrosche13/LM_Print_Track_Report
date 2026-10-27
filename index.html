@@ -3563,7 +3563,9 @@ function rprSaveFromModal() {
     stamps.Requested = { by: data.requestedBy || _rprUserName(), at: nowIso };
   }
   if (!prev || prev.status !== status) {
-    if (RPR_STEPS.indexOf(status) > 0 && !stamps[status]) stamps[status] = { by: _rprUserName() || data.requestedBy, at: nowIso };
+    // Floor steps picked by hand get a stamp too, so the history shows who
+    // set it and when (owner, 2026-10-27: a hand-set Packed left no trace).
+    if ((RPR_STEPS.indexOf(status) > 0 || RPR_TEMPO_STEPS.indexOf(status) !== -1) && !stamps[status]) stamps[status] = { by: _rprUserName() || data.requestedBy, at: nowIso };
     if (RPR_ARCHIVED_STATUSES.indexOf(status) !== -1) {
       data.dateClosed = data.dateClosed || nowIso.slice(0, 10);
       if (status === 'Cancelled') data.cancelledBy = _rprUserName() || '';
