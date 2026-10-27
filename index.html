@@ -2726,9 +2726,21 @@ function _rprAppEvents(e) {
   var reqBy = req.by || e.requestedBy;
   add(req.at || e.createdAt || _rprDateOnly(e.dateRequested), 'rpr', 'Added to the reprint tracker',
     [e.reason, reqBy ? 'by ' + reqBy : ''].filter(Boolean).join(' · '), { request: true, dateOnly: !(req.at || e.createdAt) });
+  // Every status change made by hand (step button or Edit), owner 2026-10-27:
+  // once Tempo stops taking an item after repeat flags, the team moves it by
+  // hand, and these lines are the only record of where it went.
+  var moves = e.moves || {}, moveAt = {};
+  Object.keys(moves).forEach(function(k) {
+    var mv = moves[k]; if (!mv) return;
+    moveAt[mv.to + '|' + mv.at] = 1;
+    var bits = [mv.from ? mv.from + ' → ' + mv.to : '', mv.by ? 'by ' + mv.by : ''];
+    if (mv.to === 'Nested' && e.nestedFor) bits.push('for ' + e.nestedFor);
+    add(mv.at, 'rpr', 'Moved by hand to ' + mv.to, bits.filter(Boolean).join(' · '));
+  });
   ['Nested', 'Printed'].concat(RPR_TEMPO_STEPS).forEach(function(s) {
-    // Tempo-made stamps repeat a Tempo scan that's already in the history.
-    if (st[s] && st[s].by !== 'Tempo') add(st[s].at, 'rpr', 'Marked ' + s, 'by ' + (st[s].by || '?') + (s === 'Nested' && e.nestedFor ? ' · for ' + e.nestedFor : ''));
+    // Tempo-made stamps repeat a Tempo scan that's already in the history;
+    // a stamp made with a hand move is already shown as that move.
+    if (st[s] && st[s].by !== 'Tempo' && !moveAt[s + '|' + st[s].at]) add(st[s].at, 'rpr', 'Marked ' + s, 'by ' + (st[s].by || '?') + (s === 'Nested' && e.nestedFor ? ' · for ' + e.nestedFor : ''));
   });
   if (e.status === 'Shipped' && e.shippedAt) add(e.shippedAt, 'swms', 'Container ship-confirmed', 'request closed as Shipped');
   if (e.status === 'Cancelled' && e.dateClosed) add(_rprDateOnly(e.dateClosed), 'rpr', 'Request cancelled', e.cancelledBy ? 'by ' + e.cancelledBy : '', { dateOnly: true });
@@ -3290,10 +3302,17 @@ function rprAdvance(id) {
   if (next === 'Nested') { rprOpenNest(id); return; }
   _rprSaveStep(id, next, {});
 }
+// Sortable unique key for one entry in entry.moves.
+function _rprMoveKey() {
+  return firebase.database().ref('reprintRequests/entries').push().key;
+}
 function _rprSaveStep(id, next, extra) {
   var updates = Object.assign({}, extra);
+  var nowIso = new Date().toISOString();
   updates['status'] = next;
-  updates['stamps/' + next] = { by: _rprUserName(), at: new Date().toISOString() };
+  updates['stamps/' + next] = { by: _rprUserName(), at: nowIso };
+  var e = _rprEntries[id] || {};
+  updates['moves/' + _rprMoveKey()] = { from: e.status || '', to: next, by: _rprUserName(), at: nowIso };
   _mafWithTimeout(firebase.database().ref('reprintRequests/entries/' + id).update(updates), 10000).catch(function(err) {
     alert('✗ Not saved — ' + (err && err.message ? err.message : err));
   });
@@ -3574,6 +3593,10 @@ function rprSaveFromModal() {
     }
   }
   data.stamps = stamps;
+  if (prev && prev.status !== data.status) {
+    data.moves = Object.assign({}, prev.moves || {});
+    data.moves[_rprMoveKey()] = { from: prev.status || '', to: data.status, by: _rprUserName() || '', at: nowIso };
+  }
 
   var id = _rprEditId || firebase.database().ref('reprintRequests/entries').push().key;
   var rootUpdates = {};
