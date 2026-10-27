@@ -2566,7 +2566,7 @@ var _rprEntries = {};
 var _rprReasons = RPR_REASONS_DEFAULT.slice();
 var _rprLoaded  = false;
 var _rprView    = 'active';  // 'active' | 'archive'
-var _rprStatusFilter = 'attention'; // 'attention' = Needs attention (default), '' = all open, else one status
+var _rprStatusFilter = 'attention'; // header button: 'attention' (default), '' = all open, else a RPR_HEADER_CHIPS key
 var _rprMovingOpen = false;  // Needs attention: is the "Moving" section unfolded?
 var _rprSearch  = '';
 var _rprEditId  = null;
@@ -2958,6 +2958,20 @@ function _rprOrderKind(e) {
   if (e.orderKind) return e.orderKind;
   return /sampl/i.test((e.containerNumber || '') + ' ' + (e.orderId || '')) ? 'Sample' : '';
 }
+// Header buttons (owner, 2026-10-27): order kinds instead of statuses, since
+// the column filters already cover status. AMR = the item ships from the AMR
+// (entry.shipFrom, filled hourly from SWMS); Reg = order kind "Other".
+var RPR_HEADER_CHIPS = [['attention', '&#9888; Needs attention'], ['AMR', 'AMR'], ['FBA', 'FBA'], ['Dropship', 'Dropship'],
+  ['Sample', 'Samples'], ['Other', 'Reg'], ['Mixed', 'Mixed'], ['', 'All open']];
+function _rprChipMatch(e, s) {
+  if (!s || s === 'attention') return true;
+  if (s === 'AMR') return e.shipFrom === 'AMR';
+  return _rprOrderKind(e) === s;
+}
+function _rprChipLabel(s) {
+  for (var i = 0; i < RPR_HEADER_CHIPS.length; i++) if (RPR_HEADER_CHIPS[i][0] === s) return RPR_HEADER_CHIPS[i][1].replace('&#9888; ', '');
+  return s;
+}
 function _rprOrderKindHtml(e) {
   var k = _rprOrderKind(e);
   if (!k) return '<span style="color:var(--muted)">&mdash;</span>';
@@ -3135,7 +3149,7 @@ function _rprFilteredIds(exceptCol) {
     var e = _rprEntries[id];
     if (!e) return false;
     if (_rprView === 'archive' ? !_rprIsArchived(e) : _rprIsArchived(e)) return false;
-    if (_rprView === 'active' && _rprStatusFilter && _rprStatusFilter !== 'attention' && (e.status || 'Requested') !== _rprStatusFilter) return false;
+    if (_rprView === 'active' && !_rprChipMatch(e, _rprStatusFilter)) return false;
     if (_rprSearch) {
       var hay = [e.containerNumber, e.orderId, e.item, e.sizeMedia, e.pjNumber, e.requestedBy, e.nestedFor, e.notes].join(' ').toLowerCase();
       if (hay.indexOf(_rprSearch) === -1) return false;
@@ -3175,16 +3189,17 @@ function renderReprints() {
       Object.keys(_rprEntries).forEach(function(id) {
         var e = _rprEntries[id];
         if (!e || _rprIsArchived(e)) return;
-        var s = e.status || 'Requested';
         counts[''] += 1;
-        counts[s] = (counts[s] || 0) + 1;
         if (_rprAttnGroup(e) !== 'moving') counts.attention += 1;
+        RPR_HEADER_CHIPS.forEach(function(c) {
+          if (c[0] && c[0] !== 'attention' && _rprChipMatch(e, c[0])) counts[c[0]] = (counts[c[0]] || 0) + 1;
+        });
       });
       var ch = '';
-      ['attention', 'Needs Info'].concat(RPR_STEPS, RPR_TEMPO_STEPS.filter(function(s) { return counts[s]; }), ['']).forEach(function(s) {
-        var on = _rprStatusFilter === s;
+      RPR_HEADER_CHIPS.forEach(function(c) {
+        var s = c[0], on = _rprStatusFilter === s;
         ch += '<button class="qbtn" onclick="rprSetStatusFilter(\'' + s + '\')" style="' + (on ? 'background:var(--green-dark);color:#fff;border-color:var(--green-dark)' : '') + '">' +
-          (s === 'attention' ? '&#9888; Needs attention' : s || 'All open') + ' (' + (counts[s] || 0) + ')</button>';
+          c[1] + ' (' + (counts[s] || 0) + ')</button>';
       });
       chips.innerHTML = ch;
       chips.style.display = '';
@@ -3680,7 +3695,7 @@ function exportReprintsExcel() {
   var ws = XLSX.utils.aoa_to_sheet(data);
   ws['!cols'] = head.map(function(h) { return { wch: Math.max(10, Math.min(40, h.length + 2)) }; });
   var wb = XLSX.utils.book_new();
-  var title = _rprView === 'archive' ? 'Shipped - Cancelled' : attn ? 'Needs Attention' : (_rprStatusFilter || 'All Open');
+  var title = _rprView === 'archive' ? 'Shipped - Cancelled' : attn ? 'Needs Attention' : _rprChipLabel(_rprStatusFilter);
   XLSX.utils.book_append_sheet(wb, ws, title.slice(0, 31));
   XLSX.writeFile(wb, 'Reprints ' + title + ' ' + _mmddyy(new Date().toISOString().slice(0, 10)) + '.xlsx');
 }
@@ -3689,7 +3704,7 @@ function printReprintsReport() {
   // Exactly what's on screen (filters + sort), minus unchecked rows.
   var ids = _rprSelectedIds();
   if (!ids.length) { alert('No rows are checked — tick the rows you want to print.'); return; }
-  var title = _rprView === 'archive' ? 'Shipped / Cancelled' : _rprStatusFilter === 'attention' ? 'Needs Attention' : (_rprStatusFilter || 'Open Requests');
+  var title = _rprView === 'archive' ? 'Shipped / Cancelled' : _rprStatusFilter === 'attention' ? 'Needs Attention' : _rprStatusFilter ? _rprChipLabel(_rprStatusFilter) : 'Open Requests';
   var h = '<div class="mf-print-header"><div class="mf-print-eyebrow">EG Studio &middot; Reprint Requests</div>';
   h += '<div class="mf-print-title">' + escapeHtml(title) + '</div>';
   h += '<div class="mf-print-sub">' + new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) +
