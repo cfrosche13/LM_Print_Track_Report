@@ -13204,6 +13204,7 @@ function startReportApp() {
   firebase.auth().onAuthStateChanged(function(user) {
     if (user) {
       hideLoginScreen();
+      _fbStartKeepAlive();   // before the first fetch, so both share one download
       fetchFirebaseData();
       _mafStartLiveSync();
       _rprStartLiveSync();
@@ -13219,7 +13220,7 @@ function startReportApp() {
       });
       if (!_autoRefreshStarted) {
         _autoRefreshStarted = true;
-        setInterval(fetchFirebaseData, 300000);
+        setInterval(_fbPollTick, 60000);
       }
     }
     else { hideLoading(); showLoginScreen(); }
@@ -13256,7 +13257,45 @@ function isoToLocalDate(iso) {
   var dy = String(d.getDate()).padStart(2, '0');
   return y + '-' + mo + '-' + dy;
 }
+// ── Firebase download budget (owner, 2026-10-27) ──
+// The project went over Firebase's free 10 GB/month of downloads (5-9 GB a
+// DAY, weekends included): every open EGReport tab re-downloaded all of
+// sessions/maintLog/etc. (~5 MB) every 5 minutes, around the clock.
+// 1. Keep-alive listeners on the paths fetchFirebaseData() reads: with a live
+//    listener on a path, the SDK keeps it synced (only changes come over the
+//    wire) and once('value') answers from that local copy instead of
+//    downloading the whole path again.
+// 2. The 5-minute refresh skips hidden tabs and pages nobody has touched for
+//    FB_IDLE_MS; it catches up as soon as the tab is shown or used again.
+var FB_IDLE_MS = 30 * 60 * 1000;
+var _lastFbFetch = 0, _lastUserActivity = Date.now();
+var _fbKeepAliveStarted = false;
+function _fbStartKeepAlive() {
+  if (_fbKeepAliveStarted) return;
+  _fbKeepAliveStarted = true;
+  ['sessions', 'targets', 'maintLog', 'waitLog', 'oeeParams', 'plannerSettings/machineTargetOverrides',
+   'plannerSettings/machineBaselinePph', 'plannerSettings/routingOverrides', 'shippingStatus', 'shipConfirm',
+   'missingArtFiles/entries', 'missingArtFiles/departments', 'missingArtFiles/contacts'].forEach(function(path) {
+    firebase.database().ref(path).on('value', function() {}, function(err) { console.warn('keep-alive ' + path + ':', err && err.message); });
+  });
+}
+function _fbPollTick() {
+  if (document.hidden) return;
+  if (Date.now() - _lastUserActivity > FB_IDLE_MS) return;
+  if (Date.now() - _lastFbFetch < 290000) return;
+  fetchFirebaseData();
+}
+['mousemove', 'mousedown', 'keydown', 'wheel', 'touchstart'].forEach(function(ev) {
+  document.addEventListener(ev, function() {
+    var wasIdle = Date.now() - _lastUserActivity > FB_IDLE_MS;
+    _lastUserActivity = Date.now();
+    if (wasIdle && _autoRefreshStarted) _fbPollTick();
+  }, { passive: true });
+});
+document.addEventListener('visibilitychange', function() { if (!document.hidden && _autoRefreshStarted) _fbPollTick(); });
+
 function fetchFirebaseData() {
+  _lastFbFetch = Date.now();
   showLoading();
   var oeeParamsPromise = firebase.database().ref('oeeParams').once('value')
     .then(function(s){ return s.val() || {}; })
