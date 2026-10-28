@@ -12877,15 +12877,16 @@ function fbaToggleReport() {
   h += '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">';
   h += '<label style="font-size:12px;color:var(--muted)">Batch<br><select id="fba-rpt-batch" style="' + sel + '">' +
        keys.map(function(k) { return '<option value="' + escapeHtml(k) + '">' + escapeHtml(_fbaDateLabel(k)) + ' (' + Object.keys(batches[k].orders || {}).length + ' orders)</option>'; }).join('') + '</select></label>';
-  h += '<label style="font-size:12px;color:var(--muted)">Step<br><select id="fba-rpt-step" style="' + sel + '">' +
+  h += '<label id="fba-rpt-step-wrap" style="font-size:12px;color:var(--muted)">Step<br><select id="fba-rpt-step" style="' + sel + '">' +
        FBA_STEPS.map(function(n, i) { return '<option value="' + i + '"' + (i === 3 ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></label>';
-  h += '<label style="font-size:12px;color:var(--muted)">Show<br><select id="fba-rpt-which" style="' + sel + '">' +
+  h += '<label id="fba-rpt-which-wrap" style="font-size:12px;color:var(--muted)">Show<br><select id="fba-rpt-which" style="' + sel + '">' +
        '<option value="done">100% done</option><option value="ready">Ready to ship only (done, not shipped)</option><option value="open">Not done yet</option></select></label>';
   // Breakdown vs Consolidated toggle (owner, 2026-10-23): consolidated = one line per SKU with just the count.
   var tb = 'padding:6px 12px;border:1px solid var(--border);font-size:13px;font-family:inherit;cursor:pointer;';
   h += '<div style="font-size:12px;color:var(--muted)">Report type<br><div style="display:inline-flex">' +
        '<button type="button" id="fba-rpt-mode-full" onclick="fbaRptMode(\'full\')" style="' + tb + 'border-radius:6px 0 0 6px">Full breakdown</button>' +
        '<button type="button" id="fba-rpt-mode-tot" onclick="fbaRptMode(\'tot\')" style="' + tb + 'border-radius:0 6px 6px 0;border-left:none">Consolidated (SKU totals)</button></div></div>';
+  h += '<div id="fba-rpt-tot-note" style="font-size:12px;color:var(--muted);max-width:220px;align-self:center">Palletized and not shipped yet &mdash; the list to share.</div>';
   h += '<label id="fba-rpt-by-wrap" style="font-size:12px;color:var(--muted)">List by<br><select id="fba-rpt-by" style="' + sel + '">' +
        '<option value="container">Container</option><option value="sku">SKU</option><option value="totals" hidden>SKU totals</option></select></label>';
   h += '<button class="qbtn" onclick="fbaPrintReport()" style="font-weight:700">Open report &rarr;</button>';
@@ -12901,6 +12902,9 @@ function fbaRptMode(mode) {
   if (mode === 'tot') by.value = 'totals';
   else if (by.value === 'totals') by.value = 'container';
   wrap.style.display = mode === 'tot' ? 'none' : '';
+  // Consolidated is always the ready-to-ship list (owner, 2026-10-28), so its Step / Show pickers are hidden.
+  ['fba-rpt-step-wrap', 'fba-rpt-which-wrap'].forEach(function(id) { document.getElementById(id).style.display = mode === 'tot' ? 'none' : ''; });
+  document.getElementById('fba-rpt-tot-note').style.display = mode === 'tot' ? '' : 'none';
   [['full', 'fba-rpt-mode-full'], ['tot', 'fba-rpt-mode-tot']].forEach(function(x) {
     var b = document.getElementById(x[1]), on = x[0] === mode;
     b.style.background = on ? 'var(--green-dark)' : 'var(--white)';
@@ -12939,6 +12943,9 @@ function fbaPrintReport() {
   var by = document.getElementById('fba-rpt-by').value;
   // Ready to ship only (owner, 2026-10-26): done at this step, minus what has
   // already shipped — shipped SKUs/pieces are left off the list.
+  // Consolidated (owner, 2026-10-28) = only what's palletized and not shipped
+  // yet, one line per SKU — the list that gets shared.
+  if (by === 'totals') { step = 3; which = 'ready'; }
   var ready = which === 'ready';
   if (ready) {
     if (FBA_STEPS[step] === 'Shipped') { alert('Pick a step before Shipped (e.g. Palletized) for a ready-to-ship list.'); return; }
@@ -12967,19 +12974,19 @@ function fbaPrintReport() {
     var tot = { q: 0, d: 0, s: 0, a: 0 };
     rows.sort(function(a, b) { return String(a.it.i).localeCompare(String(b.it.i)); });
     body += '<table><thead><tr><th>#</th><th>SKU</th><th>Item</th><th class="n">' + (ready ? 'Ready to ship' : which === 'done' ? esc(stepName) : 'Not ' + esc(stepName.toLowerCase()) + ' yet') + '</th>' +
-            (showShip ? '<th class="n">Already shipped</th><th class="n">Ready to ship</th>' : '') + '<th class="n">SKU total</th>' + (step === 3 ? '<th>Pallet portions</th>' : '') + (step === 4 && which === 'done' ? '<th>Ship orders</th>' : '') + '</tr></thead><tbody>';
+            (showShip ? '<th class="n">Already shipped</th><th class="n">Ready to ship</th>' : '') + (ready ? '' : '<th class="n">SKU total</th>' + (step === 3 ? '<th>Pallet portions</th>' : '')) + (step === 4 && which === 'done' ? '<th>Ship orders</th>' : '') + '</tr></thead><tbody>';
     rows.forEach(function(r, i) {
       var q = r.it.q || 0, d = ready ? readyPcs(r) : which === 'done' ? r.pcsDone : q - r.pcsDone, sh = Math.min(r.pcsShipped, r.pcsDone), a = Math.max(0, r.pcsDone - sh);
       tot.q += q; tot.d += d; tot.s += sh; tot.a += a;
       body += '<tr><td class="n">' + (i + 1) + '</td><td class="mono">' + esc(r.it.i) + '</td><td>' + esc(r.it.n || '') + '</td><td class="n"><b>' + d.toLocaleString() + '</b></td>' +
               (showShip ? '<td class="n">' + sh.toLocaleString() + '</td><td class="n"><b>' + a.toLocaleString() + '</b></td>' : '') +
-              '<td class="n muted">' + q.toLocaleString() + '</td>' +
-              (step === 3 ? '<td>' + _fbaPalletTotals(batchKey, r.it).list.map(function(x, k) { return ready && x.sh ? '' : '#' + (k + 1) + ': ' + x.n + ' (' + esc(_ppStamp(x.at)) + (x.sh ? ', shipped' : '') + ')'; }).filter(Boolean).join('<br>') + '</td>' : '') +
+              (ready ? '' : '<td class="n muted">' + q.toLocaleString() + '</td>' +
+              (step === 3 ? '<td>' + _fbaPalletTotals(batchKey, r.it).list.map(function(x, k) { return '#' + (k + 1) + ': ' + x.n + ' (' + esc(_ppStamp(x.at)) + (x.sh ? ', shipped' : '') + ')'; }).join('<br>') + '</td>' : '')) +
               (step === 4 && which === 'done' ? '<td>' + _fbaShipList(batchKey, r.it.i).list.map(function(x) { return esc(String(x.o)) + ' &times;' + (parseInt(x.q, 10) || 0); }).join('<br>') + '</td>' : '') + '</tr>';
       lines.push(r.it.i + '\t' + (showShip ? a : d));
     });
     body += '</tbody><tfoot><tr><th></th><th>Total</th><th>' + rows.length + ' SKUs</th><th class="n">' + tot.d.toLocaleString() + '</th>' +
-            (showShip ? '<th class="n">' + tot.s.toLocaleString() + '</th><th class="n">' + tot.a.toLocaleString() + '</th>' : '') + '<th class="n">' + tot.q.toLocaleString() + '</th>' + (step === 3 ? '<th></th>' : '') + (step === 4 && which === 'done' ? '<th></th>' : '') + '</tr></tfoot></table>';
+            (showShip ? '<th class="n">' + tot.s.toLocaleString() + '</th><th class="n">' + tot.a.toLocaleString() + '</th>' : '') + (ready ? '' : '<th class="n">' + tot.q.toLocaleString() + '</th>' + (step === 3 ? '<th></th>' : '')) + (step === 4 && which === 'done' ? '<th></th>' : '') + '</tr></tfoot></table>';
     containers = -1;
   } else if (by === 'container') {
     var list = [];
