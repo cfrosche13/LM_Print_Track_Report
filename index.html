@@ -916,8 +916,9 @@ body.fba-viewer #fba-viewer-bar { display: flex; }
     <div id="shift-config-net" style="display:none"></div>
   </div>
 
-  <!-- Mid-shift re-check: subtract actual production so far today -->
-  <div style="margin:10px 0;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);display:flex;align-items:center;gap:8px">
+  <!-- Mid-shift re-check: subtract actual production so far today.
+       Hidden 2026-10-30 (owner doesn't use it; forced off in _loadShiftConfig). -->
+  <div style="display:none;margin:10px 0;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);display:flex;align-items:center;gap:8px">
     <input type="checkbox" id="subtract-actuals-checkbox" onchange="onShiftConfigChange()" style="width:16px;height:16px;cursor:pointer">
     <label for="subtract-actuals-checkbox" style="font-size:12px;color:var(--text);cursor:pointer">&#128202; Mid-shift re-plan &mdash; subtracts pieces already made from open orders so the plan only shows what's left to print. Remaining shift capacity is calculated automatically from current time based on the selected shift (Day: ends 3:00 PM · Night: ends 11:30 PM).</label>
   </div>
@@ -1016,7 +1017,7 @@ body.fba-viewer #fba-viewer-bar { display: flex; }
       <div style="font-size:13px;color:var(--muted)" id="commit-bar-msg">Lock in this plan so you can compare it against actual tomorrow.</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="qbtn" id="commit-plan-btn" onclick="commitPlan()" style="background:var(--green-dark);color:#fff;border-color:var(--green-dark)">📌 Commit Plan</button>
-        <button class="qbtn" id="commit-midshift-btn" onclick="commitPlan('mid')" style="background:var(--white);color:var(--amber);border-color:var(--amber)" title="Save a second snapshot mid-shift to compare against your morning plan">📸 Midshift Snapshot</button>
+        <button class="qbtn" id="commit-midshift-btn" onclick="commitPlan('mid')" style="display:none;background:var(--white);color:var(--amber);border-color:var(--amber)" title="Save a second snapshot mid-shift to compare against your morning plan">📸 Midshift Snapshot</button>
         <div style="position:relative">
           <button class="qbtn" id="saved-plans-btn" onclick="toggleSavedPlansDropdown()" style="background:var(--white);color:var(--text);border-color:var(--border)">📋 Saved Plans ▾</button>
           <div id="saved-plans-dropdown" style="display:none;position:absolute;right:0;top:calc(100% + 4px);min-width:240px;background:var(--white);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 4px 12px rgba(0,0,0,0.1);z-index:200;overflow:hidden">
@@ -5392,12 +5393,41 @@ function _lockedPlanTarget(planDate, m) {
   if (!t || !_lockedMachines[m] || t.planDate !== planDate || t.group !== PLAN_GROUP || t.shift !== ACTIVE_SHIFT) return null;
   return t.planned[m] != null ? t.planned[m] : null;
 }
+// Good pieces printed so far in the active shift's window for planDate, read
+// live from RAW.sessions (same rules as runPlan's "Today's actual production").
+// Owner, 2026-10-30: a plan loaded for editing showed the printed count from
+// when it was committed; the cards now always use this live count.
+function _liveShiftActuals(planDate) {
+  var out = { total: 0, byMachine: {} };
+  if (!planDate || typeof RAW === 'undefined' || !RAW || !RAW.sessions) return null;
+  var hMin = ACTIVE_SHIFT === 'night' ? 15 : 4, hMax = ACTIVE_SHIFT === 'night' ? 23 : 15;
+  GROUP_MACHINES[PLAN_GROUP].forEach(function(m) {
+    if (!MACHINE_UP[m]) return;
+    (RAW.sessions[m] || []).forEach(function(s) {
+      if (s.t !== planDate || !s.p) return;
+      var h = new Date(s.ts).getHours();
+      if (h < hMin || h > hMax) return;
+      var g = s.g || 0;
+      out.byMachine[m] = (out.byMachine[m] || 0) + g;
+      out.total += g;
+    });
+  });
+  return out;
+}
 function togglePlanMachineLock(m) {
+  var unlocking = !!_lockedMachines[m];
   if (_lockedMachines[m]) {
     delete _lockedMachines[m];
     if (window._loadedPlanTargets) delete window._loadedPlanTargets.planned[m];
   }
   else _lockedMachines[m] = true;
+  // Unlocking a loaded plan with no orders on the page: pull the latest open
+  // orders so the machine re-plans against them (owner, 2026-10-30: raising the
+  // 30+ to 300 mid-day was capped by the morning plan's order list).
+  if (unlocking && !window._planOrders) {
+    if (typeof _fsaHandle !== 'undefined' && _fsaHandle) { fsaReload(); return; }
+    alert('Load the latest open orders (Connect folder or upload the LMContainers file) so ' + m + ' can re-plan against what is open now.');
+  }
   if (window._planOrders) runPlan(window._planOrders);
   // No orders loaded yet (e.g. right after "Load for editing" on a fresh
   // page) — nothing to recalculate against, but still redraw so the
@@ -6507,12 +6537,10 @@ function _loadShiftConfig() {
     }
     var as = localStorage.getItem('activeShift');
     if (as === 'day' || as === 'night') ACTIVE_SHIFT = as;
-    // Restore subtract-actuals checkbox
-    var sa = localStorage.getItem('subtractActuals');
-    if (sa !== null) {
-      var cb = document.getElementById('subtract-actuals-checkbox');
-      if (cb) cb.checked = sa === '1';
-    }
+    // Subtract-actuals (mid-shift re-plan) is hidden since 2026-10-30, so
+    // keep it off even if an old saved setting had it on.
+    var cb = document.getElementById('subtract-actuals-checkbox');
+    if (cb) cb.checked = false;
   } catch(e) {}
 }
 
@@ -10604,6 +10632,8 @@ function renderPlan(rows, load, dsLoad, regLoad, stdLoad, shiftedLoad, warnings,
   fbaLoad = fbaLoad || {};
   actualToday = actualToday || 0;
   machineActualToday = machineActualToday || {};
+  var _live = _liveShiftActuals(planDate);
+  if (_live) { actualToday = _live.total; machineActualToday = _live.byMachine; }
   actualLookup = actualLookup || {};
   matchedActualKeys = matchedActualKeys || {};
   // Stashed so a manual drag-drop move (see moveBunchQty) can mutate the same
