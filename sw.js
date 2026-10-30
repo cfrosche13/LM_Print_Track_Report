@@ -1,6 +1,6 @@
 // EGReport PWA shell cache.
 // Bump CACHE_NAME whenever index.html changes, so old caches get cleared on activate.
-const CACHE_NAME = 'egreport-shell-v92';
+const CACHE_NAME = 'egreport-shell-v93';
 
 const SHELL_ASSETS = [
   './',

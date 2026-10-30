@@ -2967,9 +2967,9 @@ var RPR_HEADER_CHIPS = [['attention', '&#9888; Needs attention'], ['AMR', 'AMR']
 function _rprChipMatch(e, s) {
   if (!s || s === 'attention') return true;
   if (s === 'AMR') return e.shipFrom === 'AMR';
-  // Owner, 2026-10-30: a Mixed order that ships from the AMR only counts under
-  // the AMR button (the Order Type column still says Mixed).
-  if (s === 'Mixed' && e.shipFrom === 'AMR') return false;
+  // Owner, 2026-10-30: anything that ships from the AMR only counts under the
+  // AMR button, whatever its order type (the Order Type column still shows it).
+  if (e.shipFrom === 'AMR') return false;
   return _rprOrderKind(e) === s;
 }
 function _rprChipLabel(s) {
