@@ -918,7 +918,7 @@ body.fba-viewer #fba-viewer-bar { display: flex; }
 
   <!-- Mid-shift re-check: subtract actual production so far today.
        Hidden 2026-10-30 (owner doesn't use it; forced off in _loadShiftConfig). -->
-  <div style="display:none;margin:10px 0;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);display:flex;align-items:center;gap:8px">
+  <div style="margin:10px 0;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);display:none;align-items:center;gap:8px">
     <input type="checkbox" id="subtract-actuals-checkbox" onchange="onShiftConfigChange()" style="width:16px;height:16px;cursor:pointer">
     <label for="subtract-actuals-checkbox" style="font-size:12px;color:var(--text);cursor:pointer">&#128202; Mid-shift re-plan &mdash; subtracts pieces already made from open orders so the plan only shows what's left to print. Remaining shift capacity is calculated automatically from current time based on the selected shift (Day: ends 3:00 PM · Night: ends 11:30 PM).</label>
   </div>
